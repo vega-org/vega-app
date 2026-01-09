@@ -94,7 +94,7 @@ module.exports = () => {
   return {
     expo: {
       name: 'Vega',
-      scheme: 'com.vega2',
+      scheme: 'com.vega',
       displayName: 'Vega',
       newArchEnabled: true,
       autolinking: {exclude: ['expo-splash-screen']},
@@ -108,7 +108,7 @@ module.exports = () => {
           : {}),
         minSdkVersion: 24,
         edgeToEdgeEnabled: true,
-        package: 'com.vega2',
+        package: 'com.vega',
         versionCode: 155,
         permissions: [
           'FOREGROUND_SERVICE',
