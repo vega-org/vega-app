@@ -16,12 +16,22 @@
     "postinstall": "patch-package"
   },
   "overrides": {
-    "expo-font": "13.0.4"
+    "expo-font": "13.0.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "moti": {
+      "framer-motion": {
+        "react": "19.1.0",
+        "react-dom": "19.1.0"
+      }
+    },
+    "react-native": "$react-native"
   },
   "dependencies": {
-    "@8man/react-native-media-console": "^2.2.4-alpha.31",
+    "@8man/react-native-media-console": "^2.2.4-alpha.33",
     "@dr.pogodin/react-native-fs": "^2.34.0",
     "@expo/config-plugins": "~54.0.4",
+    "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
     "@gorhom/bottom-sheet": "^4.6.4",
     "@himanshu8443/react-native-apk-installer": "github:himanshu8443/react-native-apk-installer",
@@ -30,6 +40,7 @@
     "@react-native-firebase/analytics": "^23.0.0",
     "@react-native-firebase/app": "^23.0.0",
     "@react-native-firebase/crashlytics": "^23.0.0",
+    "@react-native-tvos/config-tv": "^0.1.4",
     "@react-navigation/bottom-tabs": "^7.4.2",
     "@react-navigation/native": "^7.1.14",
     "@react-navigation/native-stack": "^7.3.21",
@@ -37,7 +48,7 @@
     "@tanstack/react-query": "^5.81.5",
     "axios": "^1.13.2",
     "babel-plugin-module-resolver": "^5.0.2",
-    "cheerio": "^1.0.0-rc.12",
+    "cheerio": "^1.0.0-rc.10",
     "expo": "^54.0.30",
     "expo-application": "~7.0.8",
     "expo-blur": "~15.0.8",
@@ -54,7 +65,7 @@
     "moti": "^0.28.1",
     "nativewind": "^2.0.11",
     "react": "19.1.0",
-    "react-native": "0.81.5",
+    "react-native": "npm:react-native-tvos@0.81-stable",
     "react-native-bootsplash": "^6.3.7",
     "react-native-edge-to-edge": "1.6.0",
     "react-native-element-dropdown": "^2.12.0",
@@ -95,6 +106,13 @@
     "simple-git-hooks": "^2.12.1",
     "tailwindcss": "3.3.2",
     "typescript": "~5.9.2"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "react-native"
+      ]
+    }
   },
   "engines": {
     "node": ">=18"
