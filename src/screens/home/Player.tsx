@@ -92,6 +92,9 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [tvFocusedControl, setTVFocusedControl] = useState<
     'audio' | 'subtitle' | 'speed' | 'server' | 'resize' | 'next' | null
   >(null);
+  const [tvFocusedModalItem, setTVFocusedModalItem] = useState<string | null>(
+    null,
+  );
 
   // Shared values for animations
   const loadingOpacity = useSharedValue(0);
@@ -544,13 +547,15 @@ const Player = ({route}: Props): React.JSX.Element => {
         }
         break;
       case 'down':
-        if (showSettings) {
-          setShowSettings(false);
-        } else if (isTVControlsVisible) {
+        // Only hide controls when:
+        // 1. Settings dialog is NOT open
+        // 2. No control is currently focused (user is in main video area)
+        // 3. Controls are visible
+        if (!showSettings && !tvFocusedControl && isTVControlsVisible) {
           setIsTVControlsVisible(false);
           setShowControls(false);
-          setTVFocusedControl(null);
         }
+        // Otherwise, let native focus handle navigation within controls/dialogs
         break;
       case 'longSelect':
         // Long press for settings
@@ -558,10 +563,13 @@ const Player = ({route}: Props): React.JSX.Element => {
         break;
       case 'menu':
       case 'back':
-        // Back button handling
+        // Back button handling - priority order:
+        // 1. Close settings dialog first
+        // 2. Then hide controls
+        // 3. Only exit player if nothing else to close
         if (showSettings) {
           setShowSettings(false);
-        } else if (isTVControlsVisible) {
+        } else if (isTVControlsVisible || tvFocusedControl) {
           setIsTVControlsVisible(false);
           setShowControls(false);
           setTVFocusedControl(null);
@@ -896,9 +904,11 @@ const Player = ({route}: Props): React.JSX.Element => {
             <Text className="text-white text-sm ml-1">Navigate</Text>
           </View>
           <View className="flex-row items-center gap-1">
-            <View className="w-4 h-4 border border-white rounded-sm justify-center items-center">
-              <Text className="text-white text-xs">OK</Text>
-            </View>
+            <MaterialIcons
+              name="check-box-outline-blank"
+              size={20}
+              color="white"
+            />
             <Text className="text-white text-sm ml-1">Select</Text>
           </View>
           <View className="flex-row items-center gap-1">
@@ -1175,9 +1185,13 @@ const Player = ({route}: Props): React.JSX.Element => {
         <Animated.View
           style={[settingsStyle]}
           className="absolute opacity-0 top-0 left-0 w-full h-full bg-black/20 justify-end items-center"
-          onTouchEnd={() => setShowSettings(false)}>
+          onTouchEnd={() => !isTV && setShowSettings(false)}>
           <View
-            className="bg-black p-3 w-[600px] h-72 rounded-t-lg flex-row justify-start items-center"
+            className="bg-black p-3 rounded-t-lg flex-row justify-start items-center"
+            style={{
+              width: isTV ? 800 : 600,
+              height: isTV ? 350 : 288,
+            }}
             onTouchEnd={e => e.stopPropagation()}>
             {/* Audio Tab */}
             {activeTab === 'audio' && (
@@ -1198,6 +1212,17 @@ const Player = ({route}: Props): React.JSX.Element => {
                     key={i}
                     isTVSelectable={true}
                     hasTVPreferredFocus={i === 0}
+                    onFocus={() => isTV && setTVFocusedModalItem(`audio-${i}`)}
+                    onBlur={() => isTV && setTVFocusedModalItem(null)}
+                    style={[
+                      isTV &&
+                        tvFocusedModalItem === `audio-${i}` && {
+                          backgroundColor: 'rgba(255,255,255,0.2)',
+                          borderWidth: 2,
+                          borderColor: primary,
+                          padding: 8,
+                        },
+                    ]}
                     onPress={() => {
                       setSelectedAudioTrack({
                         type: SelectedTrackType.LANGUAGE,
@@ -1247,6 +1272,7 @@ const Player = ({route}: Props): React.JSX.Element => {
               <FlashList
                 estimatedItemSize={70}
                 data={textTracks}
+                extraData={tvFocusedModalItem}
                 ListHeaderComponent={
                   <View>
                     <Text className="text-lg font-bold text-center text-white">
@@ -1256,6 +1282,19 @@ const Player = ({route}: Props): React.JSX.Element => {
                       className="flex-row gap-3 items-center rounded-md my-1 overflow-hidden ml-3"
                       isTVSelectable={true}
                       hasTVPreferredFocus={true}
+                      onFocus={() =>
+                        isTV && setTVFocusedModalItem('sub-disabled')
+                      }
+                      onBlur={() => isTV && setTVFocusedModalItem(null)}
+                      style={[
+                        isTV &&
+                          tvFocusedModalItem === 'sub-disabled' && {
+                            backgroundColor: 'rgba(255,255,255,0.2)',
+                            borderWidth: 2,
+                            borderColor: primary,
+                            padding: 8,
+                          },
+                      ]}
                       onPress={() => {
                         setSelectedTextTrack({
                           type: SelectedTrackType.DISABLED,
@@ -1280,6 +1319,17 @@ const Player = ({route}: Props): React.JSX.Element => {
                     <Pressable
                       className="flex-row gap-3 items-center rounded-md my-1 overflow-hidden ml-2"
                       isTVSelectable={true}
+                      onFocus={() => isTV && setTVFocusedModalItem('sub-add')}
+                      onBlur={() => isTV && setTVFocusedModalItem(null)}
+                      style={[
+                        isTV &&
+                          tvFocusedModalItem === 'sub-add' && {
+                            backgroundColor: 'rgba(255,255,255,0.2)',
+                            borderWidth: 2,
+                            borderColor: primary,
+                            padding: 8,
+                          },
+                      ]}
                       onPress={async () => {
                         try {
                           const res = await DocumentPicker.getDocumentAsync({
@@ -1325,6 +1375,19 @@ const Player = ({route}: Props): React.JSX.Element => {
                   <Pressable
                     className="flex-row gap-3 items-center rounded-md my-1 overflow-hidden ml-2"
                     isTVSelectable={true}
+                    onFocus={() =>
+                      isTV && setTVFocusedModalItem(`sub-${track.index}`)
+                    }
+                    onBlur={() => isTV && setTVFocusedModalItem(null)}
+                    style={[
+                      isTV &&
+                        tvFocusedModalItem === `sub-${track.index}` && {
+                          backgroundColor: 'rgba(255,255,255,0.2)',
+                          borderWidth: 2,
+                          borderColor: primary,
+                          padding: 8,
+                        },
+                    ]}
                     onPress={() => {
                       setSelectedTextTrack({
                         type: SelectedTrackType.INDEX,
@@ -1389,6 +1452,20 @@ const Player = ({route}: Props): React.JSX.Element => {
                         key={i}
                         isTVSelectable={true}
                         hasTVPreferredFocus={i === 0}
+                        onFocus={() =>
+                          isTV && setTVFocusedModalItem(`server-${i}`)
+                        }
+                        onBlur={() => isTV && setTVFocusedModalItem(null)}
+                        style={[
+                          isTV &&
+                            tvFocusedModalItem === `server-${i}` && {
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              borderWidth: 2,
+
+                              borderColor: primary,
+                              padding: 8,
+                            },
+                        ]}
                         onPress={() => {
                           setSelectedStream(track);
                           setShowSettings(false);
@@ -1397,10 +1474,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                         <Text
                           className={'text-base capitalize font-semibold'}
                           style={{
-                            color:
-                              track.link === selectedStream.link
-                                ? primary
-                                : 'white',
+                            color: 'white',
                           }}>
                           {track.server}
                         </Text>
@@ -1421,6 +1495,19 @@ const Player = ({route}: Props): React.JSX.Element => {
                         className="flex-row gap-3 items-center rounded-md my-1 overflow-hidden ml-2"
                         key={i}
                         isTVSelectable={true}
+                        onFocus={() =>
+                          isTV && setTVFocusedModalItem(`quality-${i}`)
+                        }
+                        onBlur={() => isTV && setTVFocusedModalItem(null)}
+                        style={[
+                          isTV &&
+                            tvFocusedModalItem === `quality-${i}` && {
+                              backgroundColor: 'rgba(255,255,255,0.2)',
+                              borderWidth: 2,
+                              borderColor: primary,
+                              padding: 8,
+                            },
+                        ]}
                         onPress={() => {
                           setSelectedVideoTrack({
                             type: SelectedVideoTrackType.INDEX,
@@ -1468,6 +1555,17 @@ const Player = ({route}: Props): React.JSX.Element => {
                     key={i}
                     isTVSelectable={true}
                     hasTVPreferredFocus={i === 2}
+                    onFocus={() => isTV && setTVFocusedModalItem(`speed-${i}`)}
+                    onBlur={() => isTV && setTVFocusedModalItem(null)}
+                    style={[
+                      isTV &&
+                        tvFocusedModalItem === `speed-${i}` && {
+                          backgroundColor: 'rgba(255,255,255,0.2)',
+                          borderWidth: 2,
+                          borderColor: primary,
+                          padding: 8,
+                        },
+                    ]}
                     onPress={() => {
                       setPlaybackRate(rate);
                       setShowSettings(false);
