@@ -263,7 +263,9 @@ const Settings = ({navigation}: Props) => {
                       size={22}
                       color={primary}
                     />
-                    <Text className="text-white ml-3 text-base">
+                    <Text
+                      className="text-white ml-3 text-base flex-1"
+                      numberOfLines={1}>
                       Watch History
                     </Text>
                   </View>
@@ -314,7 +316,7 @@ const Settings = ({navigation}: Props) => {
 
               {/* Clear Watch History */}
               <View className="flex-row items-center justify-between p-4">
-                <Text className="text-white text-base">
+                <Text className="text-white text-base flex-1" numberOfLines={1}>
                   Clear Watch History
                 </Text>
                 <TouchableOpacity

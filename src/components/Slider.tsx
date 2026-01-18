@@ -36,7 +36,10 @@ export default function Slider({
   return (
     <Pressable onPress={() => setSelected('')} className="gap-3 mt-3 px-2">
       <View className="flex flex-row items-center justify-between">
-        <Text className="text-2xl font-semibold" style={{color: primary}}>
+        <Text
+          className="text-2xl font-semibold flex-1"
+          numberOfLines={1}
+          style={{color: primary}}>
           {title}
         </Text>
         {filter !== 'recent' && (

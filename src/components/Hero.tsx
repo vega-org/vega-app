@@ -1,4 +1,4 @@
-import {Image, MotiView, View} from 'moti';
+import Animated, {FadeIn} from 'react-native-reanimated';
 import React, {memo, useState, useCallback} from 'react';
 import {
   Keyboard,
@@ -6,6 +6,8 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  View,
+  Image,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome';
@@ -14,7 +16,6 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {HomeStackParamList, SearchStackParamList} from '../App';
 import useContentStore from '../lib/zustand/contentStore';
 import useHeroStore from '../lib/zustand/herostore';
-import {Skeleton} from 'moti/skeleton';
 import {settingsStorage} from '../lib/storage';
 import {Feather} from '@expo/vector-icons';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -146,11 +147,8 @@ const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
         )}
 
         {searchActive && (
-          <MotiView
-            from={{opacity: 0, scale: 0.5}}
-            animate={{opacity: 1, scale: 1}}
-            //@ts-ignore
-            transition={{type: 'timing', duration: 300}}
+          <Animated.View
+            entering={FadeIn.duration(300)}
             className="w-full items-center justify-center">
             <TextInput
               onBlur={() => setSearchActive(false)}
@@ -160,7 +158,7 @@ const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
               className="w-[95%] px-4 h-10 rounded-full border-white border"
               placeholderTextColor="#999"
             />
-          </MotiView>
+          </Animated.View>
         )}
 
         {!searchActive && (
@@ -171,14 +169,16 @@ const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
       </View>
 
       {/* Hero Image */}
-      <Skeleton show={isLoading} colorMode="dark">
+      {isLoading ? (
+        <View className="h-full w-full bg-gray-800" />
+      ) : (
         <Image
           source={imageSource}
           onError={handleImageError}
           className="h-full w-full"
           style={{resizeMode: 'cover'}}
         />
-      </Skeleton>
+      )}
 
       {/* Hero Content */}
       <View className="absolute bottom-12 w-full z-20 px-6">
@@ -232,7 +232,7 @@ const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
         {/* Loading state */}
         {isLoading && (
           <View className="items-center">
-            <Skeleton show={true} height={45} width={140} colorMode="dark" />
+            <View className="h-[45px] w-[140px] bg-gray-700 rounded" />
           </View>
         )}
 

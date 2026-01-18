@@ -4,7 +4,11 @@ import {ifExists} from '../lib/file/ifExists';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import Octicons from '@expo/vector-icons/Octicons';
 import {Stream} from '../lib/providers/types';
-import {MotiView} from 'moti';
+import Animated, {
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import useContentStore from '../lib/zustand/contentStore';
 import * as IntentLauncher from 'expo-intent-launcher';
@@ -123,15 +127,15 @@ const DownloadComponent = ({
     <>
       <View className="flex-row items-center mt-1 justify-between rounded-full bg-white/30 p-1">
         {downloadActive ? (
-          <MotiView
-            style={{
-              marginHorizontal: 4,
-            }}
-            // animate opacity to opacity while downloding
-            from={{opacity: 1}}
-            animate={{opacity: 0.5}}
-            //@ts-ignore
-            transition={{type: 'timing', duration: 500, loop: true}}>
+          <Animated.View
+            style={[
+              {
+                marginHorizontal: 4,
+              },
+              useAnimatedStyle(() => ({
+                opacity: withRepeat(withTiming(0.5, {duration: 500}), -1, true),
+              })),
+            ]}>
             <TouchableOpacity
               onPress={() => {
                 setCancelModal(prev => !prev);
@@ -139,7 +143,7 @@ const DownloadComponent = ({
               }}>
               <MaterialIcons name="downloading" size={27} color={primary} />
             </TouchableOpacity>
-          </MotiView>
+          </Animated.View>
         ) : alreadyDownloaded ? (
           <TouchableOpacity
             onPress={() => setDeleteModal(true)}

@@ -17,8 +17,11 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Feather from '@expo/vector-icons/Feather';
 import {Dropdown} from 'react-native-element-dropdown';
-import {MotiView} from 'moti';
-import {Skeleton} from 'moti/skeleton';
+import Animated, {
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import * as IntentLauncher from 'expo-intent-launcher';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {EpisodeLink, Link} from '../lib/providers/types';
@@ -29,6 +32,7 @@ import {ifExists} from '../lib/file/ifExists';
 import {useEpisodes, useStreamData} from '../lib/hooks/useEpisodes';
 import useWatchHistoryStore from '../lib/zustand/watchHistrory';
 import useThemeStore from '../lib/zustand/themeStore';
+import SkeletonLoader from './Skeleton';
 
 interface SeasonListProps {
   LinkList: Link[];
@@ -156,9 +160,8 @@ const SeasonList: React.FC<SeasonListProps> = ({
 
     // Apply search filter
     if (searchText.trim()) {
-      episodes = episodes.filter(
-        episode =>
-          episode?.title?.toLowerCase().includes(searchText.toLowerCase()),
+      episodes = episodes.filter(episode =>
+        episode?.title?.toLowerCase().includes(searchText.toLowerCase()),
       );
     }
 
@@ -185,8 +188,8 @@ const SeasonList: React.FC<SeasonListProps> = ({
 
     // Apply search filter
     if (searchText.trim()) {
-      links = links.filter(
-        link => link?.title?.toLowerCase().includes(searchText.toLowerCase()),
+      links = links.filter(link =>
+        link?.title?.toLowerCase().includes(searchText.toLowerCase()),
       );
     }
 
@@ -630,26 +633,17 @@ const SeasonList: React.FC<SeasonListProps> = ({
           />
         )}
 
-        <MotiView
-          animate={{backgroundColor: '#0000'}}
-          delay={0}
-          //@ts-ignore
-          transition={{
-            type: 'timing',
-          }}
+        <View
           style={{
             width: '100%',
             padding: 10,
             alignItems: 'flex-start',
             gap: 20,
           }}>
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-          <Skeleton colorMode={'dark'} width={'85%'} height={48} />
-        </MotiView>
+          {[...Array(6)].map((_, index) => (
+            <SkeletonLoader key={index} show={true} height={48} width={'85%'} />
+          ))}
+        </View>
       </View>
     );
   }
@@ -791,18 +785,22 @@ const SeasonList: React.FC<SeasonListProps> = ({
       {/* VLC Loading Indicator */}
       {vlcLoading && (
         <View className="absolute top-0 left-0 w-full h-full bg-black/60 bg-opacity-50 justify-center items-center">
-          <MotiView
-            from={{rotate: '0deg'}}
-            animate={{rotate: '360deg'}}
-            //@ts-ignore
-            transition={{
-              type: 'timing',
-              duration: 800,
-              loop: true,
-              repeatReverse: false,
-            }}>
+          <Animated.View
+            style={[
+              useAnimatedStyle(() => ({
+                transform: [
+                  {
+                    rotate: withRepeat(
+                      withTiming('360deg', {duration: 800}),
+                      -1,
+                      false,
+                    ),
+                  },
+                ],
+              })),
+            ]}>
             <MaterialCommunityIcons name="vlc" size={70} color={primary} />
-          </MotiView>
+          </Animated.View>
           <Text className="text-white text-lg font-semibold mt-2">
             Loading available servers...
           </Text>

@@ -1,9 +1,7 @@
-import {View, Text} from 'react-native';
+import {View, Text, ScrollView, TouchableOpacity} from 'react-native';
 import React from 'react';
 import useContentStore from '../lib/zustand/contentStore';
-import {ScrollView} from 'moti';
 import useThemeStore from '../lib/zustand/themeStore';
-import {TouchableOpacity} from 'react-native';
 import {DrawerLayout} from 'react-native-gesture-handler';
 import {BlurView} from 'expo-blur';
 import {MaterialIcons} from '@expo/vector-icons';

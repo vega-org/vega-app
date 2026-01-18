@@ -18,7 +18,6 @@ import {
 import {HomeStackParamList, TabStackParamList} from '../../App';
 import LinearGradient from 'react-native-linear-gradient';
 import SeasonList from '../../components/SeasonList';
-import {Skeleton} from 'moti/skeleton';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {settingsStorage, watchListStorage} from '../../lib/storage';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
@@ -29,6 +28,7 @@ import {useNavigation} from '@react-navigation/native';
 import useWatchListStore from '../../lib/zustand/watchListStore';
 import {useContentDetails} from '../../lib/hooks/useContentInfo';
 import {QueryErrorBoundary} from '../../components/ErrorBoundary';
+import SkeletonLoader from '../../components/Skeleton';
 // import {BlurView} from 'expo-blur';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Info'>;
@@ -58,7 +58,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   const [backgroundColor, setBackgroundColor] = useState('transparent');
   const [logoError, setLogoError] = useState(false);
 
-  const threeDotsRef = useRef<any>();
+  const threeDotsRef = useRef<any | null>(null);
 
   // Memoized values
   const [inLibrary, setInLibrary] = useState(() =>
@@ -206,11 +206,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
         />
         <View>
           <View className="absolute w-full h-[256px]">
-            <Skeleton
-              show={infoLoading}
-              colorMode="dark"
-              height={'100%'}
-              width={'100%'}>
+            <SkeletonLoader show={infoLoading} height={256} width={'100%'}>
               <Image
                 source={{uri: backgroundImage}}
                 className=" h-[256] w-full"
@@ -218,7 +214,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   console.warn('Background image failed to load:', e);
                 }}
               />
-            </Skeleton>
+            </SkeletonLoader>
           </View>
 
           {
@@ -325,12 +321,13 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                           .map((actor: string, index: number) => (
                             <Text
                               key={actor}
+                              numberOfLines={1}
                               className={`text-xs bg-tertiary p-1 px-2 rounded-md ${
                                 index % 3 === 0
                                   ? 'text-red-500'
                                   : index % 3 === 1
-                                  ? 'text-blue-500'
-                                  : 'text-green-500'
+                                    ? 'text-blue-500'
+                                    : 'text-green-500'
                               }`}>
                               {actor}
                             </Text>
@@ -344,8 +341,8 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                                 index % 3 === 0
                                   ? 'text-red-500'
                                   : index % 3 === 1
-                                  ? 'text-blue-500'
-                                  : 'text-green-500'
+                                    ? 'text-blue-500'
+                                    : 'text-green-500'
                               }`}>
                               {actor}
                             </Text>
@@ -355,7 +352,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   )}
                   {/* synopsis */}
                   <View className="mb-2 w-full flex-row items-center justify-between">
-                    <Skeleton show={infoLoading} colorMode="dark" width={180}>
+                    <SkeletonLoader show={infoLoading} height={25} width={180}>
                       <View className="flex-row items-center gap-2">
                         <Text className="text-white text-lg font-semibold">
                           Synopsis
@@ -364,7 +361,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                           {route.params.provider || provider.value}
                         </Text>
                       </View>
-                    </Skeleton>
+                    </SkeletonLoader>
                     <View className="flex-row items-center gap-4 mb-1">
                       {meta?.trailers && meta?.trailers.length > 0 && (
                         <MaterialCommunityIcons
@@ -466,7 +463,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                       }
                     </View>
                   </View>
-                  <Skeleton show={infoLoading} colorMode="dark" height={85}>
+                  <SkeletonLoader show={infoLoading} height={85} width={'100%'}>
                     <Text className="text-gray-200 text-sm px-2 py-1 bg-tertiary rounded-md">
                       {synopsis.length > 180 && !readMore
                         ? synopsis.slice(0, 180) + '... '
@@ -479,25 +476,19 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                         </Text>
                       )}
                     </Text>
-                  </Skeleton>
+                  </SkeletonLoader>
                   {/* cast */}
                 </View>
                 <View className="p-4 bg-black">
                   {infoLoading ? (
                     <View className="gap-y-3 items-start mb-4 p-3">
-                      <Skeleton
-                        show={true}
-                        colorMode="dark"
-                        height={30}
-                        width={80}
-                      />
+                      <SkeletonLoader show={true} height={30} width={80} />
                       {[...Array(1)].map((_, i) => (
                         <View
                           className="bg-tertiary p-1 rounded-md gap-3 mt-3"
                           key={i}>
-                          <Skeleton
+                          <SkeletonLoader
                             show={true}
-                            colorMode="dark"
                             height={20}
                             width={'100%'}
                           />

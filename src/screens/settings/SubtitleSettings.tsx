@@ -4,10 +4,10 @@ import {
   StatusBar,
   TouchableOpacity,
   TouchableNativeFeedback,
+  ScrollView,
 } from 'react-native';
 import React from 'react';
 import {startActivityAsync, ActivityAction} from 'expo-intent-launcher';
-import {ScrollView} from 'moti';
 import {settingsStorage} from '../../lib/storage';
 import useThemeStore from '../../lib/zustand/themeStore';
 import {Feather, Entypo} from '@expo/vector-icons';

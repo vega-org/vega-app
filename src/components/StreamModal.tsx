@@ -3,9 +3,9 @@ import React from 'react';
 import {Modal, TouchableOpacity} from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {Skeleton} from 'moti/skeleton';
 import useThemeStore from '../lib/zustand/themeStore';
 import {settingsStorage} from '../lib/storage';
+import SkeletonLoader from './Skeleton';
 
 const StreamModal = ({
   downloadModal,
@@ -58,10 +58,9 @@ const StreamModal = ({
                   </TouchableOpacity>
                 ))
               : Array.from({length: 3}).map((_, index) => (
-                  <Skeleton
+                  <SkeletonLoader
                     key={index}
                     show={true}
-                    colorMode="dark"
                     height={30}
                     width={90}
                   />
