@@ -28,7 +28,11 @@ export const usePlayerProgress = ({
       };
 
       // Update playback info for watch history
-      if (routeParams?.episodeList && routeParams?.linkIndex !== undefined) {
+      if (
+        routeParams?.episodeList &&
+        routeParams?.linkIndex !== undefined &&
+        !routeParams?.doNotTrack
+      ) {
         updatePlaybackInfo(
           routeParams.episodeList[routeParams.linkIndex].link,
           {
@@ -40,11 +44,13 @@ export const usePlayerProgress = ({
       }
 
       // Store progress data for watch history display
-      storeWatchProgressForHistory(
-        routeParams.episodeList[routeParams.linkIndex].link,
-        currentTime,
-        seekableDuration,
-      );
+      if (!routeParams?.doNotTrack) {
+        storeWatchProgressForHistory(
+          routeParams.episodeList[routeParams.linkIndex].link,
+          currentTime,
+          seekableDuration,
+        );
+      }
 
       // Save progress periodically (every 5 seconds)
       if (

@@ -112,6 +112,7 @@ export type RootStackParamList = {
     file?: string;
     providerValue?: string;
     infoUrl?: string;
+    doNotTrack?: boolean;
   };
 };
 

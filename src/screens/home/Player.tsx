@@ -369,7 +369,7 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   // Add to watch history
   useEffect(() => {
-    if (route.params?.primaryTitle) {
+    if (route.params?.primaryTitle && !route.params?.doNotTrack) {
       addItem({
         id: route.params.infoUrl || activeEpisode.link,
         title: route.params.primaryTitle,
@@ -834,10 +834,10 @@ const Player = ({route}: Props): React.JSX.Element => {
               {resizeMode === ResizeMode.NONE
                 ? 'Fit'
                 : resizeMode === ResizeMode.COVER
-                ? 'Cover'
-                : resizeMode === ResizeMode.STRETCH
-                ? 'Stretch'
-                : 'Contain'}
+                  ? 'Cover'
+                  : resizeMode === ResizeMode.STRETCH
+                    ? 'Stretch'
+                    : 'Contain'}
             </Text>
           </TouchableOpacity>
 
