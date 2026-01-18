@@ -183,7 +183,9 @@ const Settings = ({navigation}: Props) => {
                       size={22}
                       color={primary}
                     />
-                    <Text className="text-white ml-3 text-base">
+                    <Text
+                      className="text-white ml-3 text-base flex-1"
+                      numberOfLines={1}>
                       Provider Manager
                     </Text>
                   </View>
