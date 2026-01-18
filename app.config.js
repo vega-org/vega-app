@@ -1,7 +1,3 @@
-// Dynamic Expo config to make Firebase optional for public clones
-// If google-services.json / GoogleService-Info.plist are absent, we skip RNFirebase plugins
-// and android/ios google services config so the app still builds and runs without Firebase.
-
 const fs = require('fs');
 
 const hasAndroidGoogleServices = fs.existsSync('./google-services.json');
@@ -14,11 +10,9 @@ module.exports = () => {
     './plugins/with-android-release-gradle.js',
     './plugins/with-android-signing.js',
     './plugins/with-android-okhttp.js',
-    // Only include RNFirebase plugins when a services file is present
     ...(hasAndroidGoogleServices || hasIosGooglePlist
       ? ['@react-native-firebase/app']
       : []),
-    // Keep Crashlytics plugin optional; do not include analytics plugin to avoid ESM import issue
     ...(hasAndroidGoogleServices || hasIosGooglePlist
       ? ['@react-native-firebase/crashlytics']
       : []),
