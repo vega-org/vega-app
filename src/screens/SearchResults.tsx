@@ -6,7 +6,7 @@ import {
   View,
 } from 'react-native';
 import Slider from '../components/Slider';
-import React, {useEffect, useState, useRef, useCallback, useMemo} from 'react';
+import React, {useEffect, useState, useRef, useCallback, useMemo, memo} from 'react';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {SearchStackParamList} from '../App';
 import useThemeStore from '../lib/zustand/themeStore';
@@ -43,12 +43,18 @@ const SearchResults = ({route}: Props): React.ReactElement => {
   const [loading, setLoading] = useState(trueLoading);
   const abortController = useRef<AbortController | null>(null);
 
+  // Use refs to store latest data without causing re-renders
+  const searchDataRef = useRef<SearchPageData[]>([]);
+  const emptyResultsRef = useRef<SearchPageData[]>([]);
+
   const updateSearchData = useCallback((newData: SearchPageData) => {
-    setSearchData(prev => [...prev, newData]);
+    searchDataRef.current = [...searchDataRef.current, newData];
+    setSearchData(searchDataRef.current);
   }, []);
 
   const updateEmptyResults = useCallback((newData: SearchPageData) => {
-    setEmptyResults(prev => [...prev, newData]);
+    emptyResultsRef.current = [...emptyResultsRef.current, newData];
+    setEmptyResults(emptyResultsRef.current);
   }, []);
 
   const updateLoading = useCallback(
@@ -76,6 +82,8 @@ const SearchResults = ({route}: Props): React.ReactElement => {
     const signal = abortController.current.signal;
 
     // Reset states when component mounts or filter changes
+    searchDataRef.current = [];
+    emptyResultsRef.current = [];
     setSearchData([]);
     setEmptyResults([]);
     setLoading(trueLoading);
@@ -148,11 +156,7 @@ const SearchResults = ({route}: Props): React.ReactElement => {
     };
   }, [
     route.params.filter,
-    trueLoading,
     installedProviders,
-    updateSearchData,
-    updateEmptyResults,
-    updateLoading,
   ]);
 
   const renderSlider = useCallback(
