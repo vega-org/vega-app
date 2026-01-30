@@ -19,15 +19,14 @@ import useHeroStore from '../lib/zustand/herostore';
 import {settingsStorage} from '../lib/storage';
 import {Feather} from '@expo/vector-icons';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import {DrawerLayout} from 'react-native-gesture-handler';
 import {useHeroMetadata} from '../lib/hooks/useHomePageData';
 
 interface HeroProps {
   isDrawerOpen: boolean;
-  drawerRef: React.RefObject<DrawerLayout>;
+  onOpenDrawer: () => void;
 }
 
-const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
+const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
   const [searchActive, setSearchActive] = useState(false);
   const {provider} = useContentStore(state => state);
   const {hero} = useHeroStore(state => state);
@@ -140,7 +139,7 @@ const Hero = memo(({isDrawerOpen, drawerRef}: HeroProps) => {
             }`}>
             <Pressable
               className={`${isDrawerOpen ? 'opacity-0' : 'opacity-100'}`}
-              onPress={() => drawerRef.current?.openDrawer()}>
+              onPress={onOpenDrawer}>
               <Ionicons name="menu-sharp" size={27} color="white" />
             </Pressable>
           </View>
