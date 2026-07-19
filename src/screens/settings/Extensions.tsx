@@ -192,11 +192,9 @@ const Extensions = ({navigation}: Props) => {
         `${provider.display_name} has been installed successfully!`,
       );
       setInstalledProviders(extensionStorage.getInstalledProviders() || []);
-      if (
-        !activeExtensionProvider ||
-        activeExtensionProvider.value !== provider.value ||
-        activeExtensionProvider.source?.author !== provider.source?.author
-      ) {
+      // Keep the current provider active. Switching here can immediately run
+      // newly downloaded provider code in mounted screens and block the UI.
+      if (!activeExtensionProvider?.value) {
         setActiveExtensionProvider(provider);
       }
     } catch (error) {
@@ -417,6 +415,7 @@ const Extensions = ({navigation}: Props) => {
               </>
             ) : (
               <TouchableOpacity
+                testID={`install-provider-${itemKey}`}
                 onPress={() => handleInstallProvider(item)}
                 disabled={isInstalled || isInstalling}
                 className={'w-9 h-9 rounded-full items-center justify-center'}
@@ -476,6 +475,7 @@ const Extensions = ({navigation}: Props) => {
         </TouchableOpacity>
 
         <TouchableOpacity
+          testID="available-providers-tab"
           onPress={() => handleTabChange('available')}
           className="flex-1 py-3 rounded-xl"
           style={{
