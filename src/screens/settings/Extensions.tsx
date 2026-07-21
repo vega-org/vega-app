@@ -39,6 +39,12 @@ type Props = NativeStackScreenProps<SettingsStackParamList, 'Extensions'>;
 
 type TabType = 'installed' | 'available';
 
+const isSameProvider = (
+  left: ProviderExtension | undefined,
+  right: ProviderExtension,
+) =>
+  left?.value === right.value && left.source?.author === right.source?.author;
+
 const Extensions = ({navigation}: Props) => {
   const {primary} = useThemeStore(state => state);
   const {
@@ -191,10 +197,27 @@ const Extensions = ({navigation}: Props) => {
         'Success',
         `${provider.display_name} has been installed successfully!`,
       );
-      setInstalledProviders(extensionStorage.getInstalledProviders() || []);
+      const refreshedInstalledProviders =
+        extensionStorage.getInstalledProviders() || [];
+      setInstalledProviders(refreshedInstalledProviders);
+
       // Keep the current provider active. Switching here can immediately run
       // newly downloaded provider code in mounted screens and block the UI.
-      if (!activeExtensionProvider?.value) {
+      // Read after the download so concurrent installs cannot act on a stale
+      // provider captured when their handlers started.
+      const currentProvider = useContentStore.getState().provider;
+      const currentProviderIsInstalled = refreshedInstalledProviders.some(
+        installedProvider => isSameProvider(installedProvider, currentProvider),
+      );
+      const installedSameValueFromAnotherSource =
+        currentProvider?.value === provider.value &&
+        currentProvider.source?.author !== provider.source?.author;
+
+      if (
+        !currentProvider?.value ||
+        !currentProviderIsInstalled ||
+        installedSameValueFromAnotherSource
+      ) {
         setActiveExtensionProvider(provider);
       }
     } catch (error) {
