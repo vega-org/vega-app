@@ -1,7 +1,0 @@
-Android app for streaming media.
-
-* Steam and Download Ad-Free.
-* Multiple sources.
-* Multi Audio and Subs (Hindi, English, etc.).
-* WatchList.
-* External player and Downloader support.

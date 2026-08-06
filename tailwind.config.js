@@ -1,78 +1,54 @@
 /** @type {import('tailwindcss').Config} */
-
-// Material 3 color roles, published as CSS variables at runtime by
-// `src/theme/M3ThemeProvider.tsx`. Kept in sync with `src/theme/colors.ts`.
-const M3_COLOR_ROLES = [
-  'primary',
-  'onPrimary',
-  'primaryContainer',
-  'onPrimaryContainer',
-  'inversePrimary',
-  'secondary',
-  'onSecondary',
-  'secondaryContainer',
-  'onSecondaryContainer',
-  'tertiary',
-  'onTertiary',
-  'tertiaryContainer',
-  'onTertiaryContainer',
-  'background',
-  'onBackground',
-  'surface',
-  'onSurface',
-  'surfaceVariant',
-  'onSurfaceVariant',
-  'surfaceTint',
-  'inverseSurface',
-  'inverseOnSurface',
-  'error',
-  'onError',
-  'errorContainer',
-  'onErrorContainer',
-  'outline',
-  'outlineVariant',
-  'scrim',
-  'surfaceBright',
-  'surfaceDim',
-  'surfaceContainer',
-  'surfaceContainerHigh',
-  'surfaceContainerHighest',
-  'surfaceContainerLow',
-  'surfaceContainerLowest',
-  'primaryFixed',
-  'primaryFixedDim',
-  'onPrimaryFixed',
-  'onPrimaryFixedVariant',
-  'secondaryFixed',
-  'secondaryFixedDim',
-  'onSecondaryFixed',
-  'onSecondaryFixedVariant',
-  'tertiaryFixed',
-  'tertiaryFixedDim',
-  'onTertiaryFixed',
-  'onTertiaryFixedVariant',
-];
-
-const kebab = role =>
-  role.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
-
-// `bg-m3-surface`, `text-m3-on-surface`, `border-m3-outline-variant`, ...
-const m3Colors = Object.fromEntries(
-  M3_COLOR_ROLES.map(role => [kebab(role), `var(--m3-${kebab(role)})`]),
-);
-
 module.exports = {
-  content: ['./src/**/*.{html,js,jsx,ts,tsx}'],
-  presets: [require('nativewind/preset')],
+  content: [
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./lib/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       colors: {
-        m3: m3Colors,
-        // Legacy palette, retained until every screen is migrated to `m3-*`.
-        primary: '#FF6347',
-        secondary: '#000000',
-        tertiary: '#171717',
-        quaternary: '#1a1a1a',
+        wellflix: {
+          black: "#0a0a0b",
+          dark: "#111113",
+          card: "#18181b",
+          muted: "#27272a",
+          border: "#2a2a2e",
+          white: "#fafaf9",
+          paper: "#ffffff",
+          accent: "#5b5cf6",
+          accentHover: "#4f46e5",
+          zinc: "#71717a",
+          maxPurple: "#5a3fe3",
+        },
+      },
+      fontFamily: {
+        sans: ["Inter", "SF Pro Display", "Helvetica Neue", "Arial", "sans-serif"],
+        display: ["Instrument Sans", "Inter", "sans-serif"],
+      },
+      boxShadow: {
+        matte: "0 0 0 1px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06)",
+        matteDark: "0 0 0 1px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,0.4)",
+        hero: "0 20px 80px rgba(0,0,0,0.5)",
+      },
+      animation: {
+        "fade-in": "fadeIn 0.4s ease-out",
+        "slide-up": "slideUp 0.5s ease-out",
+        "scale-in": "scaleIn 0.3s ease-out",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { transform: "translateY(20px)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
+        },
+        scaleIn: {
+          "0%": { transform: "scale(0.95)", opacity: "0" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
       },
     },
   },

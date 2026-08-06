@@ -1,7 +1,0 @@
-- Fixed Providers(Multistream,MoviesDrive,MultiMoives,NetflixMirror)
-- Next episode button
-- Search history
-- Subtitle download support
-- Quick search title
-- Improved Search UI
-- Bugs fixes
