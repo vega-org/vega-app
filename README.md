@@ -1,101 +1,114 @@
-![vega-high-resolution-logo-transparent](https://github.com/Zenda-Cross/vega-app/assets/143804558/b2eb446f-8e7f-4800-81e1-3320c82f33de)
+# WellFlix — Premium Streaming Webapp (HBO Max Inspired)
 
-# Vega-App
-Android app for streaming media.
-### Features
-- Stream and Download Ad-Free.
-- Multi Audio and external Subs support.
-- WatchList.
-- External player and Downloader support.
-- Sync with desktop app
-- Create custom sources.
-<br>
+**WellFlix** is a complete, production-ready streaming webapp built with Next.js 14, inspired by **HBO Max** matte finish UI and **Netflix / Prime Video** UX. It bakes in the Vega providers engine (MovieBox Web) so users don't need to add any provider sources — just like MovieBoxPro's approach.
 
-[![Discord](https://custom-icon-badges.demolab.com/badge/-Join_Discord-6567a5?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/cr42m6maWy)
+> Built from `riyadhhere-source/vega-webapp` branch, transformed from React Native Vega App to a Vercel-deployable Next.js webapp.
 
-___
+## ✨ Features
 
-## Download ![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/Zenda-Cross/vega-app/total?link=https%3A%2F%2Fgithub.com%2FZenda-Cross%2Fvega-app%2Freleases&label=Github%20Downloads)
-<!-- > <sub>Download Universal version if you are confused about armeabi-v7a or arm64-v8a or follow this guide https://vega.8man.in/guide/.</sub> -->
+- **Baked-in Vega Provider**: MovieBox Web (`themoviebox.org`) engine is integrated directly — no user configuration. Fetches multi-source streaming links automatically.
+- **HBO Max Inspired UI**: White & slightly black solid matte finish, bold typography (Inter + Instrument Sans), minimal shadows, premium rounded cards, 4K badges.
+- **Netflix-style Home**: Hero carousel (trending), horizontal rows, rank cards, continue watching vibes, shimmer loading.
+- **Movies & Series**: Separate pages with pagination (`/movies`, `/series`), powered by `/api/catalog` with filter `/`, `/newWeb/movie`, `/newWeb/tv-series`.
+- **Full Detail Flow**:
+  - Click any title → `/title?link=...` fetches meta via Vega `getMeta` (cover, synopsis, cast, tags, rating, dubs/languages).
+  - For **Movies**: lists all audio tracks (Original, Hindi, etc.) with directLinks → click → `/watch`.
+  - For **Series**: language selector → `getEpisodes` (season parsing via Sxx Exx) → episode grid → one-click play.
+- **Multi-source Player**: `/watch?link=...` fetches all working streams via `getStream` (HLS / MP4), shows HLS.js player with:
+  - Auto failover UI, quality badge, server list
+  - Subtitles support, volume, fullscreen, time scrub
+  - Source switcher dropdown (auto-reloads HLS)
+- **Search**: Global search bar (navbar + `/search`) using `getSearchPosts` scraping logic.
+- **Vercel Ready**: Optimized Next.js API routes with caching, `vercel.json` maxDuration, remote image patterns.
+- **Branding**: WellFlix logo (W), Core Engine badge, LIVE indicator, beta tag.
 
-<a href="https://play.google.com/store/apps/details?id=vega.app">
-  <img src="https://appure.io/badges/playstore/en.svg" width="200" alt="Get it on Google Play">
-</a>
+## 🧩 Architecture — Like MovieBoxPro
 
-[![Download Apk](https://custom-icon-badges.demolab.com/badge/-Download_From_Github-black?style=for-the-badge&logo=download&logoColor=white)](https://github.com/Zenda-Cross/vega-app/releases/latest)
+Vega App normally requires users to add provider JSON. WellFlix **bakes in** one provider (MovieBox Web) into main engine:
 
-[![Download Apk](https://custom-icon-badges.demolab.com/badge/-Website-tomato?style=for-the-badge&logo=download&logoColor=white)](https://vega.8man.in/#mobile)
+```
+User opens WellFlix → Home fetches trending from MovieBox Web API (/wefeed-h5api-bff/subject/trending)
+Clicks movie → Detail parses __NUXT_DATA__ → builds playbackLink JSON (subjectId, detailPath, language, season, episode)
+Episode → fetch /api/episodes (decodeLink → expand seasons.allEp)
+Play → /api/stream (subject/play API + captions API) → returns Stream[] (server, link, type m3u8/mp4, quality, subtitles, headers)
+Player uses HLS.js to play, auto failover if one fails
+```
 
-## Vega for Desktop 
-https://github.com/vega-org/vega-desktop
+All logic lives in `lib/vega/movieBoxWeb.ts` — ported from https://github.com/Zenda-Cross/vega-providers/providers/movieBoxWeb
 
+## 📁 Structure
 
-<br>
+```
+app/
+  api/
+    catalog    → trending, movies, tv
+    search     → keyword search
+    meta       → Info (title, synopsis, linkList)
+    episodes   → EpisodeLink[] from episodesLink
+    stream     → Stream[] with subtitles
+    providers  → baked-in provider info
+  page.tsx     → Home (Hero + Rows)
+  title/       → Detail page (movie + series seasons)
+  watch/       → Player (HLS.js + source list)
+  movies/      → Movies catalog with pagination
+  series/      → Series catalog
+  search/      → Search results
+  globals.css  → Max matte styles
+components/
+  Navbar, Hero, ContentRow, PosterCard, VideoPlayer, TitleDetail
+lib/
+  vega/
+    movieBoxWeb.ts  → Full provider engine
+    baseUrl.ts      → urls.json fetcher with cache + fallback
+    types.ts
+  utils/cn.ts
+```
 
-## Add or Create Provider source
-> [!TIP]
-> Follow the guide here https://vega.8man.in/guide/adding-providers
+## 🚀 Deploy to Vercel
 
-##
-<!--  ![Screenshots](https://github.com/user-attachments/assets/b86af756-e66e-4ae7-b2af-61b25cfd8d4e) -->
-<img width="2712" height="1220" alt="Screenshot_2025-03-20-18-36-18-593_com vega" src="https://github.com/user-attachments/assets/3befd3ef-81b1-417c-a250-42bbfbae58d6" />
+1. Push to GitHub
+2. Import in Vercel → Framework: Next.js
+3. No env needed (uses public urls.json). Optional: add `NEXT_PUBLIC_TMDB` if you extend with TMDB.
+4. Deploy — API routes will handle CORS and cheerio scraping.
 
+```bash
+npm install
+npm run dev      # http://localhost:3000
+npm run build
+```
 
-___
+## 🎨 UI / UX — HBO Max
 
-## Stack
-<p align="left">
-     
-[![React-Native](https://custom-icon-badges.demolab.com/badge/-React_Native-287aad?style=for-the-badge&logo=react&logoColor=white)](https://reactnative.dev/)
-[![TypeScript](https://custom-icon-badges.demolab.com/badge/Typescript-3078C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![NativeWind](https://custom-icon-badges.demolab.com/badge/Native_Wind-0CA6E9?style=for-the-badge&logo=tailwind&logoColor=white)](https://www.nativewind.dev/)
-[![React-Navigation](https://custom-icon-badges.demolab.com/badge/React_Navigation-6838d9?style=for-the-badge&logo=menu&logoColor=white)](https://reactnavigation.org/)
-[![Expo-Modules](https://custom-icon-badges.demolab.com/badge/Expo_Modules-black?style=for-the-badge&logo=expo&logoColor=white)](https://docs.expo.dev/modules/overview/)
-[![React-Native-Video](https://custom-icon-badges.demolab.com/badge/React_native_video-38d9c9?style=for-the-badge&logo=video&logoColor=white)](https://thewidlarzgroup.github.io/react-native-video/)
-[![MMKV-Storage](https://custom-icon-badges.demolab.com/badge/MMKV_Storage-yellow?style=for-the-badge&logo=zap&logoColor=white)](https://github.com/mrousavy/react-native-mmkv)
+- **Colors**: `#0a0a0b` black, `#18181b` cards, `#ffffff` primary button, `#5b5cf6` accent
+- **Matte**: `0 0 0 1px rgba(255,255,255,0.06)` border, soft shadow, no glass unless secondary button
+- **Typography**: 800 weight for titles, -0.03em tracking, Instrument Sans for display
+- **Rows**: hover scale 1.02, rank badge, HD/4K pills, shimmer loading
+- **Player**: black backdrop, rounded 12-14px, white play button, auto-hiding controls, source switcher
 
+## 🔧 Vega Provider Integration
 
+Copied and refactored from https://github.com/vega-org/vega-providers
 
-</p>
+- `getBaseUrl` → fetches `https://raw.githubusercontent.com/Zenda-Cross/vega-providers/refs/heads/main/urls.json`, cached 1h, fallback `https://themoviebox.org`
+- `parseNuxtData` → decodes `#__NUXT_DATA__` (Vue Nuxt serialization)
+- `fetchCatalogPage` → trending API with `tabId` (ONEROOM_MOVIE / ONEROOM_TV)
+- `fetchPostsLegacy` → scrapes `a[href^="/moviesDetail/"]` fallback
+- `getMeta` → fetches `/moviesDetail/${detailPath}`, extracts subject, resource, dubs → linkList
+- `getEpisodes` → expands `seasons[].allEp` or `maxEp` into `Sxx Exx` list
+- `getStream` → `/wefeed-h5api-bff/subject/play` + `/caption`, returns multiple Stream with headers
 
-## Build and Dev
-0. Set-up React Native environment if you haven't already. [Guide](https://reactnative.dev/docs/set-up-your-environment)
+## 📦 Dependencies
 
-1. clone
-     ```bash
-     git clone https://github.com/Zenda-Cross/vega-app.git
-     ```
-     ```
-     cd vega-app
-     ```
-2. Install
-     ```
-     npm install
-     ```
-3. Prebuild
-   ```
-    npx expo prebuild -p android --clean
-   ```
-5. Open metro dev server
-Dev
-     ```
-     npm run android
-     ```
-Build apk/aab
-https://reactnative.dev/docs/signed-apk-android
+- Next.js 14, React 18, Tailwind 3.4, Cheerio, HLS.js, Lucide React
+
+## 🛡️ Disclaimer
+
+WellFlix does not host media. It uses third-party Vega provider that aggregates public sources. Like Vega App, all content is user-sourced.
+
+## 📝 License
+
+GPL (inherited from Vega App)
 
 ---
-> [!IMPORTANT]
-> Vega App does not host, store, or provide any media content. It is not affiliated with or connected to any external providers or extensions. All content accessed through the app is managed and sourced directly by the user via third-party tools or integrations. Vega App has no control over it.
 
-
-## Leave a star if this was helpful
-
-<a href="https://www.star-history.com/?repos=vega-org%2Fvega-app&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=vega-org/vega-app&type=date&theme=dark&legend=top-left&sealed_token=ajfKjwdP9VUHI3OOuOW40FrTlJWZRFXQqjUVf51d1HcT6QFCcR2mvv8ykA_FM5u7a9rqhzNtERwdQjth0A63L5tRJ6ImisXf5ktSU4eYU-SB1m3-xp5HOQ" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=vega-org/vega-app&type=date&legend=top-left&sealed_token=ajfKjwdP9VUHI3OOuOW40FrTlJWZRFXQqjUVf51d1HcT6QFCcR2mvv8ykA_FM5u7a9rqhzNtERwdQjth0A63L5tRJ6ImisXf5ktSU4eYU-SB1m3-xp5HOQ" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=vega-org/vega-app&type=date&legend=top-left&sealed_token=ajfKjwdP9VUHI3OOuOW40FrTlJWZRFXQqjUVf51d1HcT6QFCcR2mvv8ykA_FM5u7a9rqhzNtERwdQjth0A63L5tRJ6ImisXf5ktSU4eYU-SB1m3-xp5HOQ" />
- </picture>
-</a>
-
+**Brand**: WellFlix — "Watch Well, Flix Well" • Beta • Built for Web, iOS soon.
