@@ -448,10 +448,10 @@ index 0000000..f3a530a
 +}
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt
 new file mode 100644
-index 0000000..85ac20d
+index 0000000..3b1e4d9
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,265 @@
 +package com.brentvatne.exoplayer
 +
 +import android.content.Context
@@ -462,8 +462,12 @@ index 0000000..85ac20d
 +import android.graphics.Typeface
 +import android.os.Build
 +import android.text.Layout
++import android.text.SpannableStringBuilder
++import android.text.Spanned
 +import android.text.StaticLayout
 +import android.text.TextPaint
++import android.text.style.BackgroundColorSpan
++import android.text.style.ForegroundColorSpan
 +import android.util.AttributeSet
 +import android.util.TypedValue
 +import android.view.View
@@ -499,6 +503,30 @@ index 0000000..85ac20d
 +    fun setStyle(newStyle: SubtitleStyle) {
 +        this.style = newStyle
 +        postInvalidate()
++    }
++
++    private fun createEdgeText(source: CharSequence): CharSequence {
++        if (source !is Spanned) return source
++        val spannable = SpannableStringBuilder(source)
++        val fgSpans = spannable.getSpans(0, spannable.length, ForegroundColorSpan::class.java)
++        for (span in fgSpans) {
++            spannable.removeSpan(span)
++        }
++        val bgSpans = spannable.getSpans(0, spannable.length, BackgroundColorSpan::class.java)
++        for (span in bgSpans) {
++            spannable.removeSpan(span)
++        }
++        return spannable
++    }
++
++    private fun cleanCueText(source: CharSequence): CharSequence {
++        if (source !is Spanned) return source
++        val spannable = SpannableStringBuilder(source)
++        val bgSpans = spannable.getSpans(0, spannable.length, BackgroundColorSpan::class.java)
++        for (span in bgSpans) {
++            spannable.removeSpan(span)
++        }
++        return spannable
 +    }
 +
 +    override fun onDraw(canvas: Canvas) {
@@ -559,8 +587,11 @@ index 0000000..85ac20d
 +
 +        // Render each cue
 +        for (cue in cues) {
-+            val text = cue.text ?: continue
-+            if (text.isEmpty()) continue
++            val rawText = cue.text ?: continue
++            if (rawText.isEmpty()) continue
++
++            val text = cleanCueText(rawText)
++            val edgeText = createEdgeText(rawText)
 +
 +            textPaint.style = Paint.Style.FILL
 +            textPaint.color = fgColor
@@ -613,14 +644,14 @@ index 0000000..85ac20d
 +                        strokePaint.strokeWidth = outlineWidthPx * 2f
 +                        strokePaint.color = edColor
 +                        val strokeLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-+                            StaticLayout.Builder.obtain(text, 0, text.length, strokePaint, maxTextWidth)
++                            StaticLayout.Builder.obtain(edgeText, 0, edgeText.length, strokePaint, maxTextWidth)
 +                                .setAlignment(Layout.Alignment.ALIGN_CENTER)
 +                                .setLineSpacing(0f, 1.15f)
 +                                .setIncludePad(false)
 +                                .build()
 +                        } else {
 +                            @Suppress("DEPRECATION")
-+                            StaticLayout(text, strokePaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
++                            StaticLayout(edgeText, strokePaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
 +                        }
 +                        canvas.save()
 +                        canvas.translate(x, y)
@@ -639,14 +670,14 @@ index 0000000..85ac20d
 +                        color = edColor
 +                    }
 +                    val shadowLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-+                        StaticLayout.Builder.obtain(text, 0, text.length, shadowPaint, maxTextWidth)
++                        StaticLayout.Builder.obtain(edgeText, 0, edgeText.length, shadowPaint, maxTextWidth)
 +                            .setAlignment(Layout.Alignment.ALIGN_CENTER)
 +                            .setLineSpacing(0f, 1.15f)
 +                            .setIncludePad(false)
 +                            .build()
 +                    } else {
 +                        @Suppress("DEPRECATION")
-+                        StaticLayout(text, shadowPaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
++                        StaticLayout(edgeText, shadowPaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
 +                    }
 +                    canvas.save()
 +                    canvas.translate(x + offset, y + offset)
@@ -659,14 +690,14 @@ index 0000000..85ac20d
 +                        color = edColor
 +                    }
 +                    val shadowLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-+                        StaticLayout.Builder.obtain(text, 0, text.length, shadowPaint, maxTextWidth)
++                        StaticLayout.Builder.obtain(edgeText, 0, edgeText.length, shadowPaint, maxTextWidth)
 +                            .setAlignment(Layout.Alignment.ALIGN_CENTER)
 +                            .setLineSpacing(0f, 1.15f)
 +                            .setIncludePad(false)
 +                            .build()
 +                    } else {
 +                        @Suppress("DEPRECATION")
-+                        StaticLayout(text, shadowPaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
++                        StaticLayout(edgeText, shadowPaint, maxTextWidth, Layout.Alignment.ALIGN_CENTER, 1.15f, 0f, false)
 +                    }
 +                    canvas.save()
 +                    canvas.translate(x - offset, y - offset)

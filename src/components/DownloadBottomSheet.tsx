@@ -12,7 +12,6 @@ import { Stream } from '../lib/providers/types';
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
-  BottomSheetView,
 } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import LoadingIndicator from './ui/LoadingIndicator';
@@ -693,7 +692,7 @@ const DownloadBottomSheet = ({
           index={0}
           enablePanDownToClose
           enableDynamicSizing={false}
-          snapPoints={['40%', '82%']}
+          snapPoints={['50%', '85%']}
           backdropComponent={backdropProps => (
             <BottomSheetBackdrop
               {...backdropProps}
@@ -710,7 +709,7 @@ const DownloadBottomSheet = ({
             }
           }}
           onClose={() => setModal(false)}>
-          <BottomSheetView
+          <View
             style={{
               backgroundColor: colors.surfaceContainerLow,
               flex: 1,
@@ -773,13 +772,13 @@ const DownloadBottomSheet = ({
             )}
             <BottomSheetScrollView
               contentContainerStyle={{
-                paddingBottom: 28,
+                paddingBottom: 36,
                 paddingTop: hasSubtitles ? 0 : 12,
               }}
               showsVerticalScrollIndicator={false}>
               {activeTab === 1 ? renderVideoTab() : renderSubtitleTab()}
             </BottomSheetScrollView>
-          </BottomSheetView>
+          </View>
         </BottomSheet>
       </GestureHandlerRootView>
     </Modal>

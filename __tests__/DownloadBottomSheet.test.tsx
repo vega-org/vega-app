@@ -100,7 +100,7 @@ describe('DownloadBottomSheet', () => {
     expect(mockBottomSheetProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         enableDynamicSizing: false,
-        snapPoints: ['40%', '82%'],
+        snapPoints: ['50%', '85%'],
       }),
     );
   });

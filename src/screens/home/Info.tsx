@@ -14,7 +14,7 @@ import {QueryErrorBoundary} from '../../components/ErrorBoundary';
 import SeasonList from '../../components/SeasonList';
 import SkeletonLoader from '../../components/Skeleton';
 import {useContentDetails} from '../../lib/hooks/useContentInfo';
-import {extractImageAccent} from '../../lib/imageAccent';
+import {extractImageAccent, getCachedImageAccent} from '../../lib/imageAccent';
 import type {Link} from '../../lib/providers/types';
 import {settingsStorage, watchListStorage} from '../../lib/storage';
 import useContentStore from '../../lib/zustand/contentStore';
@@ -54,9 +54,22 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   const [storyVisible, setStoryVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [imageAccent, setImageAccent] = useState<string>();
+  const initialPoster = route.params.poster;
+  const initialCacheKey = initialPoster
+    ? `detail-bg-accent-v1:${initialPoster}`
+    : '';
+  const cachedInitialAccent = initialCacheKey
+    ? getCachedImageAccent(initialCacheKey)
+    : undefined;
+
+  const [imageAccent, setImageAccent] = useState<string | undefined>(
+    () => cachedInitialAccent,
+  );
   const [initialAccentReady, setInitialAccentReady] = useState(
-    () => !settingsStorage.isDynamicInfoAccentEnabled() || !route.params.poster,
+    () =>
+      !settingsStorage.isDynamicInfoAccentEnabled() ||
+      !route.params.poster ||
+      !!cachedInitialAccent,
   );
   const imageAccentRequest = useRef(0);
   const [statusBarScrimVisible, setStatusBarScrimVisible] = useState(false);

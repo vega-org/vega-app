@@ -30,9 +30,9 @@ export const useContentInfo = (link: string, providerValue: string) => {
       return data;
     },
     enabled: !!link && !!providerValue,
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
     gcTime: 60 * 60 * 1000, // 1 hour
-    retry: 2,
+    retry: 1,
     initialData: () => {
       const cached =
         cacheStorage.getString(cacheKey) || cacheStorage.getString(link);
@@ -45,8 +45,7 @@ export const useContentInfo = (link: string, providerValue: string) => {
       }
       return undefined;
     },
-    initialDataUpdatedAt: 0,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 
   useEffect(() => {
@@ -85,7 +84,7 @@ export const useEnhancedMetadata = (
       }
     },
     enabled: enabled && !!imdbId && !!type,
-    staleTime: 0, // Instantly revalidate in background
+    staleTime: 60 * 60 * 1000,
     gcTime: 2 * 60 * 60 * 1000, // 2 hours
     retry: 1, // Don't retry too much for external API
     initialData: () => {
@@ -103,8 +102,7 @@ export const useEnhancedMetadata = (
       }
       return undefined;
     },
-    initialDataUpdatedAt: 0,
-    refetchOnMount: 'always',
+    refetchOnMount: false,
   });
 
   useEffect(() => {

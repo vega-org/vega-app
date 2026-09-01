@@ -33,10 +33,10 @@ export interface RateLimitOptions {
 }
 
 export const DEFAULT_RATE_LIMIT: RateLimitOptions = {
-  requestsPerSecond: 5,
-  burst: 10,
-  maxConcurrentPerHost: 6,
-  maxConcurrentTotal: 24,
+  requestsPerSecond: 20,
+  burst: 30,
+  maxConcurrentPerHost: 12,
+  maxConcurrentTotal: 48,
   maxQueueWaitMs: 20_000,
   maxQueuedPerHost: 64,
 };

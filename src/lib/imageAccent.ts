@@ -1,11 +1,19 @@
 import {cache, getColors} from 'react-native-image-colors';
 import {mixHex} from '../theme/seeds';
+import {cacheStorage} from './storage/StorageService';
 
 const IMAGE_COLOR_FALLBACK = '#FFFFFF';
 const accentCache = new Map<string, Promise<string>>();
+const inFlightExtractions = new Map<string, Promise<string | undefined>>();
 
 export const clearImageAccentCache = (): void => {
   accentCache.clear();
+  inFlightExtractions.clear();
+};
+
+export const getCachedImageAccent = (cacheKey: string): string | undefined => {
+  if (!cacheKey) return undefined;
+  return cacheStorage.getString(`accent:${cacheKey}`);
 };
 
 export const scoreHexColor = (hex?: string): number => {
@@ -90,22 +98,59 @@ export const extractImageAccent = async (
   imageUri: string,
   cacheKey: string,
 ): Promise<string | undefined> => {
-  try {
-    const imageColors = await getColors(imageUri, {
-      cache: true,
-      fallback: IMAGE_COLOR_FALLBACK,
-      key: cacheKey,
-      pixelSpacing: 8,
-    });
-    const accent = selectImageAccent(imageColors);
-    if (!accent) {
-      cache.removeItem(cacheKey);
-    }
-    return accent;
-  } catch {
-    cache.removeItem(cacheKey);
-    return undefined;
+  if (!imageUri) return undefined;
+
+  // 1. Instant check from persistent MMKV cache
+  const cachedAccent = getCachedImageAccent(cacheKey);
+  if (cachedAccent) {
+    return cachedAccent;
   }
+
+  // 2. Deduplicate in-flight extractions for identical cacheKey
+  const inFlight = inFlightExtractions.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const extractionPromise = (async () => {
+    try {
+      // 3. Set a strict 3.5s timeout on image download/color extraction so the UI never hangs
+      const fetchColorsPromise = getColors(imageUri, {
+        cache: true,
+        fallback: IMAGE_COLOR_FALLBACK,
+        key: cacheKey,
+        pixelSpacing: 8,
+      });
+
+      const timeoutPromise = new Promise<undefined>(resolve =>
+        setTimeout(() => resolve(undefined), 3500),
+      );
+
+      const imageColors = await Promise.race([fetchColorsPromise, timeoutPromise]);
+      if (!imageColors) {
+        cache.removeItem(cacheKey);
+        return undefined;
+      }
+
+      const accent = selectImageAccent(imageColors);
+      if (!accent) {
+        cache.removeItem(cacheKey);
+        return undefined;
+      }
+
+      // 4. Save to persistent MMKV cache for instant 0ms future access
+      cacheStorage.setString(`accent:${cacheKey}`, accent);
+      return accent;
+    } catch {
+      cache.removeItem(cacheKey);
+      return undefined;
+    } finally {
+      inFlightExtractions.delete(cacheKey);
+    }
+  })();
+
+  inFlightExtractions.set(cacheKey, extractionPromise);
+  return extractionPromise;
 };
 
 export const getImageAccent = (
@@ -121,10 +166,8 @@ export const getImageAccent = (
     return cached;
   }
 
-  const accent = extractImageAccent(
-    imageUri,
-    `shared-image-accent-v2:${imageUri}`,
-  ).then(extractedColor =>
+  const cacheKey = `shared-image-accent-v2:${imageUri}`;
+  const accent = extractImageAccent(imageUri, cacheKey).then(extractedColor =>
     extractedColor ? mixHex(extractedColor, '#FFFFFF', 0.35) : fallback,
   );
 
