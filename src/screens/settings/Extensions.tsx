@@ -208,7 +208,9 @@ const Extensions = ({navigation}: Props) => {
       console.error('Update error:', error);
       showDialog(
         'Error',
-        'Failed to update provider. Please try again.',
+        error instanceof Error
+          ? error.message
+          : 'Failed to update provider. Please try again.',
         'error',
       );
     } finally {
@@ -262,7 +264,9 @@ const Extensions = ({navigation}: Props) => {
       console.error('Installation error:', error);
       showDialog(
         'Error',
-        'Failed to install provider. Please try again.',
+        error instanceof Error
+          ? error.message
+          : 'Failed to install provider. Please try again.',
         'error',
       );
     } finally {
@@ -429,7 +433,9 @@ const Extensions = ({navigation}: Props) => {
       console.error('Refresh error:', error);
       showDialog(
         'Error',
-        'Failed to refresh providers list. Please check your internet connection.',
+        error instanceof Error
+          ? error.message
+          : 'Failed to refresh providers list. Please check your internet connection.',
         'error',
       );
     } finally {

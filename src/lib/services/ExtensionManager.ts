@@ -7,6 +7,26 @@ import {
 } from '../storage/extensionStorage';
 import {mainStorage} from '../storage/StorageService';
 import {createProviderSource} from '../utils/helpers';
+
+export const isRateLimitError = (error: unknown): boolean => {
+  if (!error) return false;
+  const status =
+    (error as any)?.response?.status ??
+    (error as any)?.status;
+  if (status === 403 || status === 429) {
+    return true;
+  }
+  const msg = String((error as any)?.message || "").toLowerCase();
+  return msg.includes("rate limit") || msg.includes("status code 403") || msg.includes("status code 429");
+};
+
+export const throwIfRateLimited = (error: unknown): void => {
+  if (isRateLimitError(error)) {
+    throw new Error(
+      'GitHub API rate limit exceeded. Please wait a few minutes before trying again.',
+    );
+  }
+};
 /**
  * Extension manager service for handling dynamic provider loading
  */
@@ -155,8 +175,8 @@ export class ExtensionManager {
       return providers;
     } catch (error) {
       console.error('Failed to fetch manifest:', error);
+      throwIfRateLimited(error);
 
-      // Return cached data if available
       const cached = extensionStorage.getManifestCache(activeSource.author);
       if (cached.length > 0) {
         return cached;
@@ -202,7 +222,7 @@ export class ExtensionManager {
             modules[fileName] = response.data;
           }
         } catch (error) {
-          // Only log error for required files
+          throwIfRateLimited(error);
           if (requiredFiles.includes(fileName)) {
             console.error(
               `Failed to download ${fileName}.js for ${providerValue}:`,

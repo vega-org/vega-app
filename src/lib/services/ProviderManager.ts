@@ -121,12 +121,15 @@ export class ProviderManager {
       return [];
     }
     try {
-      const moduleExports = await this.executeModule<{catalog?: Catalog[]}>(
-        catalogModule,
-        providerValue,
-      );
+      const moduleExports = await this.executeModule<{
+        catalog?: Catalog[] | (() => Promise<Catalog[]> | Catalog[]);
+      }>(catalogModule, providerValue);
+      let catalog = moduleExports?.catalog;
+      if (typeof catalog === 'function') {
+        catalog = await (catalog as any)();
+      }
       return this.requireArray<Catalog>(
-        moduleExports?.catalog ?? [],
+        catalog ?? [],
         providerValue,
         'catalog',
       );
@@ -150,12 +153,15 @@ export class ProviderManager {
       return [];
     }
     try {
-      const moduleExports = await this.executeModule<{genres?: Catalog[]}>(
-        catalogModule,
-        providerValue,
-      );
+      const moduleExports = await this.executeModule<{
+        genres?: Catalog[] | (() => Promise<Catalog[]> | Catalog[]);
+      }>(catalogModule, providerValue);
+      let genres = moduleExports?.genres;
+      if (typeof genres === 'function') {
+        genres = await (genres as any)();
+      }
       return this.requireArray<Catalog>(
-        moduleExports?.genres ?? [],
+        genres ?? [],
         providerValue,
         'genres',
       );

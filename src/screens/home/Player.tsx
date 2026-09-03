@@ -2504,25 +2504,42 @@ const Player = ({ route }: Props): React.JSX.Element => {
                     Server
                   </Text>
                   {streamData?.length > 0 &&
-                    streamData?.map((track, i) => (
-                      <PlayerMenuRow
-                        key={i}
-                        title={track.server || `Server ${i + 1}`}
-                        detail={track.quality}
-                        selected={track.link === selectedStream.link}
-                        accentColor={primary}
-                        icon="dns"
-                        onPress={() => {
-                          setSelectedStream(track);
-                          appliedPersistedLocalVideoRef.current = true;
-                          if (activeEpisodeKey) {
-                            clearLocalVideoAssociation(activeEpisodeKey);
-                          }
-                          setShowSettings(false);
-                          playerRef?.current?.resume();
-                        }}
-                      />
-                    ))}
+                    streamData?.map((track, i) => {
+                      const rawTags: string[] = Array.isArray(track.tags)
+                        ? track.tags
+                        : typeof track.tag === 'string'
+                        ? [track.tag]
+                        : [];
+                      const tags = rawTags
+                        .map(t => (typeof t === 'string' ? t.trim() : ''))
+                        .filter(
+                          t =>
+                            Boolean(t) &&
+                            t.toLowerCase() !==
+                              track.quality?.trim().toLowerCase(),
+                        );
+
+                      return (
+                        <PlayerMenuRow
+                          key={i}
+                          title={track.server || `Server ${i + 1}`}
+                          quality={track.quality}
+                          tags={tags.length > 0 ? tags : undefined}
+                          selected={track.link === selectedStream.link}
+                          accentColor={primary}
+                          icon="dns"
+                          onPress={() => {
+                            setSelectedStream(track);
+                            appliedPersistedLocalVideoRef.current = true;
+                            if (activeEpisodeKey) {
+                              clearLocalVideoAssociation(activeEpisodeKey);
+                            }
+                            setShowSettings(false);
+                            playerRef?.current?.resume();
+                          }}
+                        />
+                      );
+                    })}
 
                   {/* Local video option, mirrors the subtitle screen's
                       "Add external file" entry above */}

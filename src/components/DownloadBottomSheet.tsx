@@ -313,6 +313,40 @@ const DownloadBottomSheet = ({
               </Text>
             </View>
           ) : null}
+          {(() => {
+            const rawTags: string[] = Array.isArray(item.tags)
+              ? item.tags
+              : typeof item.tag === 'string'
+              ? [item.tag]
+              : [];
+            const tags = rawTags
+              .map(t => (typeof t === 'string' ? t.trim() : ''))
+              .filter(
+                t =>
+                  Boolean(t) &&
+                  t.toLowerCase() !== item.quality?.trim().toLowerCase(),
+              );
+
+            return tags.map((t, tIdx) => (
+              <View
+                key={tIdx}
+                style={{
+                  backgroundColor: colors.surfaceContainerHighest,
+                  borderRadius: 10,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                }}>
+                <Text
+                  style={{
+                    color: colors.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: '700',
+                  }}>
+                  {t.toUpperCase()}
+                </Text>
+              </View>
+            ));
+          })()}
         </View>
 
         {/* Action buttons */}

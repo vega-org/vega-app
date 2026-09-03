@@ -307,7 +307,23 @@ const executeProvider = async (
 
   const moduleExports = module.exports as Record<string, unknown>;
   if (!exportName) {
-    return moduleExports;
+    const resolvedExports: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(moduleExports)) {
+      if (typeof value === 'function') {
+        try {
+          resolvedExports[key] = await value({
+            ...args,
+            signal: new AbortController().signal,
+            providerContext: context,
+          });
+        } catch {
+          resolvedExports[key] = value;
+        }
+      } else {
+        resolvedExports[key] = value;
+      }
+    }
+    return resolvedExports;
   }
   const providerFunction = moduleExports[exportName];
   if (typeof providerFunction !== 'function') {

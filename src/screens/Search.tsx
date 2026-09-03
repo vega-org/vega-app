@@ -11,6 +11,8 @@ import Animated, {FadeInDown} from 'react-native-reanimated';
 import {searchOMDB} from '../lib/services/omdb';
 import debounce from 'lodash/debounce';
 import {OMDBResult} from '../types/omdb';
+import {fetchIMDbSuggestions, type IMDbSuggestion} from '../lib/services/imdbSuggestions';
+import SearchSuggestions from '../components/search/SearchSuggestions';
 import Button from '../components/ui/Button';
 import IconButton from '../components/ui/IconButton';
 import AppText from '../components/ui/Text';
@@ -143,12 +145,15 @@ const Search = () => {
   const navigation =
     useNavigation<NativeStackNavigationProp<SearchStackParamList>>();
   const [searchText, setSearchText] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<IMDbSuggestion[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>(
     MMKV.getArray<string>('searchHistory') || [],
   );
   const [searchResults, setSearchResults] = useState<OMDBResult[]>([]);
   const searchFieldRef = useRef<SearchFieldRef>(null);
   const focusAfterTabResetRef = useRef(false);
+  const suppressSuggestionsRef = useRef(false);
 
   useEffect(() => {
     const tabNavigation =
@@ -186,6 +191,28 @@ const Search = () => {
     };
   }, [navigation]);
 
+  // Debounced IMDb search suggestions (spelling completer)
+  const debouncedFetchSuggestions = useCallback(
+    debounce(async (text: string) => {
+      const clean = text.trim();
+      if (clean.length >= 2 && !suppressSuggestionsRef.current) {
+        const results = await fetchIMDbSuggestions(clean);
+        setSuggestions(results);
+      } else {
+        setSuggestions([]);
+      }
+    }, 250),
+    [],
+  );
+
+  useEffect(() => {
+    debouncedFetchSuggestions(searchText);
+    return () => {
+      debouncedFetchSuggestions.cancel();
+    };
+  }, [searchText, debouncedFetchSuggestions]);
+
+  // Debounced OMDB search
   const debouncedSearch = useCallback(
     debounce(async (text: string) => {
       if (text.length >= 2) {
@@ -210,7 +237,7 @@ const Search = () => {
       } else {
         setSearchResults([]);
       }
-    }, 300), // Reduced debounce time for better responsiveness
+    }, 300),
     [],
   );
 
@@ -221,8 +248,15 @@ const Search = () => {
     };
   }, [searchText, debouncedSearch]);
 
+  const handleTextChange = useCallback((text: string) => {
+    suppressSuggestionsRef.current = false;
+    setSearchText(text);
+  }, []);
+
   const handleSearch = useCallback(
     (text: string) => {
+      suppressSuggestionsRef.current = true;
+      setSuggestions([]);
       if (text.trim()) {
         // Save to search history
         const prevSearches = MMKV.getArray<string>('searchHistory') || [];
@@ -242,6 +276,14 @@ const Search = () => {
     },
     [navigation],
   );
+
+  const handleSelectSuggestion = useCallback((title: string) => {
+    // Auto-fill search bar on click without executing search
+    suppressSuggestionsRef.current = true;
+    setSuggestions([]);
+    setSearchText(title);
+    searchFieldRef.current?.focus();
+  }, []);
 
   const removeHistoryItem = useCallback(
     (search: string) => {
@@ -306,6 +348,9 @@ const Search = () => {
     [],
   );
 
+  const showSuggestions =
+    searchText.trim().length >= 2 && suggestions.length > 0;
+
   // Conditionally render animations based on state
   const AnimatedContainer = Animated.View;
 
@@ -315,9 +360,6 @@ const Search = () => {
       <AnimatedContainer
         entering={FadeInDown.duration(300)}
         className="px-4 pt-5">
-        {/* <AppText
-          role="headlineLargeEmphasized"
-          className="mb-1 text-m3-on-background"></AppText> */}
         <AppText
           role="bodyLarge"
           style={{color: colors.onSurfaceVariant, marginBottom: 18}}>
@@ -328,8 +370,9 @@ const Search = () => {
             <SearchField
               ref={searchFieldRef}
               value={searchText}
-              onChangeText={setSearchText}
+              onChangeText={handleTextChange}
               onSubmit={handleSearch}
+              onFocusChange={setIsFocused}
               placeholder="Search anime..."
             />
           </View>
@@ -337,16 +380,25 @@ const Search = () => {
             <IconButton
               icon="close"
               label="Clear search"
-              onPress={() => setSearchText('')}
+              onPress={() => {
+                suppressSuggestionsRef.current = false;
+                setSearchText('');
+                setSuggestions([]);
+              }}
               size={18}
             />
           )}
         </View>
       </AnimatedContainer>
 
-      {/* Search Results */}
+      {/* Search Content */}
       <View className="flex-1">
-        {searchResults.length > 0 ? (
+        {showSuggestions ? (
+          <SearchSuggestions
+            suggestions={suggestions}
+            onSelectSuggestion={handleSelectSuggestion}
+          />
+        ) : searchResults.length > 0 ? (
           <FlatList
             data={searchResults}
             keyExtractor={searchResultKeyExtractor}
@@ -358,6 +410,7 @@ const Search = () => {
             updateCellsBatchingPeriod={50}
             windowSize={10}
             initialNumToRender={10}
+            keyboardShouldPersistTaps="handled"
           />
         ) : searchHistory.length > 0 ? (
           <AnimatedContainer
@@ -385,6 +438,7 @@ const Search = () => {
               updateCellsBatchingPeriod={50}
               windowSize={10}
               initialNumToRender={10}
+              keyboardShouldPersistTaps="handled"
             />
           </AnimatedContainer>
         ) : (

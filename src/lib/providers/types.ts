@@ -15,6 +15,10 @@ export interface Post {
   link: string;
   image: string;
   provider?: string;
+  aspectRatio?: number | string;
+  borderRadius?: number;
+  tag?: string;
+  cornerTag?: string;
 }
 
 export declare enum TextTrackType {
@@ -41,7 +45,9 @@ export interface Stream {
   server: string;
   link: string;
   type: string;
-  quality?: '360' | '480' | '720' | '1080' | '2160';
+  quality?: '360' | '480' | '720' | '1080' | '2160' | string;
+  tag?: string;
+  tags?: string[];
   subtitles?: TextTracks;
   headers?: any;
   skip?: SkipInterval[];
@@ -100,10 +106,14 @@ export interface Catalog {
   filter: string;
 }
 
+export type CatalogList =
+  | Catalog[]
+  | ((params?: { signal?: AbortSignal; providerContext?: ProviderContext }) => Promise<Catalog[]> | Catalog[]);
+
 export interface ProviderType {
   searchFilter?: string;
-  catalog: Catalog[];
-  genres: Catalog[];
+  catalog: CatalogList;
+  genres: CatalogList;
   blurImage?: boolean;
   nonStreamableServer?: string[];
   nonDownloadableServer?: string[];

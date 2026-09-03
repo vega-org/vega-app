@@ -1,5 +1,5 @@
 import {View, TouchableOpacity, useWindowDimensions} from 'react-native';
-import React, {useEffect, useState, useRef} from 'react';
+import React, {useEffect, useState, useRef, useMemo} from 'react';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {HomeStackParamList, SearchStackParamList} from '../App';
 import {Post} from '../lib/providers/types';
@@ -9,10 +9,13 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import useContentStore from '../lib/zustand/contentStore';
 import {settingsStorage} from '../lib/storage';
 import {FlashList} from '@shopify/flash-list';
+import {BlurView} from 'expo-blur';
 import SkeletonLoader from '../components/Skeleton';
 import {providerManager} from '../lib/services/ProviderManager';
 import IconButton from '../components/ui/IconButton';
 import AppText from '../components/ui/Text';
+import {useM3Colors} from '../theme/M3PaletteContext';
+import {parseAspectRatio} from '../components/MediaPosterCard';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ScrollList'>;
 
@@ -28,6 +31,7 @@ const GRID_ITEM_MARGIN = 12;
 const GRID_POSTER_ASPECT_RATIO = GRID_POSTER_HEIGHT / GRID_POSTER_WIDTH;
 
 const ScrollList = ({route}: Props): React.ReactElement => {
+  const colors = useM3Colors();
   const {width: windowWidth} = useWindowDimensions();
   const navigation =
     useNavigation<NativeStackNavigationProp<SearchStackParamList>>();
@@ -41,17 +45,29 @@ const ScrollList = ({route}: Props): React.ReactElement => {
     settingsStorage.getListViewType(),
   );
 
-  // Derive the grid from the available width instead of hardcoding 3 columns.
-  // With a fixed column count, wide screens stretch each cell far past the
-  // poster width, which is what produced the large gaps between posters.
+  // Compute dominant aspect ratio from posts to size grid columns appropriately
+  const dominantRatio = useMemo(() => {
+    const postWithRatio = posts.find(p => p && p.aspectRatio != null);
+    return postWithRatio
+      ? parseAspectRatio(postWithRatio.aspectRatio, 2 / 3)
+      : 2 / 3;
+  }, [posts]);
+
+  // Derive the grid from the available width and aspect ratio
   const gridAvailableWidth = windowWidth - GRID_SCREEN_PADDING * 2;
+  const isLandscapeCatalog = dominantRatio > 1.2;
+  const targetPosterWidth = isLandscapeCatalog ? 160 : GRID_POSTER_WIDTH;
+  const minColumns = isLandscapeCatalog
+    ? (windowWidth < 360 ? 1 : 2)
+    : (windowWidth < 350 ? 2 : 3);
   const gridColumns = Math.max(
-    3,
-    Math.floor(gridAvailableWidth / (GRID_POSTER_WIDTH + GRID_ITEM_MARGIN * 2)),
+    minColumns,
+    Math.floor(
+      gridAvailableWidth / (targetPosterWidth + GRID_ITEM_MARGIN * 2),
+    ),
   );
   const gridPosterWidth =
-    gridAvailableWidth / gridColumns - GRID_ITEM_MARGIN * 2;
-  const gridPosterHeight = gridPosterWidth * GRID_POSTER_ASPECT_RATIO;
+    Math.floor(gridAvailableWidth / gridColumns) - GRID_ITEM_MARGIN * 2;
   const numColumns = viewType === 1 ? gridColumns : 1;
 
   // Add abort controller to cancel API requests when unmounting
@@ -155,26 +171,32 @@ const ScrollList = ({route}: Props): React.ReactElement => {
   const listData: ListItem[] =
     posts.length === 0 && isLoading ? skeletons : posts;
 
-  const renderSkeletonItem = () => (
-    <View
-      className={
-        viewType === 1
-          ? 'flex flex-col m-3 items-center'
-          : 'flex-row m-3 items-center'
-      }>
-      <SkeletonLoader
-        height={viewType === 1 ? gridPosterHeight : LIST_POSTER_HEIGHT}
-        width={viewType === 1 ? gridPosterWidth : LIST_POSTER_WIDTH}
-        marginVertical={0}
-      />
-      <SkeletonLoader
-        height={viewType === 1 ? 12 : 18}
-        width={viewType === 1 ? gridPosterWidth : '65%'}
-        marginVertical={viewType === 1 ? 8 : 0}
-        style={viewType === 1 ? undefined : {marginLeft: 12}}
-      />
-    </View>
-  );
+  const renderSkeletonItem = () => {
+    const defaultSkeletonHeight = Math.round(gridPosterWidth / dominantRatio);
+    const listSkeletonWidth = dominantRatio > 1.2 ? 110 : LIST_POSTER_WIDTH;
+    const listSkeletonHeight = Math.round(listSkeletonWidth / dominantRatio);
+
+    return (
+      <View
+        className={
+          viewType === 1
+            ? 'flex flex-col m-3 items-center'
+            : 'flex-row m-3 items-center'
+        }>
+        <SkeletonLoader
+          height={viewType === 1 ? defaultSkeletonHeight : listSkeletonHeight}
+          width={viewType === 1 ? gridPosterWidth : listSkeletonWidth}
+          marginVertical={0}
+        />
+        <SkeletonLoader
+          height={viewType === 1 ? 12 : 18}
+          width={viewType === 1 ? gridPosterWidth : '65%'}
+          marginVertical={viewType === 1 ? 8 : 0}
+          style={viewType === 1 ? undefined : {marginLeft: 12}}
+        />
+      </View>
+    );
+  };
 
   // The footer sits outside the grid, so it is not laid out into columns.
   // Render a full row of placeholders instead of a single stray one.
@@ -216,7 +238,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
           }
           data={listData}
           numColumns={numColumns}
-          key={`view-type-${viewType}-${numColumns}`}
+          key={`view-type-${viewType}-${numColumns}-${Math.round(dominantRatio * 100)}`}
           contentContainerStyle={{paddingBottom: 80}}
           keyExtractor={(item, i) =>
             'isSkeleton' in item ? item.id : `${item.title}-${i}`
@@ -226,8 +248,25 @@ const ScrollList = ({route}: Props): React.ReactElement => {
               return renderSkeletonItem();
             }
 
+            const itemRatio = parseAspectRatio(item.aspectRatio, dominantRatio);
+            const cardHeight = Math.round(gridPosterWidth / itemRatio);
+            const activeBorderRadius =
+              typeof item.borderRadius === 'number' && item.borderRadius >= 0
+                ? item.borderRadius
+                : 10;
+            const rawTag =
+              item.cornerTag ??
+              item.tag ??
+              (item as any).badge ??
+              (item as any).rating;
+            const activeTag = rawTag != null ? String(rawTag).trim() : '';
+
+            const listWidth = itemRatio > 1.2 ? 110 : LIST_POSTER_WIDTH;
+            const listHeight = Math.round(listWidth / itemRatio);
+
             return (
               <TouchableOpacity
+                activeOpacity={0.78}
                 className={
                   viewType === 1
                     ? 'flex flex-col m-3 items-center'
@@ -240,27 +279,80 @@ const ScrollList = ({route}: Props): React.ReactElement => {
                     poster: item?.image,
                   })
                 }>
-                <Image
-                  className="rounded-md"
-                  source={{
-                    uri:
-                      item.image ||
-                      'https://placehold.jp/24/363636/ffffff/100x150.png?text=Vega',
-                  }}
-                  style={
-                    viewType === 1
-                      ? {width: gridPosterWidth, height: gridPosterHeight}
-                      : {width: LIST_POSTER_WIDTH, height: LIST_POSTER_HEIGHT}
-                  }
-                />
+                <View
+                  style={{
+                    position: 'relative',
+                    width: viewType === 1 ? gridPosterWidth : listWidth,
+                    height: viewType === 1 ? cardHeight : listHeight,
+                    borderRadius: activeBorderRadius,
+                    overflow: 'hidden',
+                    backgroundColor: colors.surfaceContainerHigh,
+                  }}>
+                  <Image
+                    source={{
+                      uri:
+                        item.image ||
+                        'https://placehold.jp/24/363636/ffffff/100x150.png?text=Vega',
+                    }}
+                    resizeMode="cover"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                    }}
+                  />
+                  {activeTag.length > 0 ? (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: 5,
+                        right: 5,
+                        borderRadius: 5,
+                        overflow: 'hidden',
+                        zIndex: 10,
+                        elevation: 6,
+                        backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                        shadowColor: '#000',
+                        shadowOffset: {width: 0, height: 2},
+                        shadowOpacity: 0.35,
+                        shadowRadius: 4,
+                      }}>
+                      <BlurView
+                        intensity={45}
+                        tint="systemMaterialDark"
+                        style={{
+                          backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                        }}>
+                        <AppText
+                          role="labelSmallEmphasized"
+                          style={{
+                            color: '#FFFFFF',
+                            fontWeight: '800',
+                            fontSize: 9.5,
+                            letterSpacing: 0.5,
+                            textShadowColor: 'rgba(0, 0, 0, 0.85)',
+                            textShadowOffset: {width: 0, height: 1},
+                            textShadowRadius: 3,
+                          }}>
+                          {activeTag.toUpperCase()}
+                        </AppText>
+                      </BlurView>
+                    </View>
+                  ) : null}
+                </View>
                 <AppText
                   role={viewType === 1 ? 'bodySmall' : 'bodyLargeEmphasized'}
                   numberOfLines={2}
-                  style={viewType === 1 ? {width: gridPosterWidth} : undefined}
+                  style={
+                    viewType === 1
+                      ? {width: gridPosterWidth, marginTop: 6}
+                      : undefined
+                  }
                   className={
                     viewType === 1
                       ? 'text-m3-on-surface text-center'
-                      : 'ml-3 w-72 text-m3-on-surface'
+                      : 'ml-3.5 flex-1 text-m3-on-surface'
                   }>
                   {item.title}
                 </AppText>

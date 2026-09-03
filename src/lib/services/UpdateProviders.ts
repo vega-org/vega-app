@@ -76,6 +76,12 @@ class UpdateProvidersService {
             await extensionManager.fetchManifest(source, force);
           sources.set(author, availableProviders);
         } catch (error) {
+          const isRateLimit =
+            error instanceof Error &&
+            error.message.includes('rate limit');
+          if (isRateLimit) {
+            throw error;
+          }
           console.warn(`Failed to fetch source ${author} for updates:`, error);
           sources.set(author, []);
         }
@@ -111,6 +117,12 @@ class UpdateProvidersService {
       return updateInfos;
     } catch (error) {
       console.error('Error checking for updates:', error);
+      if (
+        error instanceof Error &&
+        error.message.includes('rate limit')
+      ) {
+        throw error;
+      }
       return [];
     }
   }
@@ -123,6 +135,12 @@ class UpdateProvidersService {
       await extensionManager.updateProvider(provider);
       return true;
     } catch (error) {
+      const isRateLimit =
+        error instanceof Error &&
+        error.message.includes('rate limit');
+      if (isRateLimit) {
+        throw error;
+      }
       console.error('Error updating provider:', error);
       return false;
     }
@@ -191,15 +209,28 @@ class UpdateProvidersService {
    * Check for updates and automatically start updating if updates are available
    */
   async checkForUpdatesAndAutoUpdate(): Promise<UpdateInfo[]> {
-    const updateInfos = await this.checkForUpdates();
-    const availableUpdates = updateInfos.filter(info => info.hasUpdate);
-    if (availableUpdates.length > 0) {
-      // Automatically start updating instead of just showing notification.
-      const providersToUpdate = availableUpdates.map(update => update.provider);
-      const showNotifications = settingsStorage.isNotificationsEnabled();
-      await this.updateProviders(providersToUpdate, {showNotifications});
+    try {
+      const updateInfos = await this.checkForUpdates();
+      const availableUpdates = updateInfos.filter(info => info.hasUpdate);
+      if (availableUpdates.length > 0) {
+        const providersToUpdate = availableUpdates.map(update => update.provider);
+        const showNotifications = settingsStorage.isNotificationsEnabled();
+        await this.updateProviders(providersToUpdate, {showNotifications});
+      }
+      return updateInfos;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes('rate limit')
+      ) {
+        await notificationService.displayUpdateNotification({
+          id: 'rate-limit-warning',
+          title: 'Rate Limited',
+          body: error.message,
+        });
+      }
+      throw error;
     }
-    return updateInfos;
   }
 
   /**

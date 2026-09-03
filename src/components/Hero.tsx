@@ -9,17 +9,23 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {Image, Keyboard, Pressable, View} from 'react-native';
+import {Image, Modal, Pressable, View} from 'react-native';
 import {getColors} from 'react-native-image-colors';
 import LinearGradient from 'react-native-linear-gradient';
 import Animated, {FadeIn, FadeInDown} from 'react-native-reanimated';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import debounce from 'lodash/debounce';
 import {HomeStackParamList} from '../App';
 import {useHeroMetadata} from '../lib/hooks/useHomePageData';
 import useContentStore from '../lib/zustand/contentStore';
 import useHeroStore from '../lib/zustand/herostore';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {mixHex} from '../theme/seeds';
+import {
+  fetchIMDbSuggestions,
+  type IMDbSuggestion,
+} from '../lib/services/imdbSuggestions';
+import SearchSuggestions from './search/SearchSuggestions';
 import Button from './ui/Button';
 import SearchField, {type SearchFieldRef} from './ui/SearchField';
 import AppText from './ui/Text';
@@ -79,6 +85,7 @@ const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
   const [logoFailed, setLogoFailed] = useState(false);
   const [searchActive, setSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [suggestions, setSuggestions] = useState<IMDbSuggestion[]>([]);
   const [searchButtonColor, setSearchButtonColor] = useState('#FFFFFF');
   const searchFieldRef = useRef<SearchFieldRef>(null);
   const provider = useContentStore(state => state.provider);
@@ -119,12 +126,45 @@ const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
     return () => cancelAnimationFrame(frame);
   }, [searchActive]);
 
-  useEffect(() => {
-    const subscription = Keyboard.addListener('keyboardDidHide', () => {
-      setSearchActive(false);
-    });
-    return () => subscription.remove();
+  const suppressSuggestionsRef = useRef(false);
+
+  // Debounced IMDb search suggestions for home page search
+  const debouncedFetchSuggestions = useCallback(
+    debounce(async (text: string) => {
+      const clean = text.trim();
+      if (clean.length >= 2 && !suppressSuggestionsRef.current) {
+        const results = await fetchIMDbSuggestions(clean);
+        setSuggestions(results);
+      } else {
+        setSuggestions([]);
+      }
+    }, 250),
+    [],
+  );
+
+  const handleTextChange = useCallback((text: string) => {
+    suppressSuggestionsRef.current = false;
+    setSearchText(text);
   }, []);
+
+  const handleSelectSuggestion = useCallback((title: string) => {
+    // Fill the search bar with suggestion without executing search
+    suppressSuggestionsRef.current = true;
+    setSuggestions([]);
+    setSearchText(title);
+    searchFieldRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (searchActive && searchText.trim().length >= 2) {
+      debouncedFetchSuggestions(searchText);
+    } else {
+      setSuggestions([]);
+    }
+    return () => {
+      debouncedFetchSuggestions.cancel();
+    };
+  }, [searchText, searchActive, debouncedFetchSuggestions]);
 
   const updateSearchButtonColor = useCallback(async () => {
     if (!imageUri) {
@@ -179,6 +219,8 @@ const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
         return;
       }
       setSearchActive(false);
+      setSearchText('');
+      setSuggestions([]);
       if (/^https?:\/\//i.test(query)) {
         navigation.navigate('Info', {
           link: query,
@@ -240,33 +282,19 @@ const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
           right: 16,
           top: insets.top + 6,
         }}>
-        {searchActive ? (
-          <Animated.View entering={FadeIn.duration(180)} style={{flex: 1}}>
-            <SearchField
-              ref={searchFieldRef}
-              value={searchText}
-              onChangeText={setSearchText}
-              onSubmit={submitProviderSearch}
-              placeholder={`Search in ${provider.display_name}`}
-            />
-          </Animated.View>
-        ) : (
-          <>
-            <HeroTopButton
-              icon="menu"
-              iconColor={searchButtonColor}
-              label="Open provider drawer"
-              disabled={isDrawerOpen}
-              onPress={onOpenDrawer}
-            />
-            <HeroTopButton
-              icon="magnify"
-              iconColor={searchButtonColor}
-              label={`Search in ${provider.display_name}`}
-              onPress={() => setSearchActive(true)}
-            />
-          </>
-        )}
+        <HeroTopButton
+          icon="menu"
+          iconColor={searchButtonColor}
+          label="Open provider drawer"
+          disabled={isDrawerOpen}
+          onPress={onOpenDrawer}
+        />
+        <HeroTopButton
+          icon="magnify"
+          iconColor={searchButtonColor}
+          label={`Search in ${provider.display_name}`}
+          onPress={() => setSearchActive(true)}
+        />
       </View>
 
       <Animated.View
@@ -355,6 +383,95 @@ const Hero = memo(({isDrawerOpen, onOpenDrawer}: HeroProps) => {
           </AppText>
         ) : null}
       </Animated.View>
+
+      {/* Full-screen Search Overlay with Auto-completion Suggestions */}
+      <Modal
+        visible={searchActive}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          setSearchActive(false);
+          setSearchText('');
+          setSuggestions([]);
+        }}>
+        <SafeAreaView
+          style={{flex: 1, backgroundColor: colors.background}}
+          edges={['top', 'left', 'right']}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingTop: 8,
+              paddingBottom: 10,
+              gap: 8,
+            }}>
+            <Pressable
+              accessibilityLabel="Close search"
+              accessibilityRole="button"
+              onPress={() => {
+                setSearchActive(false);
+                setSearchText('');
+                setSuggestions([]);
+              }}
+              style={({pressed}) => ({
+                alignItems: 'center',
+                height: 48,
+                justifyContent: 'center',
+                opacity: pressed ? 0.62 : 1,
+                width: 44,
+              })}>
+              <MaterialCommunityIcons
+                name="arrow-left"
+                size={26}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            <View style={{flex: 1}}>
+              <SearchField
+                ref={searchFieldRef}
+                value={searchText}
+                onChangeText={handleTextChange}
+                onSubmit={submitProviderSearch}
+                placeholder={`Search in ${provider.display_name}...`}
+              />
+            </View>
+
+            {searchText.length > 0 && (
+              <Pressable
+                accessibilityLabel="Clear search"
+                accessibilityRole="button"
+                onPress={() => {
+                  suppressSuggestionsRef.current = false;
+                  setSearchText('');
+                  setSuggestions([]);
+                }}
+                style={({pressed}) => ({
+                  alignItems: 'center',
+                  height: 48,
+                  justifyContent: 'center',
+                  opacity: pressed ? 0.62 : 1,
+                  width: 36,
+                })}>
+                <MaterialCommunityIcons
+                  name="close"
+                  size={22}
+                  color={colors.onSurfaceVariant}
+                />
+              </Pressable>
+            )}
+          </View>
+
+          {/* Real-time Search Suggestions */}
+          <View style={{flex: 1}}>
+            <SearchSuggestions
+              suggestions={suggestions}
+              onSelectSuggestion={handleSelectSuggestion}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 });

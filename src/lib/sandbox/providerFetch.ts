@@ -1,3 +1,4 @@
+import {NativeModules, Platform} from 'react-native';
 import axios, {type AxiosRequestConfig} from 'axios';
 import {headers as commonHeaders} from '../providers/headers';
 import {getCookieHeader, setCookieString} from '../services/cookieManager';
@@ -135,6 +136,47 @@ export const providerFetch = async (
       }
     }
 
+    if (Platform.OS === 'android' && NativeModules.ProviderHttpModule?.fetch) {
+      const headerPairs: Array<[string, string]> = Object.entries(headers);
+      const options: Record<string, any> = {
+        method: (request.method || 'GET').toUpperCase(),
+        headers: headerPairs,
+        redirect: request.redirect || 'follow',
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      };
+      if (body.kind === 'base64') {
+        options.bodyBase64 = body.value;
+        if (body.contentType) options.contentType = body.contentType;
+      } else if (body.kind === 'text') {
+        options.bodyText = body.value;
+      }
+
+      const res = await NativeModules.ProviderHttpModule.fetch(url.toString(), options);
+      const finalUrl: string = res.url || url.toString();
+      try {
+        const resolved = new URL(finalUrl);
+        if (isPrivateHostname(resolved.hostname)) {
+          throw new Error('Provider request redirected to a blocked host');
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('blocked host')) {
+          throw error;
+        }
+      }
+
+      return {
+        status: res.status,
+        statusText: res.statusText || '',
+        url: finalUrl,
+        headers: res.headers || [],
+        bodyBase64: res.bodyBase64 || '',
+      };
+    }
+
+    const abortController = new AbortController();
+    const isManualRedirect = request.redirect === 'manual';
+    let abortedEarly = false;
+
     const config: AxiosRequestConfig = {
       url: url.toString(),
       method: (
@@ -144,13 +186,40 @@ export const providerFetch = async (
       data: toAxiosBody(body),
       responseType: 'arraybuffer',
       timeout: REQUEST_TIMEOUT_MS,
-      maxRedirects: request.redirect === 'manual' ? 0 : 5,
+      maxRedirects: isManualRedirect ? 0 : 5,
+      signal: abortController.signal,
       // Providers inspect non-2xx responses (WAF detection), so never throw.
       validateStatus: () => true,
       transformResponse: [],
+      onDownloadProgress: (progressEvent: any) => {
+        if (
+          (isManualRedirect && progressEvent.loaded > 0) ||
+          progressEvent.loaded > MAX_RESPONSE_BYTES ||
+          (progressEvent.total && progressEvent.total > MAX_RESPONSE_BYTES)
+        ) {
+          abortedEarly = true;
+          abortController.abort();
+        }
+      },
     };
 
-    const response = await axios.request(config);
+    let response: any;
+    try {
+      response = await axios.request(config);
+    } catch (err: any) {
+      if (axios.isCancel(err) || err.name === 'CanceledError' || err.name === 'AbortError' || abortedEarly) {
+        abortedEarly = true;
+        response = err.response || {
+          status: isManualRedirect ? 302 : 200,
+          statusText: isManualRedirect ? 'Found' : 'OK',
+          headers: {},
+          data: new Uint8Array(0),
+          request: err.request,
+        };
+      } else {
+        throw err;
+      }
+    }
 
     const finalUrl: string =
       (response.request?.responseURL as string | undefined) || url.toString();
@@ -171,11 +240,16 @@ export const providerFetch = async (
       throw new Error('Provider response is too large');
     }
 
+    const resHeaders = flattenResponseHeaders(response.headers);
+    if (isManualRedirect && finalUrl && !resHeaders.some(([k]) => k.toLowerCase() === 'location')) {
+      resHeaders.push(['location', finalUrl]);
+    }
+
     return {
       status: response.status,
       statusText: response.statusText ?? '',
       url: finalUrl,
-      headers: flattenResponseHeaders(response.headers),
+      headers: resHeaders,
       bodyBase64: bytesToBase64(bytes),
     };
   } finally {

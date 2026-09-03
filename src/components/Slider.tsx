@@ -8,7 +8,7 @@ import {useNavigation} from '@react-navigation/native';
 import {HomeStackParamList} from '../App';
 import useContentStore from '../lib/zustand/contentStore';
 import SkeletonLoader from './Skeleton';
-import MediaPosterCard from './MediaPosterCard';
+import MediaPosterCard, {parseAspectRatio} from './MediaPosterCard';
 import {useM3Colors} from '../theme/M3PaletteContext';
 
 import AppText from './ui/Text';
@@ -58,14 +58,22 @@ const Slider = ({
   );
 
   const renderItem = useCallback(
-    ({item}: {item: Post}) => (
-      <MediaPosterCard
-        title={item.title}
-        poster={item.image}
-        width={124}
-        onPress={() => handleItemPress(item)}
-      />
-    ),
+    ({item}: {item: Post}) => {
+      const ratio = parseAspectRatio(item.aspectRatio, 2 / 3);
+      const cardWidth = ratio > 1.2 ? 220 : ratio > 0.85 ? 150 : 124;
+
+      return (
+        <MediaPosterCard
+          title={item.title}
+          poster={item.image}
+          width={cardWidth}
+          aspectRatio={item.aspectRatio}
+          borderRadius={item.borderRadius}
+          cornerTag={item.cornerTag || item.tag}
+          onPress={() => handleItemPress(item)}
+        />
+      );
+    },
     [handleItemPress],
   );
 
@@ -152,6 +160,7 @@ const Slider = ({
           contentContainerStyle={{
             paddingBottom: 4,
             paddingHorizontal: 20,
+            alignItems: 'flex-end',
           }}
           ItemSeparatorComponent={() => <View style={{width: 14}} />}
           renderItem={renderItem}

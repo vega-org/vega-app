@@ -93,7 +93,21 @@ export const checkForUpdate = async (
     const res = await fetch(
       'https://api.github.com/repos/Zenda-Cross/vega-app/releases/latest',
     );
+    if (res.status === 403 || res.status === 429) {
+      ToastAndroid.show(
+        'GitHub API rate limit exceeded. Please wait a few minutes before trying again.',
+        ToastAndroid.LONG,
+      );
+      setUpdateLoading(false);
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(`GitHub release check failed with status ${res.status}`);
+    }
     const data = await res.json();
+    if (!data?.tag_name) {
+      throw new Error('Invalid release data received from GitHub');
+    }
     const localVersion = Application.nativeApplicationVersion;
     const remoteVersion = Number(
       data.tag_name.replace('v', '')?.split('.').join(''),
@@ -142,7 +156,13 @@ export const checkForUpdate = async (
       );
     }
   } catch (error) {
-    ToastAndroid.show('Failed to check for update', ToastAndroid.SHORT);
+    const isRateLimit =
+      error instanceof Error &&
+      error.message.toLowerCase().includes('rate limit');
+    const msg = isRateLimit
+      ? 'GitHub API rate limit exceeded. Please wait a few minutes before trying again.'
+      : 'Failed to check for update';
+    ToastAndroid.show(msg, ToastAndroid.SHORT);
     console.log('Update error', error);
   }
   setUpdateLoading(false);
