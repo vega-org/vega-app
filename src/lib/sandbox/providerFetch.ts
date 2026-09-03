@@ -168,7 +168,19 @@ export const providerFetch = async (
         status: res.status,
         statusText: res.statusText || '',
         url: finalUrl,
-        headers: res.headers || [],
+        headers: await (async () => {
+        const out: Array<[string, string]> = [];
+        for (const pair of (res.headers || [])) {
+          if (pair && pair.length >= 2) {
+            out.push(pair);
+            if (pair[0].toLowerCase() === 'set-cookie') {
+              out.push(['x-set-cookie', pair[1]]);
+              await setCookieString(url.toString(), pair[1]);
+            }
+          }
+        }
+        return out;
+      })(),
         bodyBase64: res.bodyBase64 || '',
       };
     }
@@ -176,6 +188,7 @@ export const providerFetch = async (
     const abortController = new AbortController();
     const isManualRedirect = request.redirect === 'manual';
     let abortedEarly = false;
+    let interceptedResponseUrl = '';
 
     const config: AxiosRequestConfig = {
       url: url.toString(),
@@ -192,6 +205,10 @@ export const providerFetch = async (
       validateStatus: () => true,
       transformResponse: [],
       onDownloadProgress: (progressEvent: any) => {
+        const xhr = progressEvent.target || progressEvent.currentTarget;
+        if (xhr?.responseURL) {
+          interceptedResponseUrl = xhr.responseURL;
+        }
         if (
           (isManualRedirect && progressEvent.loaded > 0) ||
           progressEvent.loaded > MAX_RESPONSE_BYTES ||

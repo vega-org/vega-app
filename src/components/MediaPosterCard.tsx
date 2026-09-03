@@ -1,9 +1,9 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React from 'react';
-import {Image, Pressable, View} from 'react-native';
-import Animated, {FadeInDown} from 'react-native-reanimated';
-import {BlurView} from 'expo-blur';
-import {useM3Colors} from '../theme/M3PaletteContext';
+import { Image, Pressable, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
+import { useM3Colors } from '../theme/M3PaletteContext';
 import AppText from './ui/Text';
 
 export const parseAspectRatio = (
@@ -71,14 +71,14 @@ const MediaPosterCard = ({
   return (
     <Animated.View
       entering={FadeInDown.duration(280)}
-      style={{width, alignSelf: 'flex-end'}}>
+      style={{ width, alignSelf: 'flex-end' }}>
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={350}
-        style={({pressed}) => ({
+        style={({ pressed }) => ({
           opacity: pressed ? 0.86 : 1,
-          transform: [{scale: pressed ? 0.96 : 1}],
+          transform: [{ scale: pressed ? 0.96 : 1 }],
           borderRadius: activeBorderRadius + 4,
           backgroundColor: selected
             ? colors.primaryContainer
@@ -129,7 +129,7 @@ const MediaPosterCard = ({
                 overflow: 'hidden',
                 zIndex: 5,
                 shadowColor: '#000',
-                shadowOffset: {width: 0, height: 2},
+                shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.35,
                 shadowRadius: 4,
                 elevation: 4,
@@ -138,7 +138,7 @@ const MediaPosterCard = ({
                 intensity={45}
                 tint="systemMaterialDark"
                 style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.14)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.20)',
                   paddingHorizontal: 7,
                   paddingVertical: 2.5,
                 }}>
@@ -150,7 +150,7 @@ const MediaPosterCard = ({
                     fontSize: 10,
                     letterSpacing: 0.6,
                     textShadowColor: 'rgba(0, 0, 0, 0.85)',
-                    textShadowOffset: {width: 0, height: 1},
+                    textShadowOffset: { width: 0, height: 1 },
                     textShadowRadius: 3,
                   }}>
                   {activeTag.trim().toUpperCase()}
@@ -187,7 +187,7 @@ const MediaPosterCard = ({
 
           {poster ? (
             <Image
-              source={{uri: poster}}
+              source={{ uri: poster }}
               resizeMode="cover"
               style={{
                 aspectRatio: activeAspectRatio,
@@ -205,7 +205,7 @@ const MediaPosterCard = ({
               }}>
               <AppText
                 role="headlineMediumEmphasized"
-                style={{color: colors.onSurfaceVariant}}>
+                style={{ color: colors.onSurfaceVariant }}>
                 {title.slice(0, 1).toUpperCase()}
               </AppText>
             </View>

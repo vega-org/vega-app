@@ -171,6 +171,11 @@ const sandboxAxiosAdapter: AxiosAdapter = async config => {
 
   const responseHeaders = new AxiosHeaders();
   response.headers.forEach((value, key) => responseHeaders.set(key, value));
+  const xSetCookie = response.headers.get('x-set-cookie');
+  if (xSetCookie) {
+    responseHeaders.set('set-cookie', xSetCookie);
+    responseHeaders.set('x-set-cookie', xSetCookie);
+  }
 
   let data: unknown;
   if (config.responseType === 'arraybuffer') {

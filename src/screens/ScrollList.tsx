@@ -1,25 +1,25 @@
-import {View, TouchableOpacity, useWindowDimensions} from 'react-native';
-import React, {useEffect, useState, useRef, useMemo} from 'react';
-import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {HomeStackParamList, SearchStackParamList} from '../App';
-import {Post} from '../lib/providers/types';
-import {Image} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import { View, TouchableOpacity, useWindowDimensions } from 'react-native';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { HomeStackParamList, SearchStackParamList } from '../App';
+import { Post } from '../lib/providers/types';
+import { Image } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import useContentStore from '../lib/zustand/contentStore';
-import {settingsStorage} from '../lib/storage';
-import {FlashList} from '@shopify/flash-list';
-import {BlurView} from 'expo-blur';
+import { settingsStorage } from '../lib/storage';
+import { FlashList } from '@shopify/flash-list';
+import { BlurView } from 'expo-blur';
 import SkeletonLoader from '../components/Skeleton';
-import {providerManager} from '../lib/services/ProviderManager';
+import { providerManager } from '../lib/services/ProviderManager';
 import IconButton from '../components/ui/IconButton';
 import AppText from '../components/ui/Text';
-import {useM3Colors} from '../theme/M3PaletteContext';
-import {parseAspectRatio} from '../components/MediaPosterCard';
+import { useM3Colors } from '../theme/M3PaletteContext';
+import { parseAspectRatio } from '../components/MediaPosterCard';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ScrollList'>;
 
-type ListItem = Post | {id: string; isSkeleton: true};
+type ListItem = Post | { id: string; isSkeleton: true };
 
 const GRID_POSTER_WIDTH = 100;
 const GRID_POSTER_HEIGHT = 150;
@@ -30,13 +30,13 @@ const GRID_SCREEN_PADDING = 16;
 const GRID_ITEM_MARGIN = 12;
 const GRID_POSTER_ASPECT_RATIO = GRID_POSTER_HEIGHT / GRID_POSTER_WIDTH;
 
-const ScrollList = ({route}: Props): React.ReactElement => {
+const ScrollList = ({ route }: Props): React.ReactElement => {
   const colors = useM3Colors();
-  const {width: windowWidth} = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
   const navigation =
     useNavigation<NativeStackNavigationProp<SearchStackParamList>>();
   const [posts, setPosts] = useState<Post[]>([]);
-  const {filter, providerValue} = route.params;
+  const { filter, providerValue } = route.params;
   const [page, setPage] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isEnd, setIsEnd] = useState<boolean>(false);
@@ -115,17 +115,17 @@ const ScrollList = ({route}: Props): React.ReactElement => {
 
         const getNewPosts = route.params.isSearch
           ? providerManager.getSearchPosts({
-              searchQuery: filter,
-              page,
-              providerValue: providerValue || provider.value,
-              signal,
-            })
+            searchQuery: filter,
+            page,
+            providerValue: providerValue || provider.value,
+            signal,
+          })
           : providerManager.getPosts({
-              filter,
-              page,
-              providerValue: providerValue || provider.value,
-              signal,
-            });
+            filter,
+            page,
+            providerValue: providerValue || provider.value,
+            signal,
+          });
 
         const newPosts = await getNewPosts;
 
@@ -167,7 +167,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
 
   const skeletons: ListItem[] = Array.from({
     length: viewType === 1 ? gridColumns * 3 : 6,
-  }).map((_, i) => ({id: `skeleton-${i}`, isSkeleton: true}));
+  }).map((_, i) => ({ id: `skeleton-${i}`, isSkeleton: true }));
   const listData: ListItem[] =
     posts.length === 0 && isLoading ? skeletons : posts;
 
@@ -192,7 +192,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
           height={viewType === 1 ? 12 : 18}
           width={viewType === 1 ? gridPosterWidth : '65%'}
           marginVertical={viewType === 1 ? 8 : 0}
-          style={viewType === 1 ? undefined : {marginLeft: 12}}
+          style={viewType === 1 ? undefined : { marginLeft: 12 }}
         />
       </View>
     );
@@ -202,7 +202,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
   // Render a full row of placeholders instead of a single stray one.
   const renderLoadingMoreSkeletons = () => (
     <View className={viewType === 1 ? 'flex-row flex-wrap' : ''}>
-      {Array.from({length: viewType === 1 ? gridColumns : 2}).map((_, i) => (
+      {Array.from({ length: viewType === 1 ? gridColumns : 2 }).map((_, i) => (
         <View key={`footer-skeleton-${i}`}>{renderSkeletonItem()}</View>
       ))}
     </View>
@@ -239,11 +239,11 @@ const ScrollList = ({route}: Props): React.ReactElement => {
           data={listData}
           numColumns={numColumns}
           key={`view-type-${viewType}-${numColumns}-${Math.round(dominantRatio * 100)}`}
-          contentContainerStyle={{paddingBottom: 80}}
+          contentContainerStyle={{ paddingBottom: 80 }}
           keyExtractor={(item, i) =>
             'isSkeleton' in item ? item.id : `${item.title}-${i}`
           }
-          renderItem={({item}) => {
+          renderItem={({ item }) => {
             if ('isSkeleton' in item) {
               return renderSkeletonItem();
             }
@@ -312,7 +312,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
                         elevation: 6,
                         backgroundColor: 'rgba(0, 0, 0, 0.65)',
                         shadowColor: '#000',
-                        shadowOffset: {width: 0, height: 2},
+                        shadowOffset: { width: 0, height: 2 },
                         shadowOpacity: 0.35,
                         shadowRadius: 4,
                       }}>
@@ -320,7 +320,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
                         intensity={45}
                         tint="systemMaterialDark"
                         style={{
-                          backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                          backgroundColor: 'rgba(0, 0, 0, 0.20)',
                           paddingHorizontal: 6,
                           paddingVertical: 2,
                         }}>
@@ -332,7 +332,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
                             fontSize: 9.5,
                             letterSpacing: 0.5,
                             textShadowColor: 'rgba(0, 0, 0, 0.85)',
-                            textShadowOffset: {width: 0, height: 1},
+                            textShadowOffset: { width: 0, height: 1 },
                             textShadowRadius: 3,
                           }}>
                           {activeTag.toUpperCase()}
@@ -346,7 +346,7 @@ const ScrollList = ({route}: Props): React.ReactElement => {
                   numberOfLines={2}
                   style={
                     viewType === 1
-                      ? {width: gridPosterWidth, marginTop: 6}
+                      ? { width: gridPosterWidth, marginTop: 6 }
                       : undefined
                   }
                   className={
