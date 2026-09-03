@@ -135,13 +135,32 @@ export const setCookieString = async (
   const CookieManager = getCookieManager();
   if (!CookieManager || !cookieString) return;
   try {
+    if (typeof CookieManager.setFromResponse === 'function') {
+      try {
+        await CookieManager.setFromResponse(url, cookieString);
+        await CookieManager.flush();
+        return;
+      } catch {}
+    }
+
+    const ATTRIBUTES = new Set([
+      'expires',
+      'max-age',
+      'path',
+      'domain',
+      'samesite',
+      'priority',
+      'secure',
+      'httponly',
+    ]);
+
     const parts = cookieString.split(';').map(p => p.trim()).filter(Boolean);
     for (const part of parts) {
       const eqIdx = part.indexOf('=');
       if (eqIdx > 0) {
         const name = part.slice(0, eqIdx).trim();
         const value = part.slice(eqIdx + 1).trim();
-        if (name && value) {
+        if (name && value && !ATTRIBUTES.has(name.toLowerCase())) {
           await CookieManager.set(url, {
             name,
             value,
