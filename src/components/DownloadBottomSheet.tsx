@@ -280,10 +280,9 @@ const DownloadBottomSheet = ({
         }}>
         <View
           style={{
-            alignItems: 'center',
             flex: 1,
-            flexDirection: 'row',
-            gap: 8,
+            justifyContent: 'center',
+            marginRight: 10,
           }}>
           <Text
             numberOfLines={1}
@@ -291,28 +290,9 @@ const DownloadBottomSheet = ({
               color: colors.onSurface,
               fontSize: 15,
               fontWeight: '600',
-              flexShrink: 1,
             }}>
-            {item.server}
+            {item.server || 'Unknown Server'}
           </Text>
-          {item.quality ? (
-            <View
-              style={{
-                backgroundColor: colors.secondaryContainer,
-                borderRadius: 10,
-                paddingHorizontal: 8,
-                paddingVertical: 3,
-              }}>
-              <Text
-                style={{
-                  color: colors.onSecondaryContainer,
-                  fontSize: 11,
-                  fontWeight: '700',
-                }}>
-                {formatQualityLabel(item.quality)}
-              </Text>
-            </View>
-          ) : null}
           {(() => {
             const rawTags: string[] = Array.isArray(item.tags)
               ? item.tags
@@ -327,30 +307,72 @@ const DownloadBottomSheet = ({
                   t.toLowerCase() !== item.quality?.trim().toLowerCase(),
               );
 
-            return tags.map((t, tIdx) => (
+            const hasQuality = Boolean(item.quality);
+            const hasTags = tags.length > 0;
+
+            if (!hasQuality && !hasTags) {
+              return null;
+            }
+
+            return (
               <View
-                key={tIdx}
                 style={{
-                  backgroundColor: colors.surfaceContainerHighest,
-                  borderRadius: 10,
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  marginTop: 4,
                 }}>
-                <Text
-                  style={{
-                    color: colors.onSurfaceVariant,
-                    fontSize: 11,
-                    fontWeight: '700',
-                  }}>
-                  {t.toUpperCase()}
-                </Text>
+                {item.quality ? (
+                  <View
+                    style={{
+                      backgroundColor: colors.secondaryContainer,
+                      borderRadius: 8,
+                      paddingHorizontal: 7,
+                      paddingVertical: 2,
+                    }}>
+                    <Text
+                      style={{
+                        color: colors.onSecondaryContainer,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}>
+                      {formatQualityLabel(item.quality)}
+                    </Text>
+                  </View>
+                ) : null}
+                {tags.map((t, tIdx) => (
+                  <View
+                    key={tIdx}
+                    style={{
+                      backgroundColor: colors.surfaceContainerHighest,
+                      borderRadius: 8,
+                      paddingHorizontal: 7,
+                      paddingVertical: 2,
+                    }}>
+                    <Text
+                      style={{
+                        color: colors.onSurfaceVariant,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}>
+                      {t.toUpperCase()}
+                    </Text>
+                  </View>
+                ))}
               </View>
-            ));
+            );
           })()}
         </View>
 
         {/* Action buttons */}
-        <View style={{ alignItems: 'center', flexDirection: 'row', gap: 6 }}>
+        <View
+          style={{
+            alignItems: 'center',
+            flexDirection: 'row',
+            gap: 6,
+            flexShrink: 0,
+          }}>
           {/* Copy Button */}
           <TouchableOpacity
             activeOpacity={0.7}
@@ -558,6 +580,7 @@ const DownloadBottomSheet = ({
                       flexDirection: 'row',
                       gap: 8,
                       flex: 1,
+                      marginRight: 10,
                     }}>
                     <Text
                       numberOfLines={1}
@@ -594,6 +617,7 @@ const DownloadBottomSheet = ({
                       alignItems: 'center',
                       flexDirection: 'row',
                       gap: 6,
+                      flexShrink: 0,
                     }}>
                     {/* Copy Subtitle Link Button */}
                     <TouchableOpacity
