@@ -91,6 +91,7 @@ export enum SettingsKeys {
 
   // Remote Playback
   ALWAYS_CAST_MODE = 'alwaysCastMode',
+  ASK_LOCAL_FILE_FIRST = 'askLocalFileFirst',
   TORRENT_FULL_DOWNLOAD = 'torrentFullDownload',
 }
 
@@ -157,6 +158,18 @@ export class SettingsStorage {
 
   setAlwaysCastMode(enabled: boolean): void {
     mainStorage.setBool(SettingsKeys.ALWAYS_CAST_MODE, enabled);
+  }
+
+  /**
+   * On (default): tapping a movie/episode first offers to play a file from
+   * this device, and only loads online streams if the user declines.
+   */
+  isAskLocalFileFirst(): boolean {
+    return mainStorage.getBool(SettingsKeys.ASK_LOCAL_FILE_FIRST, true);
+  }
+
+  setAskLocalFileFirst(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.ASK_LOCAL_FILE_FIRST, enabled);
   }
 
   /** Off: a torrent downloads only about a minute ahead of playback. */

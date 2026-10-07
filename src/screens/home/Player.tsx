@@ -66,6 +66,7 @@ import {FlashList} from '@shopify/flash-list';
 import SearchSubtitles from '../../components/SearchSubtitles';
 import {
   isLocalPath,
+  getCompletedDownloadPathSync,
   useStream,
   useVideoSettings,
 } from '../../lib/hooks/useStream';
@@ -754,6 +755,62 @@ const Player = ({route}: Props): React.JSX.Element => {
   // Search subtitles state
   const [searchQuery, setSearchQuery] = useState('');
 
+  const continueWatchingId = route.params.infoUrl || activeEpisode?.link;
+  const activeEpisodeKey = useMemo(
+    () =>
+      getLocalVideoAssociationKey({
+        episode: activeEpisode,
+        provider: route.params.providerValue || provider.value,
+        infoUrl: continueWatchingId,
+      }),
+    [
+      activeEpisode,
+      continueWatchingId,
+      provider.value,
+      route.params.providerValue,
+    ],
+  );
+  const localVideoForEpisode = activeEpisodeKey
+    ? localVideoAssociations[activeEpisodeKey]
+    : undefined;
+
+  // Per-episode choice made on the "play a local file?" prompt.
+  //  - pending: waiting for the user, nothing is fetched yet
+  //  - local:   a device file is (or will be) playing, online streams stay
+  //             unloaded until the Server tab or an error needs them
+  //  - online:  stream list is fetched from the provider as before
+  const [localDecisions, setLocalDecisions] = useState<
+    Record<string, 'local' | 'online'>
+  >({});
+  const skipLocalPrompt = useMemo(
+    () =>
+      isTV ||
+      !settingsStorage.isAskLocalFileFirst() ||
+      Boolean((route.params as any)?.alwaysCast) ||
+      settingsStorage.isAlwaysCastMode() ||
+      Boolean(getCompletedDownloadPathSync(activeEpisode, route.params)),
+    [activeEpisode, route.params],
+  );
+  const localDecision: 'pending' | 'local' | 'online' =
+    (activeEpisodeKey ? localDecisions[activeEpisodeKey] : undefined) ??
+    (localVideoForEpisode?.uri
+      ? 'local'
+      : skipLocalPrompt || !activeEpisodeKey
+        ? 'online'
+        : 'pending');
+  const localDecisionRef = useRef(localDecision);
+  localDecisionRef.current = localDecision;
+  const activeEpisodeKeyRef = useRef(activeEpisodeKey);
+  activeEpisodeKeyRef.current = activeEpisodeKey;
+  const markStreamsOnline = useCallback(() => {
+    const key = activeEpisodeKeyRef.current;
+    if (key) {
+      setLocalDecisions(prev =>
+        prev[key] === 'online' ? prev : {...prev, [key]: 'online'},
+      );
+    }
+  }, []);
+
   // Custom hooks for stream management
   const {
     streamData,
@@ -768,6 +825,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     activeEpisode,
     routeParams: route.params,
     provider: provider.value,
+    enabled: localDecision === 'online',
   });
 
   // Custom hooks for video settings
@@ -789,24 +847,6 @@ const Player = ({route}: Props): React.JSX.Element => {
     resetVideoTracks,
   } = useVideoSettings();
   const isFullScreenRef = useRef(isFullScreen);
-  const continueWatchingId = route.params.infoUrl || activeEpisode?.link;
-  const activeEpisodeKey = useMemo(
-    () =>
-      getLocalVideoAssociationKey({
-        episode: activeEpisode,
-        provider: route.params.providerValue || provider.value,
-        infoUrl: continueWatchingId,
-      }),
-    [
-      activeEpisode,
-      continueWatchingId,
-      provider.value,
-      route.params.providerValue,
-    ],
-  );
-  const localVideoForEpisode = activeEpisodeKey
-    ? localVideoAssociations[activeEpisodeKey]
-    : undefined;
   const syncedContinueWatching = useMemo(
     () => continueWatchingItems.find(item => item.id === continueWatchingId),
     [continueWatchingId, continueWatchingItems],
@@ -1606,14 +1646,32 @@ const Player = ({route}: Props): React.JSX.Element => {
       currentIndex >= 0 &&
       currentIndex < route.params.episodeList.length - 1
     ) {
-      setActiveEpisode(route.params.episodeList[currentIndex + 1]);
+      const nextEpisode = route.params.episodeList[currentIndex + 1];
+      // Binge-watching online: don't re-ask on every next episode.
+      if (localDecisionRef.current === 'online') {
+        const nextKey = getLocalVideoAssociationKey({
+          episode: nextEpisode,
+          provider: route.params.providerValue || provider.value,
+          infoUrl: continueWatchingId,
+        });
+        if (nextKey) {
+          setLocalDecisions(prev => ({...prev, [nextKey]: 'online'}));
+        }
+      }
+      setActiveEpisode(nextEpisode);
       hasSetInitialAudioRef.current = false;
       hasSetInitialTextRef.current = false;
       setShowControls(true);
     } else {
       ToastAndroid.show('No more episodes', ToastAndroid.SHORT);
     }
-  }, [activeEpisode, route.params?.episodeList]);
+  }, [
+    activeEpisode,
+    continueWatchingId,
+    provider.value,
+    route.params?.episodeList,
+    route.params?.providerValue,
+  ]);
 
   const currentEpisodeIndex = useMemo(() => {
     if (!route.params?.episodeList?.length || !activeEpisode) return -1;
@@ -1678,6 +1736,7 @@ const Player = ({route}: Props): React.JSX.Element => {
           'Local video not found. Trying online sources...',
           ToastAndroid.SHORT,
         );
+        markStreamsOnline();
         const sd = streamDataRef.current;
         setSelectedStream(
           sd && sd.length > 0 ? sd[0] : {server: '', link: '', type: ''},
@@ -1698,6 +1757,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     [
       activeEpisodeKey,
       clearLocalVideoAssociation,
+      markStreamsOnline,
       navigation,
       setSelectedStream,
       setShowControls,
@@ -1705,7 +1765,15 @@ const Player = ({route}: Props): React.JSX.Element => {
     ],
   );
 
-  const handleSelectLocalVideo = useCallback(async () => {
+  // Playing a device file skips the stream fetch. Opening the Server tab is the
+  // moment the user wants alternatives, so load them then.
+  useEffect(() => {
+    if (localDecision === 'local' && showSettings && activeTab === 'server') {
+      markStreamsOnline();
+    }
+  }, [activeTab, localDecision, markStreamsOnline, showSettings]);
+
+  const handleSelectLocalVideo = useCallback(async (): Promise<boolean> => {
     try {
       const res = await DocumentPicker.getDocumentAsync({
         type: [
@@ -1730,6 +1798,12 @@ const Player = ({route}: Props): React.JSX.Element => {
           type: 'local',
         });
         setShowSettings(false);
+        // Answering the pre-stream prompt with a file: keep online streams
+        // unloaded. If streams are already loading/loaded, leave them be.
+        const decisionKey = activeEpisodeKeyRef.current;
+        if (decisionKey && localDecisionRef.current === 'pending') {
+          setLocalDecisions(prev => ({...prev, [decisionKey]: 'local'}));
+        }
         // Remember this file against the current episode so reopening it
         // later (e.g. from Continue Watching) resumes it automatically
         // instead of prompting the picker again.
@@ -1751,11 +1825,13 @@ const Player = ({route}: Props): React.JSX.Element => {
             : `Playing local file: ${asset.name || 'video'} (may need to be re-selected after closing the app)`,
           ToastAndroid.LONG,
         );
+        return true;
       }
     } catch (err) {
       console.log(err);
       ToastAndroid.show('Could not open the selected file', ToastAndroid.SHORT);
     }
+    return false;
   }, [
     activeEpisodeKey,
     continueWatchingId,
@@ -2834,6 +2910,62 @@ const Player = ({route}: Props): React.JSX.Element => {
     ],
   );
 
+  // Ask for a local file before touching the network.
+  if (localDecision === 'pending') {
+    return (
+      <SafeAreaView
+        edges={{right: 'off', top: 'off', left: 'off', bottom: 'off'}}
+        className="bg-black flex-1 justify-center items-center">
+        <SystemBars hidden={true} />
+        <StatusBar translucent={true} hidden={true} />
+        <OrientationLocker orientation={LANDSCAPE} />
+        <View className="w-full max-w-md px-6 items-center">
+          <MaterialIcons name="folder-open" size={44} color={primary} />
+          <Text className="text-white text-xl font-bold mt-3 text-center">
+            Play a file from this device?
+          </Text>
+          <Text
+            className="text-white/70 text-sm mt-1 mb-6 text-center"
+            numberOfLines={2}>
+            {activeEpisode?.title || route.params?.primaryTitle}
+          </Text>
+          <Pressable
+            onPress={handleSelectLocalVideo}
+            android_ripple={{color: 'rgba(255,255,255,0.2)'}}
+            style={{
+              backgroundColor: primary,
+              borderRadius: 24,
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              width: '100%',
+              alignItems: 'center',
+            }}>
+            <Text className="text-black font-bold text-base">
+              Choose local file
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={markStreamsOnline}
+            android_ripple={{color: 'rgba(255,255,255,0.2)'}}
+            style={{
+              borderColor: 'rgba(255,255,255,0.4)',
+              borderWidth: 1,
+              borderRadius: 24,
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              width: '100%',
+              alignItems: 'center',
+              marginTop: 12,
+            }}>
+            <Text className="text-white font-semibold text-base">
+              No, stream online
+            </Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   // Show loading state
   if (
     streamLoading &&
@@ -3843,6 +3975,11 @@ const Player = ({route}: Props): React.JSX.Element => {
                       <Text className="mb-2 w-full text-center text-white text-lg font-extrabold">
                         Server
                       </Text>
+                      {streamLoading && (
+                        <Text className="mb-2 text-center text-xs text-white/70">
+                          Loading online servers...
+                        </Text>
+                      )}
                       {streamData?.length > 0 &&
                         streamData?.map((track, i) => {
                           const rawTags: string[] = Array.isArray(track.tags)

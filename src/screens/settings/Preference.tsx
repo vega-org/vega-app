@@ -116,6 +116,9 @@ const Preferences = ({navigation}: any) => {
   const [alwaysCastMode, setAlwaysCastMode] = useState<boolean>(() =>
     settingsStorage.isAlwaysCastMode(),
   );
+  const [askLocalFileFirst, setAskLocalFileFirst] = useState<boolean>(() =>
+    settingsStorage.isAskLocalFileFirst(),
+  );
 
   const [hapticFeedback, setHapticFeedback] = useState(
     settingsStorage.isHapticFeedbackEnabled(),
@@ -243,6 +246,17 @@ const Preferences = ({navigation}: any) => {
               setSkipInAppWebview(next);
             }}
           />
+          {!isTV && (
+            <SettingsSwitchRow
+              title="Ask for local file first"
+              description="Before loading online streams, offer to play a video file from this device"
+              value={askLocalFileFirst}
+              onValueChange={next => {
+                settingsStorage.setAskLocalFileFirst(next);
+                setAskLocalFileFirst(next);
+              }}
+            />
+          )}
           {!isTV && (
             <SettingsSwitchRow
               title="Always cast mode"
