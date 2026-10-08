@@ -95,7 +95,6 @@ export enum SettingsKeys {
   TORRENT_FULL_DOWNLOAD = 'torrentFullDownload',
 }
 
-
 /**
  * Settings storage manager
  */
@@ -161,11 +160,12 @@ export class SettingsStorage {
   }
 
   /**
-   * On (default): tapping a movie/episode first offers to play a file from
-   * this device, and only loads online streams if the user declines.
+   * Opt-in (off by default): when on, tapping a movie/episode first offers to
+   * play a file from this device, and only loads online streams if the user
+   * declines.
    */
   isAskLocalFileFirst(): boolean {
-    return mainStorage.getBool(SettingsKeys.ASK_LOCAL_FILE_FIRST, true);
+    return mainStorage.getBool(SettingsKeys.ASK_LOCAL_FILE_FIRST, false);
   }
 
   setAskLocalFileFirst(enabled: boolean): void {
@@ -481,9 +481,7 @@ export class SettingsStorage {
 
   getDownloadConnections(): number {
     const value = mainStorage.getNumber(SettingsKeys.DOWNLOAD_CONNECTIONS);
-    return isValidConnectionCount(value)
-      ? value
-      : DEFAULT_DOWNLOAD_CONNECTIONS;
+    return isValidConnectionCount(value) ? value : DEFAULT_DOWNLOAD_CONNECTIONS;
   }
 
   setDownloadConnections(value: number): void {
@@ -511,7 +509,9 @@ export class SettingsStorage {
 
   getSubtitleOpacity(): number {
     const opacityStr = mainStorage.getString(SettingsKeys.SUBTITLE_OPACITY);
-    return opacityStr !== undefined && opacityStr !== '' ? parseFloat(opacityStr) : 1;
+    return opacityStr !== undefined && opacityStr !== ''
+      ? parseFloat(opacityStr)
+      : 1;
   }
 
   setSubtitleOpacity(opacity: number): void {
@@ -549,14 +549,21 @@ export class SettingsStorage {
   }
 
   getSubtitleFontFamily(): string {
-    return mainStorage.getString(SettingsKeys.SUBTITLE_FONT_FAMILY) || 'default';
+    return (
+      mainStorage.getString(SettingsKeys.SUBTITLE_FONT_FAMILY) || 'default'
+    );
   }
 
   setSubtitleFontFamily(font: string): void {
     mainStorage.setString(SettingsKeys.SUBTITLE_FONT_FAMILY, font);
   }
 
-  getSubtitleEdgeType(): 'outline' | 'dropShadow' | 'raised' | 'depressed' | 'none' {
+  getSubtitleEdgeType():
+    | 'outline'
+    | 'dropShadow'
+    | 'raised'
+    | 'depressed'
+    | 'none' {
     const val = mainStorage.getString(SettingsKeys.SUBTITLE_EDGE_TYPE);
     if (
       val === 'dropShadow' ||

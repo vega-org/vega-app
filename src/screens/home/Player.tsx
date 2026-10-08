@@ -45,6 +45,7 @@ import Orientation, {
 import {SystemBars} from 'react-native-edge-to-edge';
 import VideoPlayer from '../../components/media-console';
 import {playPauseRef} from '../../components/media-console/components/PlayPause/PlayPause';
+import {Back} from '../../components/media-console/components/Back';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -254,7 +255,11 @@ const BottomControlButton = isTV ? Pressable : TouchableOpacity;
 /** "#RGB" / "#RRGGBB" / "#AARRGGBB" to Android "#AARRGGBB" with the given alpha. */
 const withAlpha = (hex: string, opacity: number) => {
   let rgb = hex.replace('#', '');
-  if (rgb.length === 3) rgb = rgb.split('').map(c => c + c).join('');
+  if (rgb.length === 3)
+    rgb = rgb
+      .split('')
+      .map(c => c + c)
+      .join('');
   if (rgb.length === 8) rgb = rgb.slice(2);
   if (!/^[0-9a-f]{6}$/i.test(rgb) || opacity >= 1) return hex;
   const alpha = Math.round(Math.max(0, opacity) * 255)
@@ -1240,7 +1245,10 @@ const Player = ({route}: Props): React.JSX.Element => {
     () => settingsStorage.isSwipeGestureEnabled(),
     [],
   );
-  const forwardBufferMB = useMemo(() => settingsStorage.getForwardBufferMB(), []);
+  const forwardBufferMB = useMemo(
+    () => settingsStorage.getForwardBufferMB(),
+    [],
+  );
   // Sent again before the video loads, in case the setting changed since startup.
   useMemo(() => syncParallelStreaming(), []);
   const backBufferMB = useMemo(() => settingsStorage.getBackBufferMB(), []);
@@ -2919,6 +2927,17 @@ const Player = ({route}: Props): React.JSX.Element => {
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
         <OrientationLocker orientation={LANDSCAPE} />
+        {/* Same back arrow as the main player's top-left control */}
+        <SafeAreaView
+          style={{position: 'absolute', top: 0, left: 0, padding: 8}}>
+          <Back
+            showControls={true}
+            onBack={() => {
+              exitFullScreen();
+              navigation.goBack();
+            }}
+          />
+        </SafeAreaView>
         <View className="w-full max-w-md px-6 items-center">
           <MaterialIcons name="folder-open" size={44} color={primary} />
           <Text className="text-white text-xl font-bold mt-3 text-center">

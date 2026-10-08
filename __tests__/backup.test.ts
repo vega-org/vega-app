@@ -88,6 +88,7 @@ describe('backup', () => {
     mockValues.set('parallelStreaming', true);
     mockValues.set('subtitleTextOpacity', 0.8);
     mockValues.set('alwaysCastMode', true);
+    mockValues.set('askLocalFileFirst', true);
     mockValues.set('downloadLocation', 'content://tree/primary');
     mockValues.set('launcherIcon', 'dark');
 
@@ -107,6 +108,7 @@ describe('backup', () => {
       parallelStreaming: true,
       subtitleTextOpacity: 0.8,
       alwaysCastMode: true,
+      askLocalFileFirst: true,
     });
   });
 

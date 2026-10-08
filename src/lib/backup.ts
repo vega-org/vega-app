@@ -45,6 +45,7 @@ const BACKUP_SETTINGS: Record<string, SettingType> = {
   [SettingsKeys.PLAYBACK_SPEED]: 'number',
   [SettingsKeys.TORRENT_FULL_DOWNLOAD]: 'bool',
   [SettingsKeys.ALWAYS_CAST_MODE]: 'bool',
+  [SettingsKeys.ASK_LOCAL_FILE_FIRST]: 'bool',
   [SettingsKeys.EXCLUDED_QUALITIES]: 'array',
   [SettingsKeys.PROVIDER_ORDER]: 'array',
   [SettingsKeys.DOWNLOAD_CONCURRENCY]: 'number',

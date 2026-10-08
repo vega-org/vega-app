@@ -198,7 +198,7 @@ module.exports = () => {
       platforms: ['ios', 'android'],
       extra: {
         eas: {
-          projectId: '4b276606-df35-497c-a129-2b5c6a0c3cc2',
+          projectId: '40d98354-d3c8-4616-ab2e-70d9c297091f',
         },
         hasFirebase: HAS_FIREBASE,
         isPlayStore: IS_PLAYSTORE,

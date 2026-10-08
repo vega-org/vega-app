@@ -55,6 +55,17 @@ describe('settings defaults', () => {
     expect(settingsStorage.isSkipInAppWebview()).toBe(false);
   });
 
+  it('keeps "ask for local file first" strictly opt-in', () => {
+    expect(settingsStorage.isAskLocalFileFirst()).toBe(false);
+
+    settingsStorage.setAskLocalFileFirst(true);
+    expect(settingsStorage.isAskLocalFileFirst()).toBe(true);
+    expect(mockBooleanValues.get(SettingsKeys.ASK_LOCAL_FILE_FIRST)).toBe(true);
+
+    settingsStorage.setAskLocalFileFirst(false);
+    expect(settingsStorage.isAskLocalFileFirst()).toBe(false);
+  });
+
   it('defaults download concurrency to two and clamps saved values', () => {
     expect(settingsStorage.getDownloadConcurrency()).toBe(2);
 
