@@ -116,7 +116,12 @@ const headerEntries = (source: unknown): Array<[string, string]> => {
   return entries;
 };
 
-const sandboxFetch = async (input: any, init: any = {}): Promise<Response> => {
+type SandboxResponse = Response & {rawHeaders: Array<[string, string]>};
+
+const sandboxFetch = async (
+  input: any,
+  init: any = {},
+): Promise<SandboxResponse> => {
   const url = typeof input === 'string' ? input : String(input?.url ?? input);
   const merged: Array<[string, string]> = [
     ...headerEntries(input?.headers),
@@ -145,7 +150,10 @@ const sandboxFetch = async (input: any, init: any = {}): Promise<Response> => {
     },
   );
   Object.defineProperty(result, 'url', {value: response.url});
-  return result;
+  // Headers merges duplicate names, including Set-Cookie. Keep the original
+  // pairs for axios providers that expect one cookie per array entry.
+  Object.defineProperty(result, 'rawHeaders', {value: response.headers});
+  return result as SandboxResponse;
 };
 
 const sandboxAxiosAdapter: AxiosAdapter = async config => {
@@ -171,10 +179,17 @@ const sandboxAxiosAdapter: AxiosAdapter = async config => {
 
   const responseHeaders = new AxiosHeaders();
   response.headers.forEach((value, key) => responseHeaders.set(key, value));
-  const xSetCookie = response.headers.get('x-set-cookie');
-  if (xSetCookie) {
-    responseHeaders.set('set-cookie', xSetCookie);
-    responseHeaders.set('x-set-cookie', xSetCookie);
+  let setCookies = response.rawHeaders
+    .filter(([key]) => key.toLowerCase() === 'set-cookie')
+    .map(([, value]) => value);
+  if (setCookies.length === 0) {
+    setCookies = response.rawHeaders
+      .filter(([key]) => key.toLowerCase() === 'x-set-cookie')
+      .map(([, value]) => value);
+  }
+  if (setCookies.length > 0) {
+    responseHeaders.set('set-cookie', setCookies);
+    responseHeaders.set('x-set-cookie', setCookies);
   }
 
   let data: unknown;
@@ -247,6 +262,26 @@ const providerContext = Object.freeze({
   kvStore,
 });
 
+// Worker console output otherwise stays in WebView and never reaches the
+// exported app logs. Bound provider output before relaying it to the host.
+let providerLogCount = 0;
+const relayProviderLog = (level: 'log' | 'warn' | 'error') =>
+  (...args: unknown[]) => {
+    if (providerLogCount++ >= 32) return;
+    sendMessage({
+      type: 'log',
+      level,
+      message: args.map(getErrorMessage).join(' ').slice(0, 2000),
+    });
+  };
+const providerConsole = Object.freeze({
+  log: relayProviderLog('log'),
+  debug: relayProviderLog('log'),
+  info: relayProviderLog('log'),
+  warn: relayProviderLog('warn'),
+  error: relayProviderLog('error'),
+});
+
 const executeProvider = async (
   moduleCode: string,
   exportName?: string,
@@ -289,7 +324,7 @@ const executeProvider = async (
     exports,
     module,
     () => ({}),
-    console,
+    providerConsole,
     Promise,
     setTimeout,
     clearTimeout,

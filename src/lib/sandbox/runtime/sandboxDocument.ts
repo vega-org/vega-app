@@ -23,7 +23,7 @@ const nativeBridge = (window as unknown as {ReactNativeWebView: NativeBridge})
 const send = (message: SandboxMessage): void => {
   try {
     nativeBridge.postMessage(JSON.stringify(message));
-  } catch (error) {
+  } catch {
     // Nothing else to do: the bridge is the only channel out.
   }
 };
@@ -128,7 +128,7 @@ const handleInvoke = (
     if (!payload || !('type' in payload)) {
       return;
     }
-    if (payload.type === 'rpc') {
+    if (payload.type === 'rpc' || payload.type === 'log') {
       send(payload);
       return;
     }

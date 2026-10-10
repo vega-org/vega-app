@@ -191,6 +191,8 @@ class SandboxBridge {
       case 'log':
         if (message.level === 'error') {
           console.error('[provider sandbox]', message.message);
+        } else if (message.level === 'warn') {
+          console.warn('[provider sandbox]', message.message);
         } else {
           console.log('[provider sandbox]', message.message);
         }
