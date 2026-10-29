@@ -14,6 +14,7 @@ import {fetchIMDbSuggestions, type IMDbSuggestion} from '../lib/services/imdbSug
 import {sanitizeSearchQuery} from '../lib/utils/helpers';
 import SearchSuggestions from '../components/search/SearchSuggestions';
 import SearchHistory from '../components/search/SearchHistory';
+import GenreChips from '../components/search/GenreChips';
 import IconButton from '../components/ui/IconButton';
 import AppText from '../components/ui/Text';
 import SearchField, {type SearchFieldRef} from '../components/ui/SearchField';
@@ -374,6 +375,12 @@ const Search = () => {
 
       {/* Search Content */}
       <View className="flex-1">
+        {/* TV keeps its search field to history focus chain. */}
+        {!isTV && !showSuggestions && searchResults.length === 0 && (
+          <View className="pt-2">
+            <GenreChips />
+          </View>
+        )}
         <View className="flex-1">
           {showSuggestions ? (
             <View style={{flex: 1}}>
