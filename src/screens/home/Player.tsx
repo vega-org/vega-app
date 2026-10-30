@@ -1898,8 +1898,15 @@ const Player = ({route}: Props): React.JSX.Element => {
       console.log('PlayerError', e);
 
       if (route.params.localContent) {
-        ToastAndroid.show('Cannot play this local file. Check the file and reselect its folder if access was lost.', ToastAndroid.LONG);
+        ToastAndroid.show(isContainerParsingError(e)
+          ? 'Unable to read the video container.'
+          : 'Cannot play this local file. Check the file and reselect its folder if access was lost.', ToastAndroid.LONG);
         navigation.goBack();
+        return;
+      }
+
+      if ((selectedStreamRef.current?.type === 'local' || isLocalPath(selectedStreamRef.current?.link)) && isContainerParsingError(e)) {
+        ToastAndroid.show('Unable to read the video container. Your saved file was kept.', ToastAndroid.LONG);
         return;
       }
 
@@ -1946,13 +1953,13 @@ const Player = ({route}: Props): React.JSX.Element => {
               prev?.stream === stream ? prev.ms : undefined,
             ),
           }));
-          ToastAndroid.show('Connection lost, retrying', ToastAndroid.SHORT);
+          ToastAndroid.show('Playback interrupted, retrying', ToastAndroid.SHORT);
           return;
         }
         // The reload failed too, so the link has likely expired. Ask the
         // provider for new links once; the same server then continues from
         // where it stopped.
-        if (state.retried && linkRefreshRef.current !== stream) {
+        if (!isContainerParsingError(e) && state.retried && linkRefreshRef.current !== stream) {
           linkRefreshRef.current = stream;
           const episodeKey = activeEpisodeKeyRef.current;
           const pending = {stream, episodeKey};

@@ -185,3 +185,8 @@ describe('getReloadStartMs', () => {
     expect(getReloadStartMs(Number.NaN, 1)).toBe(2);
   });
 });
+
+it('does not retry MKV parsing failures disguised as generic IO errors', () => {
+  const event = {error: {errorCode: '22000', errorStackTrace: 'IllegalStateException: No valid varint length mask found'}};
+  expect(decidePlaybackError(loadedAt(T0), serverA, event, T0 + SECOND).action).toBe('switch');
+});

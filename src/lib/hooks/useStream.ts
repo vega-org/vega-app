@@ -816,10 +816,25 @@ export const useStream = ({
     );
   };
 
+  // Failed downloads are excluded from automatic fallback, not from manual choices.
+  const selectableStreams = useMemo(() => {
+    const downloaded = localPlaceholder?.[0];
+    return downloaded && !streamData.some(stream => stream.link === downloaded.link)
+      ? [downloaded, ...streamData]
+      : streamData;
+  }, [localPlaceholder, streamData]);
+  const selectStream: typeof setSelectedStream = useCallback(next => {
+    if (typeof next !== 'function' && isLocalPath(next.link)) {
+      localFailedRef.current = false;
+      setFailedLocalEpisodeKey(undefined);
+    }
+    setSelectedStream(next);
+  }, []);
+
   return {
-    streamData,
+    streamData: selectableStreams,
     selectedStream,
-    setSelectedStream,
+    setSelectedStream: selectStream,
     externalSubs,
     setExternalSubs,
     savedSubtitles,

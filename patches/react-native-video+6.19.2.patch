@@ -1234,7 +1234,7 @@ new file mode 100644
 index 0000000..f24c9dd
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ParallelDataSource.java
-@@ -0,0 +1,647 @@
+@@ -0,0 +1,88 @@
 +package com.brentvatne.exoplayer;
 +
 +import android.net.Uri;
@@ -2657,7 +2657,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                  break;
              case CONTENT_TYPE_OTHER:
                  if ("asset".equals(uri.getScheme())) {
-@@ -1100,12 +1431,16 @@
+@@ -1100,12 +1431,18 @@
                      }
                  } else if ("file".equals(uri.getScheme()) ||
                          !useCache) {
@@ -2665,14 +2665,16 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      mediaSourceFactory = new ProgressiveMediaSource.Factory(
 -                            mediaDataSourceFactory
 +                            new ChainedMatroskaDataSource.Factory(
-+                                    new ParallelDataSource.Factory(mediaDataSourceFactory))
++                                    new ParallelDataSource.Factory(mediaDataSourceFactory)),
++                            new RecoveringMatroskaExtractor.Factory()
                      );
                  } else {
 +                    DataSource.Factory cachedDataSourceFactory =
 +                            RNVSimpleCache.INSTANCE.getCacheFactory(buildHttpDataSourceFactory(true));
                      mediaSourceFactory = new ProgressiveMediaSource.Factory(
 -                            RNVSimpleCache.INSTANCE.getCacheFactory(buildHttpDataSourceFactory(true))
-+                            new ChainedMatroskaDataSource.Factory(cachedDataSourceFactory)
++                            new ChainedMatroskaDataSource.Factory(cachedDataSourceFactory),
++                            new RecoveringMatroskaExtractor.Factory()
                      );
  
                  }
@@ -3989,3 +3991,97 @@ diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-
          seek,
          presentFullscreenPlayer,
          dismissFullscreenPlayer,
+
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java
+new file mode 100644
+--- /dev/null
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java
+@@ -0,0 +1,88 @@
++package com.brentvatne.exoplayer;
++
++import android.net.Uri;
++import android.util.Log;
++import androidx.media3.common.ParserException;
++import androidx.media3.extractor.*;
++import androidx.media3.extractor.mkv.MatroskaExtractor;
++import java.io.IOException;
++import java.util.List;
++import java.util.Map;
++
++/** Recover only the known invalid EBML marker failure; never restart the network source. */
++final class RecoveringMatroskaExtractor implements Extractor {
++    private static final int MAX_SCAN = 1024 * 1024;
++    private static final int MAX_RECOVERIES = 8;
++    private final Extractor delegate;
++    private final byte[] marker = new byte[5];
++    private int recoveries;
++
++    RecoveringMatroskaExtractor(Extractor delegate) { this.delegate = delegate; }
++    @Override public boolean sniff(ExtractorInput input) throws IOException { return delegate.sniff(input); }
++    @Override public void init(ExtractorOutput output) { delegate.init(output); }
++    @Override public void seek(long position, long timeUs) { recoveries = 0; delegate.seek(position, timeUs); }
++    @Override public void release() { delegate.release(); }
++    @Override public Extractor getUnderlyingImplementation() { return delegate.getUnderlyingImplementation(); }
++
++    @Override public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
++        try {
++            return delegate.read(input, seekPosition);
++        } catch (IllegalStateException error) {
++            if (!"No valid varint length mask found".equals(error.getMessage())) throw error;
++            if (++recoveries > MAX_RECOVERIES) throw malformed(error);
++            // Look for the next Cluster ID with a valid size marker. Peeking leaves
++            // its header unread, so the normal extractor still parses/validates it.
++            // Bounded work, constant memory; EOF is accepted only when actually reached.
++            for (int scanned = 0; scanned < MAX_SCAN; scanned++) {
++                input.resetPeekPosition();
++                if (!input.peekFully(marker, 0, 1, true)) {
++                    Log.w("VegaMatroska", "Reached EOF after invalid MKV marker");
++                    return RESULT_END_OF_INPUT;
++                }
++                if ((marker[0] & 255) == 0x1F) {
++                    try {
++                        input.peekFully(marker, 1, 4);
++                        if ((marker[1] & 255) == 0x43 && (marker[2] & 255) == 0xB6 &&
++                                (marker[3] & 255) == 0x75 && marker[4] != 0) {
++                            input.resetPeekPosition();
++                            delegate.seek(input.getPosition(), 0);
++                            Log.w("VegaMatroska", "Resynchronized MKV at " + input.getPosition());
++                            return RESULT_CONTINUE;
++                        }
++                    } catch (java.io.EOFException end) {
++                        // Not enough bytes for another Cluster. Consume through actual EOF.
++                    }
++                }
++                input.resetPeekPosition();
++                input.skipFully(1);
++            }
++            throw malformed(error);
++        }
++    }
++    private static ParserException malformed(Exception cause) {
++        return ParserException.createForMalformedContainer("Unable to resynchronize invalid MKV element", cause);
++    }
++
++    static final class Factory implements ExtractorsFactory {
++        private final ExtractorsFactory delegate = new DefaultExtractorsFactory();
++        @Override public ExtractorsFactory setSubtitleParserFactory(androidx.media3.extractor.text.SubtitleParser.Factory factory) {
++            delegate.setSubtitleParserFactory(factory); return this;
++        }
++        @Override public ExtractorsFactory experimentalSetTextTrackTranscodingEnabled(boolean enabled) {
++            delegate.experimentalSetTextTrackTranscodingEnabled(enabled); return this;
++        }
++        @Override public ExtractorsFactory experimentalSetCodecsToParseWithinGopSampleDependencies(int codecs) {
++            delegate.experimentalSetCodecsToParseWithinGopSampleDependencies(codecs); return this;
++        }
++        @Override public Extractor[] createExtractors() { return wrap(delegate.createExtractors()); }
++        @Override public Extractor[] createExtractors(Uri uri, Map<String, List<String>> headers) {
++            return wrap(delegate.createExtractors(uri, headers));
++        }
++        private Extractor[] wrap(Extractor[] extractors) {
++            for (int i = 0; i < extractors.length; i++) {
++                if (extractors[i] instanceof MatroskaExtractor) extractors[i] = new RecoveringMatroskaExtractor(extractors[i]);
++            }
++            return extractors;
++        }
++    }
++}
