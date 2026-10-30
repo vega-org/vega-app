@@ -1234,7 +1234,7 @@ new file mode 100644
 index 0000000..f24c9dd
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ParallelDataSource.java
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,647 @@
 +package com.brentvatne.exoplayer;
 +
 +import android.net.Uri;
@@ -3991,7 +3991,6 @@ diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-
          seek,
          presentFullscreenPlayer,
          dismissFullscreenPlayer,
-
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java
 new file mode 100644
 --- /dev/null
