@@ -18,6 +18,17 @@ export const calculateTime = (args: FormatTime) => {
     showDuration,
   } = args;
 
+  if (showTimeRemaining) {
+    const remaining = Math.max(0, duration - currentTime);
+    return !showDuration
+      ? formatTime({...args, time: remaining, showTimeRemaining: true})
+      : `${formatTime({...args, time: currentTime, showTimeRemaining: false})}/${formatTime({
+          ...args,
+          time: remaining,
+          showTimeRemaining: true,
+        })}`;
+  }
+
   const formattedDuration = !showDuration
     ? ''
     : `/${formatTime({
@@ -25,11 +36,6 @@ export const calculateTime = (args: FormatTime) => {
         time: duration,
         showTimeRemaining: false,
       })}`;
-
-  if (showTimeRemaining) {
-    const time = duration - currentTime;
-    return `${formatTime({...args, time})}${formattedDuration}`;
-  }
 
   return `${formatTime({...args, time: currentTime})}${formattedDuration}`;
 };
@@ -73,6 +79,6 @@ export const formatTime = ({
     .padStart(2, '0');
 
   return `${symbol}${
-    Number(formattedHours) > 0 ? `${formattedHours}:` : ''
+    Number(formattedHours) > 0 || duration >= 3600 ? `${formattedHours}:` : ''
   }${formattedMinutes}:${formattedSeconds}`;
 };

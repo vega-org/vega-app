@@ -1219,6 +1219,22 @@ const Player = ({route}: Props): React.JSX.Element => {
     remoteSuspended: autoNextVisible || editingControls || showMoreControls,
   });
 
+  const [showTimeRemaining, setShowTimeRemaining] = useState<boolean>(() =>
+    settingsStorage.isShowTimeRemaining(),
+  );
+
+  const handleTimelinePress = useCallback(() => {
+    if (scrubPosition !== null) {
+      confirmScrub();
+    } else {
+      setShowTimeRemaining(prev => {
+        const next = !prev;
+        settingsStorage.setShowTimeRemaining(next);
+        return next;
+      });
+    }
+  }, [scrubPosition, confirmScrub]);
+
   const currentEpisodeIndex = useMemo(() => {
     if (!route.params?.episodeList?.length || !activeEpisode) return -1;
     return route.params.episodeList.findIndex(
@@ -3820,10 +3836,16 @@ const Player = ({route}: Props): React.JSX.Element => {
               accessibilityRole="adjustable"
               accessibilityLabel="Video timeline. Left and right preview, select seeks, back cancels."
               accessibilityValue={{
-                text: `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${videoPositionRef.current.duration > 0 ? formatTVTimelineTime(videoPositionRef.current.duration) : 'unknown duration'}`,
+                text: `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${
+                  videoPositionRef.current.duration > 0
+                    ? (showTimeRemaining
+                        ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))} remaining`
+                        : `${formatTVTimelineTime(videoPositionRef.current.duration)} total`)
+                    : 'unknown duration'
+                }`,
               }}
               {...getTVFocusProps('timeline')}
-              onPress={confirmScrub}
+              onPress={handleTimelinePress}
               style={{
                 position: 'absolute',
                 left: '10%',
@@ -3866,7 +3888,9 @@ const Player = ({route}: Props): React.JSX.Element => {
               <Text style={{color: 'white', fontSize: 14 * controlStyle.scale, marginTop: 6, textAlign: 'center'}}>
                 {formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
                 {videoPositionRef.current.duration > 0
-                  ? formatTVTimelineTime(videoPositionRef.current.duration)
+                  ? (showTimeRemaining
+                      ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))}`
+                      : formatTVTimelineTime(videoPositionRef.current.duration))
                   : '--:--'}
                 {scrubPosition !== null
                   ? '  •  Select to seek · Back to cancel'
