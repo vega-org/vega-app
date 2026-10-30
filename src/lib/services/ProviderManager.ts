@@ -70,6 +70,7 @@ export class ProviderManager {
     for (const key of Array.from(this.settingsSchemaCache.keys())) {
       if (key.endsWith(`:${providerValue}`)) {
         this.settingsSchemaCache.delete(key);
+        this.settingsActionModules.delete(key);
       }
     }
   }
@@ -436,6 +437,20 @@ export class ProviderManager {
     }
   };
 
+  private settingsActionModules = new Map<string, ProviderCode>();
+
+  runSettingsAction = async ({providerValue, sourceAuthor, key}: {
+    providerValue: string; sourceAuthor?: string; key: string;
+  }): Promise<void> => {
+    const schema = await this.getSettingsSchema({providerValue, sourceAuthor});
+    if (!schema.some(field => field.type === 'button' && field.key === key)) {
+      throw new Error('Unknown provider settings action');
+    }
+    const module = this.settingsActionModules.get(`${sourceAuthor || ''}:${providerValue}`);
+    if (!module) throw new Error('Provider settings module is unavailable');
+    await this.executeModule(module, providerValue, 'onSettingsAction', {key});
+  };
+
   getSettingsSchema = async ({
     providerValue,
     sourceAuthor,
@@ -504,6 +519,7 @@ export class ProviderManager {
       return [];
     }
 
+    this.settingsActionModules.set(`${sourceAuthor || ''}:${providerValue}`, {code: settingsModule, author: providerAuthor(settingsAuthor)});
     try {
       const raw = await this.executeModule<unknown>(
         {code: settingsModule, author: providerAuthor(settingsAuthor)},

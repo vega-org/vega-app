@@ -218,7 +218,8 @@ export type SettingsFieldType =
   | 'toggle'
   | 'select'
   | 'multiselect'
-  | 'number';
+  | 'number'
+  | 'button';
 
 export interface SelectOption {
   label: string;
@@ -263,7 +264,15 @@ export interface NumberSettingsField extends BaseSettingsField {
   defaultValue?: number;
 }
 
+export interface ButtonSettingsField extends BaseSettingsField {
+  type: 'button';
+  /** Optional button text; defaults to label. */
+  buttonLabel?: string;
+  defaultValue?: never;
+}
+
 export type SettingsField =
+  | ButtonSettingsField
   | TextSettingsField
   | ToggleSettingsField
   | SelectSettingsField

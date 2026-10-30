@@ -54,6 +54,8 @@ export const ProviderSettingsModal: React.FC<ProviderSettingsModalProps> = ({
   const [fields, setFields] = useState<SettingsField[]>([]);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const actionBusy = React.useRef(false);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   // Plain Animated values, reset on every open. Reanimated entering animations
   // inside this Modal stopped partway on the second open, leaving the sheet
@@ -127,6 +129,7 @@ export const ProviderSettingsModal: React.FC<ProviderSettingsModalProps> = ({
 
       const initialValues: Record<string, unknown> = {};
       for (const field of schema) {
+        if (field.type === 'button') continue;
         const scopedKey = getScopedKvKey(provider.source?.author, provider.value, field.key);
         const storedRaw = providerKvStorage.getString(scopedKey);
         if (storedRaw !== undefined && storedRaw !== null) {
@@ -210,7 +213,7 @@ export const ProviderSettingsModal: React.FC<ProviderSettingsModalProps> = ({
     return null;
   }
 
-  const actionsDisabled = loading || fields.length === 0;
+  const actionsDisabled = loading || fields.length === 0 || runningAction !== null;
   const sheetMaxHeight = (windowHeight - insets.top) * 0.88;
   // Room left for the settings after the handle, header and buttons. A fixed
   // cap, because a ScrollView grows by default and would stretch the sheet.
@@ -295,6 +298,27 @@ export const ProviderSettingsModal: React.FC<ProviderSettingsModalProps> = ({
   const renderField = (field: SettingsField, fieldIndex: number) => {
     const currentValue = values[field.key];
     const firstFocusUp = fieldIndex === 0 ? closeHandle : undefined;
+
+    if (field.type === 'button') {
+      return <TVFocusable accessibilityRole="button" accessibilityLabel={field.label}
+        disabled={runningAction !== null} nextFocusUp={firstFocusUp}
+        borderRadius={14} style={{padding: 16, minHeight: 48}}
+        onPress={async () => {
+          if (!provider || actionBusy.current) return;
+          actionBusy.current = true;
+          setRunningAction(field.key);
+          try {
+            await providerManager.runSettingsAction({providerValue: provider.value, sourceAuthor: provider.source?.author, key: field.key});
+            ToastAndroid.show('Action completed', ToastAndroid.SHORT);
+          } catch (error) {
+            ToastAndroid.show(error instanceof Error ? error.message : 'Action failed', ToastAndroid.LONG);
+          } finally { actionBusy.current = false; setRunningAction(null); }
+        }}>
+        {field.buttonLabel ? <AppText style={{color: colors.onSurface}}>{field.label}</AppText> : null}
+        <AppText style={{color: colors.primary}}>{runningAction === field.key ? 'Working…' : field.buttonLabel || field.label}</AppText>
+        {field.description ? <AppText style={{color: colors.onSurfaceVariant}}>{field.description}</AppText> : null}
+      </TVFocusable>;
+    }
 
     if (field.type === 'toggle') {
       return (
