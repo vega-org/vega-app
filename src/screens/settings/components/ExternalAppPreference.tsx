@@ -1,3 +1,4 @@
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React, {useState} from 'react';
 import {Image, ScrollView, View} from 'react-native';
 import {
@@ -42,17 +43,20 @@ export default function ExternalAppPreference({kind}: {kind: ExternalAppKind}) {
           {label}
         </AppText>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-          {current?.icon && (
+          {current?.icon ? (
             <Image
               source={{uri: current.icon}}
               style={{width: 28, height: 28}}
             />
-          )}
+          ) : selected === 'ask' ? (
+            <MaterialCommunityIcons name="apps" size={28} color={colors.onSurfaceVariant} />
+          ) : null}
           <AppText style={{color: colors.onSurfaceVariant}}>
             {current?.name || selected}
           </AppText>
         </View>
       </TVFocusable>
+      <View style={{height: 1, backgroundColor: colors.outlineVariant, width: '100%'}} />
       <MaterialDialogSurface
         visible={visible}
         onDismiss={() => setVisible(false)}>
@@ -88,7 +92,7 @@ export default function ExternalAppPreference({kind}: {kind: ExternalAppKind}) {
                   style={{width: 32, height: 32}}
                 />
               ) : (
-                <View style={{width: 32}} />
+                <MaterialCommunityIcons name="apps" size={32} color={colors.onSurfaceVariant} />
               )}
               <AppText
                 style={{

@@ -1,3 +1,5 @@
+jest.mock('@expo/vector-icons/Ionicons', () => 'Ionicons');
+jest.mock('@expo/vector-icons/Feather', () => 'Feather');
 jest.mock('../src/lib/externalApps', () => ({openExternalApp: jest.fn().mockResolvedValue(null)}));
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';

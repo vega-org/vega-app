@@ -1,3 +1,5 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import Feather from '@expo/vector-icons/Feather';
 import React, {useCallback, useMemo, useState} from 'react';
 import {
   BackHandler,
@@ -152,7 +154,24 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
         borderRadius: 18,
         backgroundColor: colors.surfaceContainerHighest,
       }}>
-      <AppText style={{color: colors.onSurface}}>{label}</AppText>
+      {label === 'Mark as watched' ? (
+        <Ionicons name="checkmark" size={25} color={colors.primary} />
+      ) : label === 'Mark as unwatched' ? (
+        <Ionicons name="checkmark-done" size={28} color={colors.primary} />
+      ) : label === 'External player' ? (
+        <Feather name="external-link" size={20} color={colors.primary} />
+      ) : (
+        <MaterialCommunityIcons
+          name={label === 'Mark previous as watched' ? 'check-all'
+            : /watched$/.test(label) && !/unwatched$/.test(label) ? 'eye-check-outline'
+            : /unwatched$/.test(label) ? 'eye-off-outline'
+            : label === 'Cast' ? 'cast'
+            : label === 'Close' || label === 'Done' ? 'close'
+            : label === 'Invert selection' ? 'select-inverse'
+            : 'checkbox-multiple-marked-outline'}
+          size={24} color={colors.primary} />
+      )}
+      <AppText style={{color: colors.onSurface, flex: 1}}>{label}</AppText>
     </TVFocusable>
   );
   return (
