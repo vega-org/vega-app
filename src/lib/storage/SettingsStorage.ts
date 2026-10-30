@@ -42,6 +42,7 @@ export enum SettingsKeys {
   SHOW_PLAYER_EPISODE_SIDEBAR = 'showPlayerEpisodeSidebar',
   AUTO_PLAY_NEXT_EPISODE = 'autoPlayNextEpisode',
   SHOW_SLEEP_TIMER = 'showSleepTimer',
+  SHOW_TIME_REMAINING = 'showTimeRemaining',
   AMBIENT_VIDEO = 'ambientVideo',
   AMBIENT_INTENSITY = 'ambientIntensity',
   AMBIENT_SPREAD = 'ambientSpread',
@@ -446,6 +447,14 @@ export class SettingsStorage {
 
   setShowSleepTimer(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_SLEEP_TIMER, show);
+  }
+
+  isShowTimeRemaining(): boolean {
+    return mainStorage.getBool(SettingsKeys.SHOW_TIME_REMAINING, false);
+  }
+
+  setShowTimeRemaining(show: boolean): void {
+    mainStorage.setBool(SettingsKeys.SHOW_TIME_REMAINING, show);
   }
 
   isEnable2xGestureEnabled(): boolean {

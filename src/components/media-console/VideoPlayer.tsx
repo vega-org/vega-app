@@ -38,6 +38,7 @@ import {_onBack} from './utils';
 import {_styles} from './styles';
 import type {VideoPlayerProps, WithRequiredProperty} from './types';
 import Gestures from './components/Gestures';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import Animated, {
   useAnimatedStyle,
   useAnimatedProps,
@@ -171,8 +172,11 @@ const AnimatedVideoPlayer = (
     isFullscreen || resizeMode === 'cover' || false,
   );
   const [_playbackRate, setPlaybackRate] = useState<number>(rate);
-  const [_showTimeRemaining, setShowTimeRemaining] =
-    useState<boolean>(showTimeRemaining);
+  const [_showTimeRemaining, setShowTimeRemaining] = useState<boolean>(() =>
+    props.showTimeRemaining !== undefined
+      ? showTimeRemaining
+      : settingsStorage.isShowTimeRemaining(),
+  );
   const [volumeTrackWidth, setVolumeTrackWidth] = useState<number>(0);
   const [volumeFillWidth, setVolumeFillWidth] = useState<number>(0);
   const [seekerFillWidth, setSeekerFillWidth] = useState<number>(0);
@@ -283,10 +287,19 @@ const AnimatedVideoPlayer = (
     () => setShowControls((prevState) => alwaysShowControls || !prevState),
     [alwaysShowControls],
   );
-  const toggleTimer = useCallback(
-    () => setShowTimeRemaining((prevState) => !prevState),
-    [],
-  );
+  const toggleTimer = useCallback(() => {
+    setShowTimeRemaining((prevState) => {
+      const next = !prevState;
+      settingsStorage.setShowTimeRemaining(next);
+      if (settingsStorage.isHapticFeedbackEnabled()) {
+        ReactNativeHapticFeedback.trigger('selection', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
+      }
+      return next;
+    });
+  }, []);
   const togglePlayPause = useCallback(() => {
     setPaused((prevState) => !prevState);
   }, []);

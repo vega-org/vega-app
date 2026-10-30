@@ -1,9 +1,10 @@
 import React, {useCallback, useRef, useState} from 'react';
-import {LayoutChangeEvent, View} from 'react-native';
+import {LayoutChangeEvent, Pressable, View} from 'react-native';
 import AppText from '../ui/Text';
 import {useRemoteStore} from '../../lib/remote/remoteStore';
 import {remotePlaybackManager} from '../../lib/remote/remotePlaybackManager';
 import {useM3Colors} from '../../theme/M3PaletteContext';
+import {settingsStorage} from '../../lib/storage';
 import {isTV} from '../../lib/tv';
 
 const formatTime = (seconds: number) => {
@@ -24,6 +25,9 @@ export const RemoteScrubber: React.FC = () => {
   const duration = useRemoteStore(state => state.duration);
   const connectedDevice = useRemoteStore(state => state.connectedDevice);
   const [barWidth, setBarWidth] = useState(0);
+  const [showTimeRemaining, setShowTimeRemaining] = useState(() =>
+    settingsStorage.isShowTimeRemaining(),
+  );
   const [previewTime, setPreviewTime] = useState<number | null>(null);
   const gestureOrigin = useRef(0);
   const canSeek = !!connectedDevice && duration > 0 && barWidth > 0;
@@ -110,12 +114,42 @@ export const RemoteScrubber: React.FC = () => {
         />
       </View>
       <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-        <AppText role="labelMedium" style={{color: colors.onSurfaceVariant}}>
-          {formatTime(displayedTime)}
-        </AppText>
-        <AppText role="labelMedium" style={{color: colors.onSurfaceVariant}}>
-          {formatTime(duration)}
-        </AppText>
+        <Pressable
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          }
+          onPress={() => {
+            setShowTimeRemaining(prev => {
+              const next = !prev;
+              settingsStorage.setShowTimeRemaining(next);
+              return next;
+            });
+          }}>
+          <AppText role="labelMedium" style={{color: colors.onSurfaceVariant}}>
+            {formatTime(displayedTime)}
+          </AppText>
+        </Pressable>
+        <Pressable
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          }
+          onPress={() => {
+            setShowTimeRemaining(prev => {
+              const next = !prev;
+              settingsStorage.setShowTimeRemaining(next);
+              return next;
+            });
+          }}>
+          <AppText role="labelMedium" style={{color: colors.onSurfaceVariant}}>
+            {showTimeRemaining && duration > 0
+              ? `-${formatTime(Math.max(0, duration - displayedTime))}`
+              : formatTime(duration)}
+          </AppText>
+        </Pressable>
       </View>
     </View>
   );

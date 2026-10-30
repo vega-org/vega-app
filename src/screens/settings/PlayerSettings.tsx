@@ -63,6 +63,10 @@ export default function PlayerSettings({navigation}: Props) {
     settingsStorage.isAutoPlayNextEpisodeEnabled(),
   );
 
+  const [showTimeRemaining, setShowTimeRemaining] = useState<boolean>(() =>
+    settingsStorage.isShowTimeRemaining(),
+  );
+
   const [enableSwipeGesture, setEnableSwipeGesture] = useState<boolean>(() =>
     settingsStorage.isSwipeGestureEnabled(),
   );
@@ -289,6 +293,15 @@ export default function PlayerSettings({navigation}: Props) {
               onValueChange={next => {
                 settingsStorage.setAutoPlayNextEpisode(next);
                 setAutoPlayNextEpisode(next);
+              }}
+            />
+            <SettingsSwitchRow
+              title="Show remaining time"
+              description="Display time remaining instead of total duration on the timeline (tap time to toggle)"
+              value={showTimeRemaining}
+              onValueChange={next => {
+                settingsStorage.setShowTimeRemaining(next);
+                setShowTimeRemaining(next);
               }}
             />
             <SettingsSwitchRow

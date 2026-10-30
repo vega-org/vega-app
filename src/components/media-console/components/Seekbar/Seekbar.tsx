@@ -99,7 +99,7 @@ export const Seekbar = ({
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          showTimeRemaining ? 'Show elapsed time' : 'Show remaining time'
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
           toggleTimer();
@@ -108,12 +108,10 @@ export const Seekbar = ({
         <Text style={timestampStyle}>
           {formatTime({
             duration,
-            time: showTimeRemaining
-              ? Math.max(0, duration - (time ?? 0))
-              : time,
+            time,
             showDuration,
             showHours,
-            showTimeRemaining,
+            showTimeRemaining: false,
           })}
         </Text>
       </Pressable>
@@ -140,13 +138,29 @@ export const Seekbar = ({
             ) : null}
             <View style={styles.previewTimestampContainer}>
               <Text style={styles.previewTimestamp}>
-                {formatTime({
-                  duration,
-                  time: previewTime,
-                  showDuration,
-                  showHours,
-                  showTimeRemaining: false,
-                })}
+                {(() => {
+                  const formattedPreview = formatTime({
+                    duration,
+                    time: previewTime,
+                    showDuration,
+                    showHours,
+                    showTimeRemaining: false,
+                  });
+                  if (time !== undefined && Math.abs(previewTime - time) >= 1) {
+                    const diff = Math.round(previewTime - time);
+                    const diffSign = diff > 0 ? '+' : '-';
+                    const absDiff = Math.abs(diff);
+                    const diffFormatted = formatTime({
+                      duration: absDiff,
+                      time: absDiff,
+                      showDuration: false,
+                      showHours: absDiff >= 3600,
+                      showTimeRemaining: false,
+                    });
+                    return `${formattedPreview} (${diffSign}${diffFormatted})`;
+                  }
+                  return formattedPreview;
+                })()}
               </Text>
             </View>
           </View>
@@ -242,17 +256,29 @@ export const Seekbar = ({
           />
         </View>
       </View>
-      <View>
+      <Pressable
+        hitSlop={12}
+        focusable={!Platform.isTV}
+        accessibilityRole="button"
+        accessibilityLabel={
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+        }
+        onPress={() => {
+          toggleTimer();
+          resetControlTimeout();
+        }}>
         <Text style={timestampStyle}>
           {formatTime({
             duration,
-            time: duration,
+            time: showTimeRemaining
+              ? Math.max(0, duration - (time ?? 0))
+              : duration,
             showDuration,
             showHours,
-            showTimeRemaining: false,
+            showTimeRemaining,
           })}
         </Text>
-      </View>
+      </Pressable>
     </View>
   );
 };

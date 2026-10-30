@@ -74,6 +74,9 @@ const CastRemotePlayer = ({
   const mediaStatus = useMediaStatus();
   const streamPosition = useStreamPosition(0.5) || 0;
   const [seekSeconds] = useState(() => settingsStorage.getSeekInterval());
+  const [showTimeRemaining, setShowTimeRemaining] = useState(() =>
+    settingsStorage.isShowTimeRemaining(),
+  );
   const [seekBarWidth, setSeekBarWidth] = useState(0);
   const [pendingAction, setPendingAction] = useState(false);
 
@@ -214,9 +217,23 @@ const CastRemotePlayer = ({
 
       <View className="absolute left-8 right-8 bottom-5 rounded-3xl bg-black/75 border border-white/10 px-6 py-4">
         <View className="flex-row items-center">
-          <Text className="text-white/70 text-xs w-14">
-            {formatTime(streamPosition)}
-          </Text>
+          <Pressable
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={
+              showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+            }
+            onPress={() => {
+              setShowTimeRemaining(prev => {
+                const next = !prev;
+                settingsStorage.setShowTimeRemaining(next);
+                return next;
+              });
+            }}>
+            <Text className="text-white/70 text-xs w-14">
+              {formatTime(streamPosition)}
+            </Text>
+          </Pressable>
           <Pressable
             accessibilityRole="adjustable"
             accessibilityLabel="Cast playback position"
@@ -230,9 +247,25 @@ const CastRemotePlayer = ({
               />
             </View>
           </Pressable>
-          <Text className="text-white/70 text-xs w-14 text-right">
-            {formatTime(duration)}
-          </Text>
+          <Pressable
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={
+              showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+            }
+            onPress={() => {
+              setShowTimeRemaining(prev => {
+                const next = !prev;
+                settingsStorage.setShowTimeRemaining(next);
+                return next;
+              });
+            }}>
+            <Text className="text-white/70 text-xs w-14 text-right">
+              {showTimeRemaining && duration > 0
+                ? `-${formatTime(Math.max(0, duration - streamPosition))}`
+                : formatTime(duration)}
+            </Text>
+          </Pressable>
         </View>
 
         <View className="flex-row items-center justify-center mt-2 gap-7">
