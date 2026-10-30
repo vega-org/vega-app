@@ -1,3 +1,4 @@
+import {openExternalApp, usesExternalApp} from '../lib/externalApps';
 import {applyProviderEpisodeMetadata} from '../lib/providerEpisodeMetadata';
 import useMetadataOverrideStore, {metadataOverrideKey} from '../lib/zustand/metadataOverrideStore';
 import React, {
@@ -30,7 +31,6 @@ import Animated, {
   withTiming,
   cancelAnimation,
 } from 'react-native-reanimated';
-import * as IntentLauncher from 'expo-intent-launcher';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {EpisodeLink, Link} from '../lib/providers/types';
 import {RootStackParamList} from '../App';
@@ -157,44 +157,7 @@ const launchExternalPlayer = async (
   headers?: Record<string, string>,
   title?: string,
 ) => {
-  const intentParams: any = {
-    data: streamUrl,
-    type: 'video/*',
-    flags: 1,
-  };
-
-  const extra: Record<string, any> = {};
-
-  if (title) {
-    extra.title = title;
-    extra['android.intent.extra.TITLE'] = title;
-  }
-
-  if (headers && Object.keys(headers).length > 0) {
-    Object.assign(extra, headers);
-    extra['android.media.intent.extra.HTTP_HEADERS'] = headers;
-    extra.headers = headers;
-
-    const headersArray = Object.entries(headers).map(
-      ([key, val]) => `${key}: ${val}`,
-    );
-    extra.headers_array = headersArray;
-
-    const referer = headers['Referer'] || headers['referer'];
-    if (referer) {
-      extra['android.intent.extra.REFERRER'] = referer;
-      extra['android.intent.extra.REFERRER_NAME'] = referer;
-    }
-  }
-
-  if (Object.keys(extra).length > 0) {
-    intentParams.extra = extra;
-  }
-
-  await IntentLauncher.startActivityAsync(
-    'android.intent.action.VIEW',
-    intentParams,
-  );
+  await openExternalApp('player', streamUrl, 'video/*', headers, title);
 };
 
 const getOriginalLinkIndex = <T extends {link: string}>(
@@ -925,7 +888,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         episodeData[linkIndex]?.title
       ).replaceAll(/[^a-zA-Z0-9]/g, '_');
 
-      const externalPlayer = settingsStorage.getBool('useExternalPlayer');
+      const externalPlayer = usesExternalApp('player');
       const dwFile = await ifExists(file);
 
       const downloadIndex = getOriginalLinkIndex(episodeList, link, linkIndex);
@@ -942,13 +905,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
 
       if (externalPlayer && !cast) {
         if (localPath) {
-          await IntentLauncher.startActivityAsync(
-            'android.intent.action.VIEW',
-            {
-              data: localPath,
-              type: 'video/*',
-            },
-          );
+          await launchExternalPlayer(localPath, undefined, primaryTitle);
           return;
         }
         handleExternalPlayer(link, playbackType);

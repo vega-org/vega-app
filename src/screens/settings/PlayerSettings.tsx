@@ -1,3 +1,4 @@
+import ExternalAppPreference from './components/ExternalAppPreference';
 import DropdownField from '../../components/ui/DropdownField';
 import {getPlayerControlStyleRows} from '../../components/PlayerControlStyleEditor';
 import {useFocusEffect} from '@react-navigation/native';
@@ -252,6 +253,7 @@ export default function PlayerSettings({navigation}: Props) {
                 setOpenExternalPlayer(next);
               }}
             />
+            <ExternalAppPreference kind="player" />
             <SettingsSwitchRow
               title="Notification media controls"
               value={showMediaControls}

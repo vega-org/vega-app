@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import * as IntentLauncher from 'expo-intent-launcher';
+import {openExternalApp} from '../../lib/externalApps';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../App';
 import {
@@ -315,10 +315,7 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
               })}
               {action('External player', () => {
                 setActionUri(null);
-                IntentLauncher.startActivityAsync(
-                  'android.intent.action.VIEW',
-                  {data: actionEpisode.uri, type: 'video/*', flags: 1},
-                ).catch(() =>
+                openExternalApp('player', actionEpisode.uri, 'video/*').catch(() =>
                   ToastAndroid.show(
                     'Could not open an external player',
                     ToastAndroid.LONG,

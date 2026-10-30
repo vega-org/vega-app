@@ -1,3 +1,4 @@
+jest.mock('../src/lib/externalApps', () => ({openExternalApp: jest.fn().mockResolvedValue(null)}));
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
 const mockNavigate = jest.fn();

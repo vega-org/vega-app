@@ -106,6 +106,7 @@ allprojects {
       'VideoThumbnailPackage()',
       'AmbientVideoPackage()',
       'VideoDecoderPackage()',
+      'ExternalAppsPackage()',
       'ProviderHttpPackage()',
       'RemoteDeliveryPackage()',
       'DlnaPackage()',
@@ -228,6 +229,16 @@ allprojects {
 
   // 4. Ensure RemoteDeliveryService is declared in AndroidManifest.xml
   config = withAndroidManifest(config, cfg => {
+    const manifest = cfg.modResults.manifest;
+    if (!manifest.queries) manifest.queries = [];
+    if (!manifest.queries[0]) manifest.queries[0] = {};
+    const queries = manifest.queries[0];
+    if (!queries.intent) queries.intent = [];
+    for (const [scheme, mime] of [['https', 'video/*'], ['http', 'video/*'], ['content', 'video/*'], ['https', 'application/octet-stream'], ['http', 'application/octet-stream'], ['magnet', null]]) {
+      if (!queries.intent.some(item => item.data?.some(data => data.$?.['android:scheme'] === scheme && (data.$?.['android:mimeType'] || null) === mime))) {
+        queries.intent.push({action: [{$: {'android:name': 'android.intent.action.VIEW'}}], data: [{$: {'android:scheme': scheme, ...(mime ? {'android:mimeType': mime} : {})}}]});
+      }
+    }
     const app = cfg.modResults.manifest.application?.[0];
     if (app) {
       if (!app.service) app.service = [];

@@ -91,7 +91,9 @@ const BACKUP_SETTINGS: Record<string, SettingType> = {
   disableDrawer: 'bool',
   showRecentlyWatched: 'bool',
   useExternalPlayer: 'bool',
+  externalPlayerApp: 'string',
   alwaysExternalDownloader: 'bool',
+  externalDownloaderApp: 'string',
 };
 
 type SettingValue = boolean | string | number | string[];

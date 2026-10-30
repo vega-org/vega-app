@@ -1,3 +1,4 @@
+import ExternalAppPreference from './components/ExternalAppPreference';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import Surface from '../../components/ui/Surface';
 import {useFocusEffect} from '@react-navigation/native';
@@ -232,6 +233,7 @@ const Preferences = ({navigation}: any) => {
                 setAlwaysUseExternalDownload(next);
               }}
             />
+            <ExternalAppPreference kind="downloader" />
             <SettingsSwitchRow
               title="Skip in-app webview"
               description="Open web links directly in your default browser"

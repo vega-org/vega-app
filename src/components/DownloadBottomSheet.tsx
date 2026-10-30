@@ -1,3 +1,4 @@
+import {usesExternalApp} from '../lib/externalApps';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   Text,
@@ -185,7 +186,7 @@ const DownloadBottomSheet = ({
   const colors = useM3Colors();
   const [activeTab, setActiveTab] = React.useState<1 | 2>(1);
   const isAlwaysExternal =
-    settingsStorage.getBool('alwaysExternalDownloader') === true;
+    usesExternalApp('downloader');
   const streams = Array.isArray(data) ? data : [];
 
   const downloadedSubs = downloadedSubtitles || [];
