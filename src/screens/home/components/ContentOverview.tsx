@@ -190,6 +190,8 @@ const ContentOverview = ({
         .slice(0, 6),
     [genres, runtime, tags, year],
   );
+  const [synopsisEnd, setSynopsisEnd] = useState<{left: number; top: number} | null>(null);
+  const [synopsisWidth, setSynopsisWidth] = useState(0);
   const synopsisText =
     synopsis.length > 240 && !readMore
       ? `${synopsis.slice(0, 240)}...`
@@ -364,24 +366,36 @@ const ContentOverview = ({
             <SkeletonLoader show height={18} width="72%" marginVertical={0} />
           </View>
         ) : (
-          <AppText
-            role="bodyLarge"
-            style={{
-              color: colors.onSurfaceVariant,
-              lineHeight: 24,
-              marginTop: 10,
-            }}>
-            {synopsisText}
-            {synopsis.length > 240 && (
-              <AppText
-                accessibilityRole="button"
+          <View onLayout={event => setSynopsisWidth(event.nativeEvent.layout.width)}
+            style={{marginTop: 10, paddingBottom: synopsis.length > 240 ? 28 : 0}}>
+            <AppText
+              role="bodyLarge"
+              onTextLayout={event => {
+                const last = event.nativeEvent.lines.at(-1);
+                if (!last) return;
+                const labelWidth = 90;
+                const end = last.x + last.width + 5;
+                const next = end + labelWidth <= synopsisWidth
+                  ? {left: end, top: last.y}
+                  : {left: 0, top: last.y + last.height};
+                setSynopsisEnd(previous => previous?.left === next.left && previous?.top === next.top ? previous : next);
+              }}
+              style={{color: colors.onSurfaceVariant, lineHeight: 24}}>
+              {synopsisText}
+            </AppText>
+            {synopsis.length > 240 && synopsisEnd && (
+              <TVFocusable accessibilityRole="button"
                 accessibilityLabel={readMore ? 'Show less synopsis' : 'Read more synopsis'}
-                accessibilityState={{expanded: readMore}}
-                onPress={onToggleSynopsis}
-                style={{color: colors.primary, fontWeight: '700'}}>
-                {readMore ? '  Show less' : '  Read more'}
-              </AppText>
+                accessibilityState={{expanded: readMore}} onPress={onToggleSynopsis}
+                borderRadius={6} focusBorderColor={focusBorderColor}
+                style={{position: 'absolute', left: synopsisEnd.left, top: synopsisEnd.top, minHeight: 24, justifyContent: 'center'}}>
+                <AppText role="bodyLarge" style={{color: colors.primary, fontWeight: '700', lineHeight: 24}}>
+                  {readMore ? 'Show less' : 'Read more'}
+                </AppText>
+              </TVFocusable>
             )}
+          </View>
+        )}
           </AppText>
         )}
 

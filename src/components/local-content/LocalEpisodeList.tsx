@@ -248,22 +248,6 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
               onShowDetails={
                 metadata?.overview ? () => setDetailsUri(item.uri) : undefined
               }
-              downloadComponent={
-                !selection ? (
-                  <TVFocusable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Episode actions for ${getEpisodeLabel(item, title)}`}
-                    onPress={() => setActionUri(item.uri)}
-                    borderRadius={24}
-                    style={{padding: 12}}>
-                    <MaterialCommunityIcons
-                      name="dots-vertical"
-                      color={colors.primary}
-                      size={24}
-                    />
-                  </TVFocusable>
-                ) : undefined
-              }
             />
           );
         }}
