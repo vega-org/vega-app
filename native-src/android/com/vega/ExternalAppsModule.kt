@@ -62,7 +62,7 @@ class ExternalAppsModule(private val context: ReactApplicationContext) : ReactCo
                     request.putExtra("headers_array", flattened.toTypedArray())
                 }
                 val launch = if (target == "ask" || target == "none") Intent.createChooser(request, "Choose app") else request
-                val activity = currentActivity
+                val activity = context.currentActivity
                 if (activity != null) activity.startActivity(launch)
                 else { launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); context.startActivity(launch) }
                 promise.resolve(null)
