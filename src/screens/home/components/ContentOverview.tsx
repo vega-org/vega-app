@@ -396,8 +396,6 @@ const ContentOverview = ({
             )}
           </View>
         )}
-          </AppText>
-        )}
 
         <View
           style={{
