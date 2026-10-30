@@ -282,7 +282,7 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
           style={{color: colors.onSurface, marginBottom: 16}}>
           Episode actions
         </AppText>
-        <ScrollView style={{maxHeight: 400}} contentContainerStyle={{gap: 10}}>
+        <View style={{gap: 10}}>
           {actionEpisode && (
             <>
               {action(
@@ -335,7 +335,7 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
                 })}
             </>
           )}
-        </ScrollView>
+        </View>
       </MaterialDialogSurface>
       <MaterialDialogSurface
         visible={!!detailEpisode}
