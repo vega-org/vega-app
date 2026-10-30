@@ -172,7 +172,7 @@ export type SettingsStackParamList = {
 
 export type DownloadsStackParamList = {
   Downloads: undefined;
-  DownloadedDetails: {groupId: string};
+  DownloadedDetails: {groupId: string; localTitleId?: never} | {localTitleId: string; groupId?: never};
   Info: {link: string; provider?: string; poster?: string};
 };
 

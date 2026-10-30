@@ -221,6 +221,7 @@ interface EpisodeCardRowProps {
   onShowDetailsPressIn?: () => void;
   onShowDetails?: () => void;
   detailsPreferred?: boolean;
+  thumbnail?: React.ReactNode;
   downloadComponent?: React.ReactNode;
   /** Replaces the download button while selecting episodes. */
   selectionMark?: React.ReactNode;
@@ -228,7 +229,7 @@ interface EpisodeCardRowProps {
   selected?: boolean;
 }
 
-const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
+export const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
   item,
   index,
   isCompleted,
@@ -243,6 +244,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
   onShowDetails,
   detailsPreferred,
   downloadComponent,
+  thumbnail,
   selectionMark,
   selected,
 }) => {
@@ -293,6 +295,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
               title={displayTitle}
               description={item.description}
               image={item.image}
+            thumbnail={thumbnail}
               accentColor={primary}
               textColor={CONTROL_TEXT}
               mutedTextColor={CONTROL_TEXT_MUTED}
@@ -354,6 +357,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
             title={displayTitle}
             description={item.description}
             image={item.image}
+            thumbnail={thumbnail}
             accentColor={primary}
             textColor={CONTROL_TEXT}
             mutedTextColor={CONTROL_TEXT_MUTED}

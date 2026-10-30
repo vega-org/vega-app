@@ -24,7 +24,7 @@ import AppText from '../../components/ui/Text';
 import {QueryErrorBoundary} from '../../components/ErrorBoundary';
 import SeasonList from '../../components/SeasonList';
 import ScreenOverlayHost from '../../components/ScreenOverlayHost';
-import LocalSeasonList from '../../components/local-content/LocalSeasonList';
+import LocalEpisodeList from '../../components/local-content/LocalEpisodeList';
 import SkeletonLoader from '../../components/Skeleton';
 import {useContentDetails} from '../../lib/hooks/useContentInfo';
 import {useArtworkShape} from '../../lib/hooks/useHomePageData';
@@ -40,6 +40,7 @@ import ContentOverview from './components/ContentOverview';
 import InfoStoryModal from './components/InfoStoryModal';
 import LibraryCollectionDialog from '../../components/library/LibraryCollectionDialog';
 import ProviderMetadataDialog from '../../components/metadata/ProviderMetadataDialog';
+import LocalMetadataDialog from '../../components/metadata/LocalMetadataDialog';
 import InfoSkeleton from './components/InfoSkeleton';
 import StatusBarScrim from '../../components/ui/StatusBarScrim';
 import {TVFocusGuide} from '../../components/tv';
@@ -364,7 +365,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   isLoading={isLoading && !info}
                   logo={displayLogo}
                   onBack={navigation.goBack}
-                  onOpenMenu={!localTitle ? () => setMetadataMenuVisible(true) : undefined}
+                  onOpenMenu={() => setMetadataMenuVisible(true)}
                   backButtonRef={backButtonRef}
                   onBackButtonLayout={registerBackFocus}
                   onOpenStory={
@@ -400,9 +401,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                       <SkeletonLoader show height={72} width="100%" />
                     </View>
                   ) : localTitle ? (
-                    <LocalSeasonList title={localTitle} onEditMetadata={() => searchNavigation.navigate('WatchListStack', {
-                      screen: 'LocalContent', params: {editId: localTitle.id},
-                    } as never)} />
+                    <LocalEpisodeList title={localTitle} />
                   ) : (
                     <SeasonList
                       refreshing={refreshing}
@@ -468,6 +467,11 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
               provider: providerValue,
             }}
           />
+          {localTitle && <LocalMetadataDialog
+            visible={metadataMenuVisible}
+            onClose={() => setMetadataMenuVisible(false)}
+            title={localTitle}
+          />}
           {info && !localTitle && <ProviderMetadataDialog
             visible={metadataMenuVisible}
             onClose={() => setMetadataMenuVisible(false)}

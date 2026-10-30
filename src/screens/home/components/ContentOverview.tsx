@@ -355,31 +355,6 @@ const ContentOverview = ({
               {providerName}
             </AppText>
           </View>
-          {!synopsisLoading && synopsis.length > 240 ? (
-            <TVFocusable
-              accessibilityRole="button"
-              accessibilityLabel={
-                readMore ? 'Show less synopsis' : 'Read more synopsis'
-              }
-              accessibilityState={{expanded: readMore}}
-              onPress={onToggleSynopsis}
-              borderRadius={8}
-              focusBorderColor={focusBorderColor}
-              style={{
-                minHeight: 44,
-                paddingVertical: 8,
-                paddingHorizontal: 4,
-                justifyContent: 'center',
-                alignSelf: 'center',
-                flexShrink: 0,
-              }}>
-              <AppText
-                role="labelLargeEmphasized"
-                style={{color: colors.primary}}>
-                {readMore ? 'Show less' : 'Read more'}
-              </AppText>
-            </TVFocusable>
-          ) : null}
         </View>
 
         {synopsisLoading ? (
@@ -400,6 +375,31 @@ const ContentOverview = ({
           </AppText>
         )}
 
+          {!synopsisLoading && synopsis.length > 240 ? (
+            <TVFocusable
+              accessibilityRole="button"
+              accessibilityLabel={
+                readMore ? 'Show less synopsis' : 'Read more synopsis'
+              }
+              accessibilityState={{expanded: readMore}}
+              onPress={onToggleSynopsis}
+              borderRadius={8}
+              focusBorderColor={focusBorderColor}
+              style={{
+                minHeight: 44,
+                paddingVertical: 8,
+                paddingHorizontal: 4,
+                justifyContent: 'center',
+                alignSelf: 'flex-start',
+                flexShrink: 0,
+              }}>
+              <AppText
+                role="labelLargeEmphasized"
+                style={{color: colors.primary}}>
+                {readMore ? 'Show less' : 'Read more'}
+              </AppText>
+            </TVFocusable>
+          ) : null}
         <View
           style={{
             flexDirection: 'row',

@@ -1,3 +1,4 @@
+jest.mock('../src/lib/localContent/delete', () => ({deleteLocalEpisodes: jest.fn(async () => undefined)}));
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
 
@@ -151,10 +152,8 @@ it('lists imported local content when nothing has been downloaded', async () => 
   act(() => {
     tree.root.findAllByType('MediaPosterCard' as any)[0].props.onPress();
   });
-  expect(mockNavigation.navigate).toHaveBeenCalledWith('Info', {
-    link: localContentLink('content://movie'),
-    provider: 'local',
-    poster: 'https://poster',
+  expect(mockNavigation.navigate).toHaveBeenCalledWith('DownloadedDetails', {
+    localTitleId: 'content://movie',
   });
 });
 

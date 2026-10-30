@@ -1,3 +1,4 @@
+import ImportedFileDetails from './components/ImportedFileDetails';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type {CompositeScreenProps} from '@react-navigation/native';
@@ -51,7 +52,7 @@ type DownloadedDetailsProps = CompositeScreenProps<
 const getSeasonTitle = (item: DownloadItem): string =>
   item.seasonTitle || 'Downloaded';
 
-const DownloadedDetails = ({navigation, route}: DownloadedDetailsProps) => {
+const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
   const insets = useSafeAreaInsets();
   const playerReturnFocusRef = useRef<View | null>(null);
   const restorePlayerFocusRef = useRef(false);
@@ -488,4 +489,8 @@ const DownloadedDetails = ({navigation, route}: DownloadedDetailsProps) => {
   );
 };
 
-export default DownloadedDetails;
+export default function DownloadedDetails(props: DownloadedDetailsProps) {
+  return props.route.params.localTitleId
+    ? <ImportedFileDetails id={props.route.params.localTitleId} onBack={() => props.navigation.goBack()} />
+    : <DownloadedFileDetails {...props} />;
+}

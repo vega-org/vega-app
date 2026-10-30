@@ -156,6 +156,7 @@ import {useNextEpisodePrefetch} from '../../lib/hooks/useNextEpisodePrefetch';
 
 import {
   NO_PLAYBACK_RETRY,
+  isContainerParsingError,
   decidePlaybackError,
   getReloadStartMs,
   markPlaybackLoaded,
