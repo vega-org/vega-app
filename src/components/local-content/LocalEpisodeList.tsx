@@ -148,7 +148,10 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
       focusScale={1}
       style={{
         minHeight: 48,
-        justifyContent: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        justifyContent: 'flex-start',
         paddingHorizontal: 16,
         paddingVertical: 12,
         borderRadius: 18,

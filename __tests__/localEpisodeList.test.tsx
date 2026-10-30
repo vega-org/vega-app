@@ -128,3 +128,13 @@ it('marks only selected episodes and exposes cast without invoking provider extr
     }),
   );
 });
+
+it('keeps episode action icons beside their labels in horizontal rows', () => {
+  act(() => row(0).props.onLongPress());
+  const actions = tree.root.findAllByType('TVFocusable' as any).filter(node =>
+    ['Mark as watched', 'Mark all as watched', 'External player', 'Cast'].includes(node.props.accessibilityLabel));
+  expect(actions).toHaveLength(4);
+  for (const action of actions) {
+    expect(action.props.style).toMatchObject({flexDirection: 'row', alignItems: 'center', gap: 12});
+  }
+});
