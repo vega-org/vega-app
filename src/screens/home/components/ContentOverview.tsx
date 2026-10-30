@@ -372,34 +372,19 @@ const ContentOverview = ({
               marginTop: 10,
             }}>
             {synopsisText}
+            {synopsis.length > 240 && (
+              <AppText
+                accessibilityRole="button"
+                accessibilityLabel={readMore ? 'Show less synopsis' : 'Read more synopsis'}
+                accessibilityState={{expanded: readMore}}
+                onPress={onToggleSynopsis}
+                style={{color: colors.primary, fontWeight: '700'}}>
+                {readMore ? '  Show less' : '  Read more'}
+              </AppText>
+            )}
           </AppText>
         )}
 
-          {!synopsisLoading && synopsis.length > 240 ? (
-            <TVFocusable
-              accessibilityRole="button"
-              accessibilityLabel={
-                readMore ? 'Show less synopsis' : 'Read more synopsis'
-              }
-              accessibilityState={{expanded: readMore}}
-              onPress={onToggleSynopsis}
-              borderRadius={8}
-              focusBorderColor={focusBorderColor}
-              style={{
-                minHeight: 44,
-                paddingVertical: 8,
-                paddingHorizontal: 4,
-                justifyContent: 'center',
-                alignSelf: 'flex-start',
-                flexShrink: 0,
-              }}>
-              <AppText
-                role="labelLargeEmphasized"
-                style={{color: colors.primary}}>
-                {readMore ? 'Show less' : 'Read more'}
-              </AppText>
-            </TVFocusable>
-          ) : null}
         <View
           style={{
             flexDirection: 'row',
