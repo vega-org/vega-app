@@ -94,6 +94,7 @@ import {torrentManager} from '../../lib/torrentManager';
 import {
   isDummyTorrentLink,
   isTorrentStream,
+  pickVideoFileIndex,
   resolveTorrentStream,
 } from '../../lib/torrentStream';
 import {syncFromSharedFolder} from '../../lib/sync/syncService';
@@ -1598,34 +1599,8 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [torrentState, setTorrentState] = useState<string>('');
   const [torrentDownloaded, setTorrentDownloaded] = useState<number>(0);
   const [torrentDownloadSpeed, setTorrentDownloadSpeed] = useState<number>(0);
-  const findVideoFileIndex = async (infoHash: string): Promise<number> => {
-    const files = await torrentManager.getFiles(infoHash);
-    if (!files || files.length === 0) {
-      throw new Error('No files found in torrent');
-    }
-
-    const videoExts = [
-      '.mp4',
-      '.mkv',
-      '.avi',
-      '.webm',
-      '.mov',
-      '.ts',
-      '.flv',
-      '.wmv',
-      '.m4v',
-    ];
-    let bestIndex = 0;
-    let bestSize = 0;
-    for (const f of files) {
-      const name = f.name.toLowerCase();
-      if (videoExts.some(ext => name.endsWith(ext)) && f.size > bestSize) {
-        bestIndex = f.index;
-        bestSize = f.size;
-      }
-    }
-    return bestIndex;
-  };
+  const findVideoFileIndex = async (infoHash: string): Promise<number> =>
+    pickVideoFileIndex(await torrentManager.getFiles(infoHash));
 
   const activeTorrentRef = useRef<string | null>(null);
 

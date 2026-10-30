@@ -10,6 +10,38 @@ export const isTorrentStream = (stream?: {link?: string; type?: string}) =>
 export const isDummyTorrentLink = (link: string) =>
   !link || DUMMY_TORRENT_HASHES.some(hash => link.includes(hash));
 
+const VIDEO_EXTENSIONS = [
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.webm',
+  '.mov',
+  '.ts',
+  '.flv',
+  '.wmv',
+  '.m4v',
+];
+
+// Picks the largest video file in a torrent, or the first file when none
+// looks like a video.
+export const pickVideoFileIndex = (
+  files: {index: number; name: string; size: number}[],
+): number => {
+  if (!files || files.length === 0) {
+    throw new Error('No files found in torrent');
+  }
+  let bestIndex = 0;
+  let bestSize = 0;
+  for (const f of files) {
+    const name = f.name.toLowerCase();
+    if (VIDEO_EXTENSIONS.some(ext => name.endsWith(ext)) && f.size > bestSize) {
+      bestIndex = f.index;
+      bestSize = f.size;
+    }
+  }
+  return bestIndex;
+};
+
 export interface ResolveTorrentStreamOptions {
   addTorrent: (link: string) => Promise<{infoHash: string}>;
   deleteTorrent: (infoHash: string) => Promise<unknown>;
