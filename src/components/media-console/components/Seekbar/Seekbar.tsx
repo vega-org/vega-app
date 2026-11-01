@@ -1,4 +1,11 @@
-import React, {Dispatch, SetStateAction, useMemo, useState} from 'react';
+import React, {
+  Dispatch,
+  SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   View,
@@ -61,6 +68,12 @@ export const Seekbar = ({
   snapPosition,
   skips,
 }: SeekbarProps) => {
+  // Keep the playback position from before the drag: `time` follows the thumb
+  // while seeking and cannot serve as the offset baseline.
+  const seekOrigin = useRef(time);
+  useEffect(() => {
+    if (!seeking) seekOrigin.current = time;
+  }, [seeking, time]);
   const size = controlScale * seekbarScale;
   const [trackWidth, setTrackWidth] = useState(0);
   const previewLeft = useMemo(
@@ -116,11 +129,20 @@ export const Seekbar = ({
         </Text>
       </Pressable>
       <View
-        style={{...styles.container, width: '80%', height: 20 * size, alignSelf: 'center', flexShrink: 1, minWidth: 0}}
+        style={{
+          ...styles.container,
+          width: '80%',
+          height: 20 * size,
+          alignSelf: 'center',
+          flexShrink: 1,
+          minWidth: 0,
+        }}
         collapsable={false}
         {...seekerPanHandlers}>
         {seeking && trackWidth > 0 ? (
-          <View style={[styles.preview, {left: previewLeft, bottom: 30 * size}]} pointerEvents="none">
+          <View
+            style={[styles.preview, {left: previewLeft, bottom: 30 * size}]}
+            pointerEvents="none">
             {thumbnailUri ? (
               <Image
                 key={thumbnailUri}
@@ -146,8 +168,11 @@ export const Seekbar = ({
                     showHours,
                     showTimeRemaining: false,
                   });
-                  if (time !== undefined && Math.abs(previewTime - time) >= 1) {
-                    const diff = Math.round(previewTime - time);
+                  if (
+                    seekOrigin.current !== undefined &&
+                    Math.abs(previewTime - seekOrigin.current) >= 1
+                  ) {
+                    const diff = Math.round(previewTime - seekOrigin.current);
                     const diffSign = diff > 0 ? '+' : '-';
                     const absDiff = Math.abs(diff);
                     const diffFormatted = formatTime({
@@ -166,7 +191,10 @@ export const Seekbar = ({
           </View>
         ) : null}
         <View
-          style={[styles.track, {height: 2 * size, top: 9 * size, borderRadius: size}]}
+          style={[
+            styles.track,
+            {height: 2 * size, top: 9 * size, borderRadius: size},
+          ]}
           onLayout={event => {
             const width = event.nativeEvent.layout.width;
             if (width > 0 && Math.abs(width - trackWidth) > 1) {
@@ -243,15 +271,43 @@ export const Seekbar = ({
         </View>
         {seeking && snapPosition !== null ? (
           <View
-            style={[styles.snapMarker, {left: snapPosition - size, top: 4 * size, width: 2 * size, height: 12 * size, borderRadius: size}]}
+            style={[
+              styles.snapMarker,
+              {
+                left: snapPosition - size,
+                top: 4 * size,
+                width: 2 * size,
+                height: 12 * size,
+                borderRadius: size,
+              },
+            ]}
             pointerEvents="none"
           />
         ) : null}
         <View
-          style={[styles.handle, {left: seekerPosition, top: 0, marginLeft: -12 * size, width: 24 * size, height: 24 * size}]}
+          style={[
+            styles.handle,
+            {
+              left: seekerPosition,
+              top: 0,
+              marginLeft: -12 * size,
+              width: 24 * size,
+              height: 24 * size,
+            },
+          ]}
           pointerEvents="none">
           <View
-            style={[styles.circle, {backgroundColor: seekColor || '#FFF', top: 6 * size, left: 8 * size, width: 8 * size, height: 8 * size, borderRadius: 4 * size}]}
+            style={[
+              styles.circle,
+              {
+                backgroundColor: seekColor || '#FFF',
+                top: 6 * size,
+                left: 8 * size,
+                width: 8 * size,
+                height: 8 * size,
+                borderRadius: 4 * size,
+              },
+            ]}
             pointerEvents="none"
           />
         </View>

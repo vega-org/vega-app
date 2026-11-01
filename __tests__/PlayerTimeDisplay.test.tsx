@@ -15,14 +15,18 @@ jest.mock('react-native-mmkv-storage', () => ({
     initialize() {
       return {
         getBool: (key: string, defaultValue = false) => {
-          return mockStorageMap.has(key) ? mockStorageMap.get(key) : defaultValue;
+          return mockStorageMap.has(key)
+            ? mockStorageMap.get(key)
+            : defaultValue;
         },
         setBool: (key: string, value: boolean) => {
           mockStorageMap.set(key, value);
           return true;
         },
         getString: (key: string, defaultValue = '') => {
-          return mockStorageMap.has(key) ? mockStorageMap.get(key) : defaultValue;
+          return mockStorageMap.has(key)
+            ? mockStorageMap.get(key)
+            : defaultValue;
         },
         setString: (key: string, value: string) => {
           mockStorageMap.set(key, value);
@@ -212,5 +216,58 @@ describe('SettingsStorage showTimeRemaining persistence', () => {
 
     settingsStorage.setShowTimeRemaining(false);
     expect(settingsStorage.isShowTimeRemaining()).toBe(false);
+  });
+});
+
+describe('Seekbar scrub offset', () => {
+  it('keeps the pre-drag baseline as playback time follows the thumb and resets for a new drag', () => {
+    const props = {
+      seekerFillWidth: 50,
+      seekerPosition: 50,
+      cachedPosition: 100,
+      seekColor: '#fff',
+      seekerPanHandlers: {},
+      setSeekerWidth: jest.fn(),
+      duration: 300,
+      showDuration: true,
+      showHours: false,
+      showTimeRemaining: false,
+      toggleTimer: jest.fn(),
+      resetControlTimeout: jest.fn(),
+      thumbnailUri: null,
+      thumbnailLoading: false,
+      snapPosition: null,
+    };
+    let tree!: renderer.ReactTestRenderer;
+    const render = (time: number, seeking: boolean) => (
+      <Seekbar {...props} time={time} seeking={seeking} previewTime={time} />
+    );
+    act(() => {
+      tree = renderer.create(render(45, false));
+    });
+    const track = tree.root.find(
+      node => typeof node.props.onLayout === 'function',
+    );
+    act(() => {
+      track.props.onLayout({nativeEvent: {layout: {width: 300}}});
+    });
+    const labels = () =>
+      tree.root.findAllByType(Text).map(node => node.props.children);
+    act(() => {
+      tree.update(render(75, true));
+    });
+    expect(labels()).toContain('01:15 (+00:30)');
+    act(() => {
+      tree.update(render(30, true));
+    });
+    expect(labels()).toContain('00:30 (-00:15)');
+    act(() => {
+      tree.update(render(30, false));
+    });
+    act(() => {
+      tree.update(render(40, true));
+    });
+    expect(labels()).toContain('00:40 (+00:10)');
+    act(() => tree.unmount());
   });
 });
