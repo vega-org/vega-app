@@ -10,7 +10,7 @@ import {
   Text,
   TextField,
 } from '@expo/ui/jetpack-compose';
-import {fillMaxWidth, menuAnchor, padding} from '@expo/ui/jetpack-compose/modifiers';
+import {clip, fillMaxWidth, menuAnchor, padding, Shapes} from '@expo/ui/jetpack-compose/modifiers';
 import React, {useState, useEffect} from 'react';
 import {
   BackHandler,
@@ -325,6 +325,7 @@ const DropdownField = <T,>({
         <ExposedDropdownMenu
           expanded={expanded}
           containerColor={LEGACY_TERTIARY_BACKGROUND}
+          modifiers={[clip(Shapes.RoundedCorner(16))]}
           onDismissRequest={() => setExpanded(false)}>
           {options.map((option, index) => {
             const key = getKey(option);
