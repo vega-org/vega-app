@@ -90,3 +90,49 @@ export const groupCompletedDownloads = (
       return bCompleted - aCompleted;
     });
 };
+
+export interface FindEpisodeDownloadTarget {
+  downloadId: string;
+  infoUrl?: string;
+  link?: string;
+  seasonTitle?: string;
+  episodeName?: string;
+}
+
+export const findEpisodeDownload = (
+  downloads: DownloadItem[],
+  target: FindEpisodeDownloadTarget,
+): DownloadItem | undefined => {
+  const items = downloads.filter(item => !isSubtitleDownloadItem(item));
+
+  if (target.downloadId) {
+    const matchById = items.find(item => item.id === target.downloadId);
+    if (matchById) {
+      return matchById;
+    }
+  }
+
+  if (target.infoUrl && target.link) {
+    const matchByLink = items.find(
+      item =>
+        item.infoUrl === target.infoUrl && item.sourceLink === target.link,
+    );
+    if (matchByLink) {
+      return matchByLink;
+    }
+  }
+
+  if (target.infoUrl && target.seasonTitle && target.episodeName) {
+    const matchBySeasonEpisode = items.find(
+      item =>
+        item.infoUrl === target.infoUrl &&
+        item.seasonTitle === target.seasonTitle &&
+        item.episodeName === target.episodeName,
+    );
+    if (matchBySeasonEpisode) {
+      return matchBySeasonEpisode;
+    }
+  }
+
+  return undefined;
+};

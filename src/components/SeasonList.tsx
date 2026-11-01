@@ -45,6 +45,7 @@ import {
   createDirectDownloadId,
   createSeriesDownloadId,
 } from '../lib/downloadId';
+import {findEpisodeDownload} from '../lib/downloadLibrary';
 import useDownloadsStore from '../lib/zustand/downloadsStore';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import MaterialDialogSurface from './ui/MaterialDialogSurface';
@@ -694,13 +695,13 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         direct ? createDirectDownloadId : createSeriesDownloadId
       )(metaTitle, activeSeason.title, index);
       const downloads = Object.values(useDownloadsStore.getState().downloads);
-      const existing = downloads.find(
-        item =>
-          !item.isSubtitle &&
-          (item.id === downloadId ||
-            (item.infoUrl === routeParams.link &&
-              item.sourceLink === episode.link)),
-      );
+      const existing = findEpisodeDownload(downloads, {
+        downloadId,
+        infoUrl: routeParams.link,
+        link: episode.link,
+        seasonTitle: activeSeason.title,
+        episodeName: episode.title,
+      });
       if (
         existing &&
         (existing.status === 'completed' ||
@@ -762,12 +763,18 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   });
 
   // Memoized completion checker
-  const isCompleted = useCallback((link: string) => {
-    const watchProgress = JSON.parse(cacheStorage.getString(link) || '{}');
-    const percentage =
-      (watchProgress?.position / watchProgress?.duration) * 100;
-    return percentage > 85;
-  }, []);
+  // Watch progress lives in storage, not React state. Bumping this re-renders
+  // every row after progress changes (mark watched, return from player).
+  const [progressVersion, setProgressVersion] = useState(0);
+  const isCompleted = useCallback(
+    (link: string) => {
+      const watchProgress = JSON.parse(cacheStorage.getString(link) || '{}');
+      const percentage =
+        (watchProgress?.position / watchProgress?.duration) * 100;
+      return percentage > 85;
+    },
+    [progressVersion],
+  );
 
   // Memoized toggle sort order
   const toggleSortOrder = useCallback(() => {
@@ -775,6 +782,21 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     setSortOrder(newOrder);
     mainStorage.setString(episodeSortOrderKey, newOrder);
   }, [episodeSortOrderKey, sortOrder]);
+
+  // activeSeason starts from a cached copy. When LinkList refreshes, swap in
+  // the fresh season with the same title so new episodes and links show up.
+  useEffect(() => {
+    setActiveSeason(current => {
+      const fresh =
+        LinkList.find(link => link.title === current.title) || LinkList[0];
+      if (!fresh || fresh === current) return current;
+      cacheStorage.setString(
+        `ActiveSeason${metaTitle + providerValue}`,
+        JSON.stringify(fresh),
+      );
+      return fresh;
+    });
+  }, [LinkList, metaTitle, providerValue]);
 
   // Memoized season change handler
   const handleSeasonChange = useCallback(
@@ -891,8 +913,16 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         seasonTitle,
         downloadIndex,
       );
-      const localDownload =
-        useDownloadsStore.getState().downloads[downloadId];
+      const localDownload = findEpisodeDownload(
+        Object.values(useDownloadsStore.getState().downloads),
+        {
+          downloadId,
+          infoUrl: routeParams.link,
+          link,
+          seasonTitle,
+          episodeName: episodeData[linkIndex]?.title,
+        },
+      );
       const localPath =
         (localDownload?.status === 'completed' && localDownload?.filePath) ||
         dwFile;
@@ -1052,6 +1082,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         },
         syncEpisode,
       });
+      setProgressVersion(version => version + 1);
       setStickyMenu({active: false});
     },
     [
@@ -1495,6 +1526,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   useFocusEffect(
     useCallback(() => {
       setLastPlayed(readLastPlayed());
+      setProgressVersion(version => version + 1);
     }, [readLastPlayed]),
   );
   const [pendingResume, setPendingResume] = useState<string | null>(null);
@@ -1725,6 +1757,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
             data={filteredAndSortedEpisodes}
             keyExtractor={(item, index) => `episode-${item.link}-${index}`}
             renderItem={renderEpisodeItem}
+            extraData={progressVersion}
             maxToRenderPerBatch={10}
             windowSize={10}
             removeClippedSubviews={!isTV}
@@ -1738,6 +1771,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
               data={filteredAndSortedDirectLinks}
               keyExtractor={(item, index) => `direct-${item.link}-${index}`}
               renderItem={renderDirectLinkItem}
+              extraData={progressVersion}
               maxToRenderPerBatch={10}
               windowSize={10}
               removeClippedSubviews={!isTV}
