@@ -122,6 +122,9 @@ jobs:
     permissions:
       # Need these permissions for creating GitHub releases
       contents: write
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      PROXY_API_URL: ${{ secrets.PROXY_API_URL }}
 
     steps:
       - name: Checkout specific branch
