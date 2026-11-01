@@ -1,5 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$SourceDirectory,
+    [ValidateSet('arm64-v8a', 'armeabi-v7a')]
+    [string]$Abi = 'arm64-v8a',
     [string]$NdkDirectory = "$env:ANDROID_SDK_ROOT/ndk/27.1.12297006"
 )
 
@@ -15,13 +17,15 @@ if ($LASTEXITCODE -ne 0 -or $changes) { throw 'ByeDPI source checkout must be cl
 
 $tools = Join-Path $NdkDirectory 'toolchains/llvm/prebuilt/windows-x86_64/bin'
 $root = Split-Path $PSScriptRoot -Parent
-$output = Join-Path $root 'performance-captures/byedpi-build/libciadpi.so'
+$outputName = if ($Abi -eq 'armeabi-v7a') { "$Abi/libciadpi.so" } else { 'libciadpi.so' }
+$output = Join-Path $root "performance-captures/byedpi-build/$outputName"
 New-Item -ItemType Directory -Force (Split-Path $output -Parent) | Out-Null
 $sources = @('packets.c', 'main.c', 'conev.c', 'proxy.c', 'desync.c', 'mpool.c', 'extend.c') |
     ForEach-Object { Join-Path $source $_ }
 # This is an Android PIE executable packaged as .so, not a JNI shared library.
 # Both page-size flags are required for older NDKs: LOAD alignment alone is insufficient.
-& "$tools/clang.exe" --target=aarch64-linux-android24 -D_DEFAULT_SOURCE "-I$source" `
+$target = if ($Abi -eq 'armeabi-v7a') { 'armv7a-linux-androideabi24' } else { 'aarch64-linux-android24' }
+& "$tools/clang.exe" "--target=$target" -D_DEFAULT_SOURCE "-I$source" `
     -std=c99 -O2 -fPIE -pie -Wall -Wno-unused -Wextra -Wno-unused-parameter `
     '-Wl,-z,max-page-size=16384' '-Wl,-z,common-page-size=16384' `
     '-Wl,-z,relro' '-Wl,-z,now' '-Wl,--build-id=sha1' -o $output @sources
@@ -45,14 +49,16 @@ foreach ($line in $relro) {
     $size = [Convert]::ToInt64($fields[5].Substring(2), 16)
     if (($address + $size) % 16384 -ne 0) { throw "Unaligned RELRO boundary: $line" }
 }
-if (!($headers -match '/system/bin/linker64')) { throw 'Missing Android executable interpreter' }
+$expectedInterpreter = if ($Abi -eq 'armeabi-v7a') { '/system/bin/linker(?!\d)' } else { '/system/bin/linker64' }
+if (!($headers -match $expectedInterpreter)) { throw 'Missing Android executable interpreter' }
 
-$destination = Join-Path $root 'native-src/android/jniLibs/arm64-v8a/libciadpi.so'
+$destination = Join-Path $root "native-src/android/jniLibs/$Abi/libciadpi.so"
+New-Item -ItemType Directory -Force (Split-Path $destination -Parent) | Out-Null
 Copy-Item -LiteralPath $output -Destination $destination -Force
 # Keep an existing generated Android project in sync; Expo prebuild also copies this file.
-$generated = Join-Path $root 'android/app/src/main/jniLibs/arm64-v8a/libciadpi.so'
+$generated = Join-Path $root "android/app/src/main/jniLibs/$Abi/libciadpi.so"
 if (Test-Path -LiteralPath (Split-Path $generated -Parent)) {
     Copy-Item -LiteralPath $output -Destination $generated -Force
 }
-Write-Output 'ByeDPI rebuilt: LOAD and RELRO pass 16 KB alignment checks.'
+Write-Output $(if ($Abi -eq 'armeabi-v7a') { 'ByeDPI (armeabi-v7a) rebuilt: LOAD and RELRO pass 16 KB alignment checks.' } else { 'ByeDPI rebuilt: LOAD and RELRO pass 16 KB alignment checks.' })
 Get-FileHash -LiteralPath $destination -Algorithm SHA256

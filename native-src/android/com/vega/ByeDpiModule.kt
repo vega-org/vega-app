@@ -43,36 +43,50 @@ class ByeDpiModule(reactContext: ReactApplicationContext) :
             return nativeLib
         }
 
-        val fallback = File(reactApplicationContext.filesDir, "libciadpi.so")
-        if (!fallback.exists() || fallback.length() == 0L) {
-            try {
-                val apkPath = reactApplicationContext.applicationInfo.sourceDir
-                if (apkPath != null) {
-                    val apkFile = File(apkPath)
-                    if (apkFile.exists()) {
-                        java.util.zip.ZipFile(apkFile).use { zip ->
-                            val entry = zip.getEntry("lib/arm64-v8a/libciadpi.so")
-                                ?: zip.getEntry("lib/arm64/libciadpi.so")
-                            if (entry != null) {
+        // Older builds extracted an arm64-only copy to the files root; it can never run on 32-bit devices.
+        val legacyCopy = File(reactApplicationContext.filesDir, "libciadpi.so")
+        if (legacyCopy.exists() && !legacyCopy.delete()) {
+            VegaLog.w(TAG, "Failed to delete legacy libciadpi.so copy at ${legacyCopy.absolutePath}")
+        }
+
+        try {
+            val apkPath = reactApplicationContext.applicationInfo.sourceDir
+            if (apkPath != null) {
+                val apkFile = File(apkPath)
+                if (apkFile.exists()) {
+                    java.util.zip.ZipFile(apkFile).use { zip ->
+                        // Only consider ABIs the device lists, in preference order.
+                        for (abi in android.os.Build.SUPPORTED_ABIS) {
+                            val entry = zip.getEntry("lib/$abi/libciadpi.so") ?: continue
+                            val fallback = File(File(File(reactApplicationContext.filesDir, "native"), abi), "libciadpi.so")
+                            val stale = !fallback.exists() ||
+                                fallback.length() == 0L ||
+                                (entry.size >= 0L && fallback.length() != entry.size)
+                            if (stale) {
+                                fallback.parentFile?.mkdirs()
+                                val temp = File(fallback.parentFile, "libciadpi.so.tmp")
                                 zip.getInputStream(entry).use { input ->
-                                    fallback.outputStream().use { output ->
+                                    temp.outputStream().use { output ->
                                         input.copyTo(output)
                                     }
                                 }
-                                fallback.setExecutable(true, false)
-                                VegaLog.i(TAG, "Extracted libciadpi.so from APK to ${fallback.absolutePath}")
+                                if (fallback.exists()) fallback.delete()
+                                if (!temp.renameTo(fallback)) {
+                                    temp.delete()
+                                    throw java.io.IOException("Cannot move extracted binary to ${fallback.absolutePath}")
+                                }
+                                VegaLog.i(TAG, "Extracted libciadpi.so ($abi) from APK to ${fallback.absolutePath}")
                             }
+                            fallback.setExecutable(true, false)
+                            VegaLog.i(TAG, "Using libciadpi.so for ABI $abi")
+                            return fallback
                         }
+                        VegaLog.w(TAG, "APK has no libciadpi.so for supported ABIs ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
                     }
                 }
-            } catch (e: Exception) {
-                VegaLog.w(TAG, "Failed to extract libciadpi.so fallback from APK: ${e.message}")
             }
-        }
-
-        if (fallback.exists()) {
-            fallback.setExecutable(true, false)
-            return fallback
+        } catch (e: Exception) {
+            VegaLog.w(TAG, "Failed to extract libciadpi.so fallback from APK: ${e.message}")
         }
 
         return nativeLib
