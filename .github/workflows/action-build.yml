@@ -27,6 +27,8 @@ jobs:
       MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       MYAPP_UPLOAD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      PROXY_API_URL: ${{ secrets.PROXY_API_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
