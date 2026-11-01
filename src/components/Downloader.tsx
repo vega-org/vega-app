@@ -28,6 +28,7 @@ import {
   createSubtitleFileName,
   isSubtitleDownloadItem,
 } from '../lib/downloadId';
+import { findEpisodeDownload } from '../lib/downloadLibrary';
 import useDownloadsStore, {
   CURRENT_DOWNLOAD_STATUSES,
 } from '../lib/zustand/downloadsStore';
@@ -187,18 +188,14 @@ const DownloadComponent = ({
   const focusBorderColor = useTVFocusBorderColor(primary);
   const provider = useContentStore(state => state.provider);
 
-  const videoDownload = useDownloadsStore(
-    state =>
-      (state.downloads[downloadId] &&
-        !isSubtitleDownloadItem(state.downloads[downloadId])
-        ? state.downloads[downloadId]
-        : null) ||
-      Object.values(state.downloads).find(
-        item =>
-          !isSubtitleDownloadItem(item) &&
-          item.infoUrl === infoUrl &&
-          item.sourceLink === link,
-      ),
+  const videoDownload = useDownloadsStore(state =>
+    findEpisodeDownload(Object.values(state.downloads), {
+      downloadId,
+      infoUrl,
+      link,
+      seasonTitle,
+      episodeName,
+    }),
   );
 
   // useShallow: the filter returns a new array on every store change, which
