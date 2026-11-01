@@ -340,17 +340,25 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
       <MaterialDialogSurface
         visible={!!detailEpisode}
         onDismiss={() => setDetailsUri(null)}>
-        <AppText
-          role="titleLarge"
-          style={{color: colors.onSurface, marginBottom: 12}}>
-          {detailEpisode && getEpisodeLabel(detailEpisode, title)}
-        </AppText>
+        <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12}}>
+          <AppText role="titleLarge" style={{color: colors.onSurface, flex: 1}}>
+            {detailEpisode && getEpisodeLabel(detailEpisode, title)}
+          </AppText>
+          <TVFocusable
+            accessibilityRole="button"
+            accessibilityLabel="Close episode details"
+            hasTVPreferredFocus={isTV}
+            onPress={() => setDetailsUri(null)}
+            borderRadius={22}
+            style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
+            <MaterialCommunityIcons name="close" size={24} color={colors.onSurface} />
+          </TVFocusable>
+        </View>
         <ScrollView style={{maxHeight: 300}}>
           <AppText style={{color: colors.onSurfaceVariant}}>
             {detailsUri && metadataFor(detailsUri)?.overview}
           </AppText>
         </ScrollView>
-        {action('Close', () => setDetailsUri(null), true)}
       </MaterialDialogSurface>
     </View>
   );
