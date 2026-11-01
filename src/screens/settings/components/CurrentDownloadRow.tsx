@@ -218,6 +218,7 @@ const CurrentDownloadRow = ({
             />
             <Text
               className="ml-1 text-sm font-bold"
+              numberOfLines={1}
               style={{color: colors.onSecondaryContainer}}>
               Start now
             </Text>
@@ -243,6 +244,7 @@ const CurrentDownloadRow = ({
             <MaterialCommunityIcons name="pause" size={18} color={primary} />
             <Text
               className="ml-1 text-sm font-medium"
+              numberOfLines={1}
               style={{color: colors.onSurface}}>
               Pause
             </Text>
@@ -268,6 +270,7 @@ const CurrentDownloadRow = ({
             <MaterialCommunityIcons name="play" size={18} color={primary} />
             <Text
               className="ml-1 text-sm font-medium"
+              numberOfLines={1}
               style={{color: colors.onSurface}}>
               Resume
             </Text>
@@ -292,6 +295,7 @@ const CurrentDownloadRow = ({
             <MaterialCommunityIcons name="refresh" size={18} color={primary} />
             <Text
               className="ml-1 text-sm font-medium"
+              numberOfLines={1}
               style={{color: colors.onSurface}}>
               Retry
             </Text>
@@ -323,6 +327,7 @@ const CurrentDownloadRow = ({
             />
             <Text
               className="ml-1 text-sm font-medium"
+              numberOfLines={1}
               style={{color: colors.onErrorContainer}}>
               Cancel
             </Text>
