@@ -13,7 +13,6 @@ import {
   TouchableOpacity,
   ToastAndroid,
   FlatList,
-  Image,
   ScrollView,
   BackHandler,
   findNodeHandle,
@@ -52,7 +51,8 @@ import MaterialDialogSurface from './ui/MaterialDialogSurface';
 import LoadingIndicator from './ui/LoadingIndicator';
 import {LEGACY_TERTIARY_BACKGROUND} from '../theme/seeds';
 import Text from './ui/Text';
-import EpisodeRowContent, {getValidImageUri} from './EpisodeRowContent';
+import EpisodeRowContent from './EpisodeRowContent';
+import EpisodeDetailsDialog from './EpisodeDetailsDialog';
 import {setSyncedEpisodeProgress} from '../lib/sync/syncService';
 import {episodesUpTo, markEpisodesWatched} from '../lib/utils/episodeProgress';
 import {TVFocusable, TVFocusGuide, TVTouchable} from './tv';
@@ -560,12 +560,6 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     setRestoreDetailsLink(episodeDetails?.link ?? null);
     setEpisodeDetails(null);
   }, [episodeDetails?.link]);
-  const [episodeDetailsImageFailed, setEpisodeDetailsImageFailed] =
-    useState(false);
-
-  useEffect(() => {
-    setEpisodeDetailsImageFailed(false);
-  }, [episodeDetails?.image]);
 
   useEffect(() => {
     if (!isTV || !episodeDetails) return;
@@ -1777,108 +1771,13 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         </View>
       )}
 
-      <MaterialDialogSurface
+      <EpisodeDetailsDialog
         visible={episodeDetails !== null}
+        title={episodeDetails?.title ?? ''}
+        description={episodeDetails?.description ?? ''}
+        image={episodeDetails?.image}
         onDismiss={closeEpisodeDetails}
-        style={{padding: 0}}>
-        {episodeDetails ? (
-          <>
-            {getValidImageUri(episodeDetails.image) &&
-            !episodeDetailsImageFailed ? (
-              <Image
-                source={{uri: getValidImageUri(episodeDetails.image)}}
-                resizeMode="cover"
-                resizeMethod="resize"
-                onError={() => setEpisodeDetailsImageFailed(true)}
-                style={{aspectRatio: 16 / 9, width: '100%'}}
-              />
-            ) : (
-              <View
-                style={{
-                  alignItems: 'center',
-                  aspectRatio: 16 / 9,
-                  backgroundColor: colors.surfaceContainerHighest,
-                  justifyContent: 'center',
-                  width: '100%',
-                }}>
-                <MaterialCommunityIcons
-                  name="image-off-outline"
-                  size={44}
-                  color={colors.onSurfaceVariant}
-                />
-              </View>
-            )}
-            <View style={{padding: 20}}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 8,
-                }}>
-                <Text
-                  role="titleLarge"
-                  style={{
-                    color: colors.onSurface,
-                    fontWeight: '700',
-                    flex: 1,
-                    marginRight: 8,
-                  }}>
-                  {episodeDetails.title}
-                </Text>
-                {isTV && (
-                  <TVFocusable
-                    hasTVPreferredFocus={true}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    borderRadius={18}
-                    focusScale={1}
-                    focusBorderColor={focusBorderColor}
-                    onPress={closeEpisodeDetails}
-                    style={{padding: 4}}>
-                    <MaterialCommunityIcons
-                      name="close"
-                      size={24}
-                      color="#CCCCCC"
-                    />
-                  </TVFocusable>
-                )}
-              </View>
-              <ScrollView style={{maxHeight: 230}} showsVerticalScrollIndicator={false}>
-                <Text
-                  role="bodyMedium"
-                  style={{
-                    color: colors.onSurfaceVariant,
-                    lineHeight: 22,
-                    marginTop: 4,
-                  }}>
-                  {episodeDetails.description}
-                </Text>
-              </ScrollView>
-              {isTV && (
-                <TVFocusable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close episode details"
-                  borderRadius={14}
-                  focusScale={1}
-                  focusBorderColor={focusBorderColor}
-                  onPress={closeEpisodeDetails}
-                  style={{
-                    marginTop: 16,
-                    paddingVertical: 12,
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    borderRadius: 14,
-                    alignItems: 'center',
-                  }}>
-                  <Text style={{color: '#FFFFFF', fontWeight: '600', fontSize: 15}}>
-                    Close
-                  </Text>
-                </TVFocusable>
-              )}
-            </View>
-          </>
-        ) : null}
-      </MaterialDialogSurface>
+      />
 
       <MaterialDialogSurface
         visible={showServerModal}
