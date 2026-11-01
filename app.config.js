@@ -26,13 +26,13 @@ module.exports = () => {
   const APP_SCHEME = IS_PLAYSTORE ? 'vegaapp' : 'com.vega';
   const plugins = [
     './plugins/with-custom-native-modules.js',
-      [
-        'expo-camera',
-        {
-          cameraPermission: 'Allow Vega to scan receiver QR codes.',
-          recordAudioAndroid: false,
-        },
-      ],
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'Allow Vega to scan receiver QR codes.',
+        recordAudioAndroid: false,
+      },
+    ],
     './plugins/android-native-config.js',
     './plugins/with-saf-copy-module.js',
     './plugins/with-uri-permission-module.js',
@@ -152,7 +152,7 @@ module.exports = () => {
       autolinking: {exclude: ['expo-splash-screen']},
       plugins,
       slug: 'vega',
-      version: '5.3.1',
+      version: '5.3.2',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,
@@ -162,7 +162,7 @@ module.exports = () => {
           ? {googleServicesFile: androidGoogleServicesFile}
           : {}),
         package: PACKAGE_NAME,
-        versionCode: 216,
+        versionCode: 217,
         permissions: [
           'FOREGROUND_SERVICE',
           'FOREGROUND_SERVICE_DATA_SYNC',
