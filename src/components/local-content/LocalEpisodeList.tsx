@@ -4,7 +4,6 @@ import React, {useCallback, useMemo, useState} from 'react';
 import {
   BackHandler,
   FlatList,
-  ScrollView,
   View,
   ToastAndroid,
 } from 'react-native';
@@ -33,6 +32,7 @@ import {TVFocusable} from '../tv';
 import DropdownField from '../ui/DropdownField';
 import AppText from '../ui/Text';
 import MaterialDialogSurface from '../ui/MaterialDialogSurface';
+import EpisodeDetailsDialog from '../EpisodeDetailsDialog';
 import LocalVideoThumbnail from './LocalVideoThumbnail';
 import LocalResumeCard from './LocalResumeCard';
 
@@ -337,29 +337,13 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
           )}
         </View>
       </MaterialDialogSurface>
-      <MaterialDialogSurface
+      <EpisodeDetailsDialog
         visible={!!detailEpisode}
-        onDismiss={() => setDetailsUri(null)}>
-        <View style={{position: 'relative', paddingTop: 4, paddingRight: 52, marginBottom: 12}}>
-          <AppText role="titleLarge" style={{color: colors.onSurface}}>
-            {detailEpisode && getEpisodeLabel(detailEpisode, title)}
-          </AppText>
-          <TVFocusable
-            accessibilityRole="button"
-            accessibilityLabel="Close episode details"
-            hasTVPreferredFocus={isTV}
-            onPress={() => setDetailsUri(null)}
-            borderRadius={22}
-            style={{position: 'absolute', right: 0, top: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
-            <MaterialCommunityIcons name="close" size={24} color={colors.onSurface} />
-          </TVFocusable>
-        </View>
-        <ScrollView style={{maxHeight: 300}}>
-          <AppText style={{color: colors.onSurfaceVariant}}>
-            {detailsUri && metadataFor(detailsUri)?.overview}
-          </AppText>
-        </ScrollView>
-      </MaterialDialogSurface>
+        title={detailEpisode ? getEpisodeLabel(detailEpisode, title) : ''}
+        description={(detailsUri && metadataFor(detailsUri)?.overview) || ''}
+        image={detailsUri ? metadataFor(detailsUri)?.thumbnail : undefined}
+        onDismiss={() => setDetailsUri(null)}
+      />
     </View>
   );
 }
