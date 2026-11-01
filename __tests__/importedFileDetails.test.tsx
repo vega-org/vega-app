@@ -22,6 +22,13 @@ jest.mock('../src/components/tv', () => ({
   TVFocusGuide: 'TVFocusGuide',
 }));
 jest.mock('../src/components/ui/Text', () => 'AppText');
+jest.mock('../src/lib/hooks/useHomePageData', () => ({
+  useArtworkShape: () => ({ready: true, posterLike: false}),
+}));
+jest.mock(
+  '../src/screens/downloads/components/DetailsHero',
+  () => 'DetailsHero',
+);
 jest.mock(
   '../src/components/local-content/LocalSeasonList',
   () => 'LocalSeasonList',

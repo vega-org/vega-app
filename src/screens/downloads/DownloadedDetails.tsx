@@ -1,5 +1,5 @@
 import ImportedFileDetails from './components/ImportedFileDetails';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import DetailsHero from './components/DetailsHero';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -7,7 +7,6 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useFocusEffect} from '@react-navigation/native';
 import {
   BackHandler,
-  Image,
   ScrollView,
   StatusBar,
   Text,
@@ -15,7 +14,6 @@ import {
   findNodeHandle,
   UIManager,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import type {DownloadsStackParamList, RootStackParamList} from '../../App';
 import ManagedEpisodeSelectionBar from '../../components/ManagedEpisodeSelectionBar';
 import AppDialog from '../../components/AppDialog';
@@ -53,7 +51,6 @@ const getSeasonTitle = (item: DownloadItem): string =>
   item.seasonTitle || 'Downloaded';
 
 const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
-  const insets = useSafeAreaInsets();
   const playerReturnFocusRef = useRef<View | null>(null);
   const restorePlayerFocusRef = useRef(false);
   useFocusEffect(
@@ -80,7 +77,6 @@ const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const toggleSelection = (item: DownloadItem) => setSelectedIds(current => {const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next;});
   const exitSelection = () => {setSelecting(false); setSelectedIds(new Set());};
-  const [readMore, setReadMore] = useState(false);
   const group = useMemo(
     () =>
       groupCompletedDownloads(completed).find(
@@ -156,7 +152,6 @@ const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
   // above the early return: the group disappears when its last file is deleted.
   const artworkUri = group?.items[0]?.background || group?.items[0]?.poster;
   const {ready: backdropReady, posterLike} = useArtworkShape(artworkUri);
-  const [titleHeight, setTitleHeight] = useState(0);
 
   if (!group) {
     return (
@@ -248,93 +243,19 @@ const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
     metadata.poster ||
     'https://placehold.jp/24/171717/ffffff/800x450.png?text=Vega';
   const hasArtwork = !!(metadata.background || metadata.poster);
-  const posterTop = isTV ? 24 : insets.top + 12;
-  const posterBottom = 12 + titleHeight + 12;
-  const showPoster =
-    posterLike && titleHeight > 0 && 340 - posterTop - posterBottom >= 110;
 
   return (
     <TVFocusGuide autoFocus={true} trapFocusRight={true} style={{flex: 1, backgroundColor: '#000000'}}>
       <StatusBar translucent backgroundColor="transparent" />
-      <View className="absolute h-[340px] w-full">
-        {backdropReady || !hasArtwork ? (
-          <Image
-            source={{uri: backgroundImage}}
-            className="h-[340px] w-full"
-            resizeMode="cover"
-            resizeMethod="resize"
-            blurRadius={posterLike ? 18 : 0}
-            style={{opacity: posterLike ? 0.75 : 1}}
-          />
-        ) : null}
-      </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: selecting ? 120 : 0}}>
-        <View className="relative h-[340px] w-full">
-          <LinearGradient
-            colors={['rgba(0,0,0,0.08)', 'rgba(0,0,0,0.18)', '#000000']}
-            locations={[0, 0.55, 1]}
-            className="absolute h-full w-full"
-          />
-          {showPoster ? (
-            <View
-              pointerEvents="none"
-              style={{
-                alignItems: 'center',
-                bottom: posterBottom,
-                left: 0,
-                position: 'absolute',
-                right: 0,
-                top: posterTop,
-              }}>
-              <View
-                style={{
-                  aspectRatio: 2 / 3,
-                  borderRadius: 12,
-                  elevation: 12,
-                  height: '100%',
-                  overflow: 'hidden',
-                }}>
-                <Image
-                  source={{uri: backgroundImage}}
-                  resizeMode="cover"
-                  resizeMethod="resize"
-                  style={{height: '100%', width: '100%'}}
-                />
-              </View>
-            </View>
-          ) : null}
-          <TVFocusable
-            hasTVPreferredFocus={isTV}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            borderRadius={18}
-            focusScale={1.1}
-            focusBorderColor={focusBorderColor}
-            onPress={() => navigation.goBack()}
-            style={{
-              alignItems: 'center',
-              backgroundColor: 'rgba(23,23,23,0.88)',
-              borderRadius: 18,
-              height: 48,
-              justifyContent: 'center',
-              marginLeft: isTV ? 24 : 20,
-              marginTop: isTV ? 24 : insets.top + 12,
-              width: 48,
-            }}>
-            <MaterialCommunityIcons
-              name="arrow-left"
-              size={26}
-              color={colors.onSurface}
-            />
-          </TVFocusable>
-          <View
-            className="absolute bottom-3 right-0 w-full px-5"
-            onLayout={event => setTitleHeight(event.nativeEvent.layout.height)}>
-            <Text
-              className="text-3xl font-bold capitalize"
-              style={{color: colors.onBackground}}>
-              {group.title}
-            </Text>
+        <DetailsHero
+          title={group.title}
+          backgroundImage={backgroundImage}
+          posterLike={posterLike}
+          backdropReady={backdropReady}
+          hasArtwork={hasArtwork}
+          synopsis={metadata.synopsis}
+          subtitleRow={
             <View className="mt-3 flex-row items-center">
               <MaterialCommunityIcons
                 name="download-circle-outline"
@@ -351,52 +272,11 @@ const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
                 {formatDownloadBytes(totalBytes)}
               </Text>
             </View>
-          </View>
-        </View>
+          }
+          onBack={() => navigation.goBack()}
+        />
 
-        <View className="bg-black px-5 pb-6 pt-3">
-          {metadata.synopsis ? (
-            <View className="mb-7">
-              <Text
-                className="mb-2 text-xl font-bold"
-                style={{color: colors.onBackground}}>
-                Synopsis
-              </Text>
-              <Text
-                className="text-base leading-6"
-                style={{color: colors.onSurfaceVariant}}>
-                {metadata.synopsis.length > 240 && !readMore
-                  ? `${metadata.synopsis.slice(0, 240)}...`
-                  : metadata.synopsis}
-              </Text>
-              {metadata.synopsis.length > 240 ? (
-                <TVFocusable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    readMore ? 'Show less synopsis' : 'Read more synopsis'
-                  }
-                  onPress={() => setReadMore(value => !value)}
-                  borderRadius={8}
-                  focusScale={1.05}
-                  focusBorderColor={focusBorderColor}
-                  style={{
-                    paddingVertical: 6,
-                    paddingHorizontal: 4,
-                    alignSelf: 'flex-start',
-                  }}>
-                  <Text
-                    style={{
-                      color: colors.primary,
-                      fontSize: 14,
-                      fontWeight: '700',
-                    }}>
-                    {readMore ? 'Show less' : 'Read more'}
-                  </Text>
-                </TVFocusable>
-              ) : null}
-            </View>
-          ) : null}
-
+        <View className={`bg-black px-5 pb-6 ${metadata.synopsis ? '' : 'pt-3'}`}>
           {seasonOptions.length > 0 ? (
             <DropdownField
               options={seasonOptions}
