@@ -340,8 +340,8 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
       <MaterialDialogSurface
         visible={!!detailEpisode}
         onDismiss={() => setDetailsUri(null)}>
-        <View style={{flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12}}>
-          <AppText role="titleLarge" style={{color: colors.onSurface, flex: 1}}>
+        <View style={{position: 'relative', paddingTop: 4, paddingRight: 52, marginBottom: 12}}>
+          <AppText role="titleLarge" style={{color: colors.onSurface}}>
             {detailEpisode && getEpisodeLabel(detailEpisode, title)}
           </AppText>
           <TVFocusable
@@ -350,7 +350,7 @@ export default function LocalEpisodeList({title}: {title: LocalTitle}) {
             hasTVPreferredFocus={isTV}
             onPress={() => setDetailsUri(null)}
             borderRadius={22}
-            style={{width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
+            style={{position: 'absolute', right: 0, top: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center'}}>
             <MaterialCommunityIcons name="close" size={24} color={colors.onSurface} />
           </TVFocusable>
         </View>
