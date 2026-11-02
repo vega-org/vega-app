@@ -101,6 +101,8 @@ export interface VegaSyncManifest {
   watchlist?: Record<string, SyncedWatchListItem>;
   collections?: Record<string, SyncedLibraryCollection>;
   tombstones: Record<string, SyncTombstone>;
+  /** When watch progress was last cleared on any device. Older versions omit it. */
+  progressClearedAt?: number;
 }
 
 export interface MergedSyncState {
@@ -109,6 +111,7 @@ export interface MergedSyncState {
   watchlist: Record<string, SyncedWatchListItem>;
   collections: Record<string, SyncedLibraryCollection>;
   tombstones: Record<string, SyncTombstone>;
+  progressClearedAt: number;
 }
 
 export const MAX_SYNC_HISTORY_ITEMS = 50;
@@ -338,5 +341,22 @@ export const mergeSyncManifests = (
       .slice(0, MAX_SYNC_HISTORY_ITEMS),
   );
 
-  return {downloads, history: limitedHistory, watchlist, collections, tombstones};
+  // The newest clear on any device wins.
+  const progressClearedAt = Math.max(
+    0,
+    ...manifests.map(manifest =>
+      Number.isFinite(manifest.progressClearedAt)
+        ? (manifest.progressClearedAt as number)
+        : 0,
+    ),
+  );
+
+  return {
+    downloads,
+    history: limitedHistory,
+    watchlist,
+    collections,
+    tombstones,
+    progressClearedAt,
+  };
 };

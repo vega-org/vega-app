@@ -624,4 +624,15 @@ describe('Vega sync manifest', () => {
 
     expect(Object.keys(merged.downloads)).toEqual(['series:tt1234:7:i0']);
   });
+
+  it('keeps the newest watch progress clear from any device', () => {
+    expect(
+      mergeSyncManifests([
+        manifest('phone', {progressClearedAt: 200}),
+        manifest('tv', {progressClearedAt: 500}),
+        manifest('old-version'),
+      ]).progressClearedAt,
+    ).toBe(500);
+    expect(mergeSyncManifests([manifest('phone')]).progressClearedAt).toBe(0);
+  });
 });

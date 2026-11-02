@@ -185,4 +185,30 @@ describe('continue watching sync', () => {
       duration: 1,
     });
   });
+
+  it('applies a newer remote progress clear and skips older history', async () => {
+    mockWatchProgress.clear();
+    mockWatchProgress.set('https://example.com/local-show/1', {
+      position: 500,
+      duration: 1000,
+    });
+    readManifests.mockResolvedValue([
+      {
+        ...remoteManifest([
+          historyEntry('before-clear', 1, 1000, 300, 1200),
+          historyEntry('after-clear', 1, 2000, 400, 1200),
+        ]),
+        progressClearedAt: 1500,
+      },
+    ]);
+
+    await syncFromSharedFolder();
+
+    expect(mockWatchProgress.has('https://example.com/local-show/1')).toBe(false);
+    expect(mockWatchProgress.has('https://example.com/before-clear/1')).toBe(false);
+    expect(mockWatchProgress.get('https://example.com/after-clear/1')).toEqual({
+      position: 400,
+      duration: 1200,
+    });
+  });
 });

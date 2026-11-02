@@ -23,9 +23,11 @@ import {clearAppCache} from '../../lib/clearAppCache';
 import {
   clearAllMMKVStorage,
   settingsStorage,
-  watchProgressStorage,
 } from '../../lib/storage';
-import {syncFromSharedFolder} from '../../lib/sync/syncService';
+import {
+  clearSyncedWatchProgress,
+  syncFromSharedFolder,
+} from '../../lib/sync/syncService';
 import {isTV} from '../../lib/tv';
 import {showAppDialog} from '../../lib/zustand/appDialogStore';
 import {useM3Colors} from '../../theme/M3PaletteContext';
@@ -65,14 +67,14 @@ export default function DataManagement({navigation}: Props) {
     showAppDialog({
       title: 'Clear watch progress?',
       message:
-        'This clears saved episode and video playback positions. Watchlist, downloads, providers, and Continue watching will not be cleared.',
+        'This clears saved episode and video playback positions on this device and, when sync is on, on other devices running the latest version. Watchlist, downloads, providers, and Continue watching will not be cleared.',
       actions: [
         {label: 'Cancel'},
         {
           label: 'Clear',
           variant: 'destructive',
           onPress: () => {
-            watchProgressStorage.clearAllProgress();
+            clearSyncedWatchProgress();
             ToastAndroid.show('Watch progress cleared', ToastAndroid.SHORT);
           },
         },

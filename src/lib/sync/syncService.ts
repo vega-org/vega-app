@@ -42,7 +42,11 @@ const DEVICE_ID_KEY = 'vega-sync-device-id';
 const REVISION_KEY = 'vega-sync-revision';
 const TOMBSTONES_KEY = 'vega-sync-tombstones';
 const HISTORY_KEY = 'vega-sync-history';
+const PROGRESS_CLEARED_KEY = 'vega-sync-progress-cleared-at';
 const PUBLISH_DELAY_MS = 1000;
+
+const getProgressClearedAt = () =>
+  mainStorage.getNumber(PROGRESS_CLEARED_KEY) || 0;
 
 const isSyncActive = () =>
   typeof settingsStorage?.isSyncEnabled === 'function'
@@ -263,17 +267,42 @@ const buildManifest = (): VegaSyncManifest => {
     watchlist,
     collections,
     tombstones: getTombstones(),
+    progressClearedAt: getProgressClearedAt(),
   };
+};
+
+/**
+ * Clears watch progress here and, through the published clear time, on every
+ * synced device. History recorded before the clear no longer restores
+ * progress; Continue watching is left as it is.
+ */
+export const clearSyncedWatchProgress = () => {
+  const clearedAt = Date.now();
+  mainStorage.setNumber(PROGRESS_CLEARED_KEY, clearedAt);
+  watchProgressStorage.clearAllProgress();
+  if (isSyncActive()) {
+    schedulePublish();
+  }
+};
+
+/** Applies a newer clear made on another device. */
+const applyRemoteProgressClear = (clearedAt: number) => {
+  if (clearedAt > getProgressClearedAt()) {
+    mainStorage.setNumber(PROGRESS_CLEARED_KEY, clearedAt);
+    // Progress has no timestamps, so a newer remote clear removes it all.
+    watchProgressStorage.clearAllProgress();
+  }
 };
 
 const applyRemoteHistory = (history: Record<string, SyncedHistory>) => {
   const limitedHistory = saveLocalHistory(history);
+  const progressClearedAt = getProgressClearedAt();
   const latestByInfoUrl = new Map<string, SyncedHistory>();
   Object.values(limitedHistory).forEach(item => {
     const episode = item.episode;
     const position = item.progress ?? item.currentTime ?? 0;
     const duration = item.duration ?? 0;
-    if (episode?.link && duration > 0) {
+    if (episode?.link && duration > 0 && item.updatedAt > progressClearedAt) {
       // Desktop plays downloads from a file path; sourceLink is the provider
       // link the episode list here uses.
       [episode.link, episode.sourceLink]
@@ -624,6 +653,7 @@ const runSharedFolderSync = async (): Promise<void> => {
     saveTombstones(merged.tombstones);
     applyTombstones(merged.tombstones);
     applyRemoteDownloads(merged.downloads, filePaths);
+    applyRemoteProgressClear(merged.progressClearedAt);
     applyRemoteHistory(merged.history);
     applyRemoteCollections(merged.collections);
     applyRemoteWatchList(merged.watchlist);
