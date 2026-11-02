@@ -347,6 +347,7 @@ class HttpDownloadModule(
                 val args = mutableListOf("-hide_banner", "-loglevel", "error", "-y")
                 fun input(path: String) {
                     require(File(path).isFile) { "Downloaded HLS playlist is missing" }
+                    HlsSegmentSanitizer.unwrapPlaylist(File(path))
                     args.addAll(listOf("-protocol_whitelist", "file,crypto,data", "-allowed_extensions", "ALL", "-i", path))
                 }
                 input(videoPlaylistPath)

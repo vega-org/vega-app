@@ -713,7 +713,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           episodeName: episode.title,
           seasonTitle: activeSeason.title,
           episodeIndex: index,
-          mediaType: direct && !isTV && (item as any).type !== 'series' ? 'movie' : 'series',
+          mediaType: type === 'movie' ? 'movie' : 'series',
           imdbId,
           poster: poster.poster,
           background: poster.background,
@@ -724,7 +724,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           skip: item.skip || (item as any).skips,
           fileName:
             direct &&
-            (item as any).type !== 'series' &&
+            type === 'movie' &&
             (activeSeason.directLinks?.length || 0) <= 1
               ? createDesktopCompatibleFileName(metaTitle, 'movie')
               : createDesktopCompatibleFileName(
@@ -742,6 +742,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       activeSeason,
       episodeList,
       validEpisodes,
+      type,
       metaTitle,
       routeParams.link,
       imdbId,
@@ -1408,7 +1409,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
               providerValue={providerValue}
               link={item.link}
               type={type}
-              mediaType={isTV ? 'series' : item?.type === 'series' ? 'series' : 'movie'}
+              mediaType={type === 'movie' ? 'movie' : 'series'}
               showName={metaTitle}
               seasonTitle={activeSeason.title}
               episodeName={item.title}
@@ -1429,7 +1430,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
                   : metaTitle + ' ' + item.title
               }
               fileName={
-                item?.type === 'series' ||
+                type !== 'movie' ||
                 (activeSeason?.directLinks &&
                   activeSeason.directLinks.length > 1)
                   ? createDesktopCompatibleFileName(
