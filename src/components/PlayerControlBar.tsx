@@ -1,16 +1,17 @@
-import React from 'react';
+import React, {useCallback} from 'react';
 import {
-  Pressable,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
   StyleProp,
   ViewStyle,
+  findNodeHandle,
 } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import {isTV} from '../lib/tv/constants';
+import TVFocusPressable from './tv/TVFocusPressable';
 import {PlayerControlId} from '../lib/player/controlLayout';
 import {
   defaultPlayerControlStyle,
@@ -29,7 +30,7 @@ export type PlayerControl = {
   onPress: () => void;
 };
 export const PLAYER_CONTROL_COLOR = 'rgba(255,255,255,0.6)';
-const Button = isTV ? Pressable : TouchableOpacity;
+const Button = isTV ? TVFocusPressable : TouchableOpacity;
 const BOTTOM_EDGE_PADDING = 12;
 
 export function PlayerControlIcon({
@@ -73,6 +74,9 @@ type Props = {
   appearance?: PlayerControlStyle;
   onEdit: () => void;
   getTVFocusProps: (id: string) => {style?: StyleProp<ViewStyle>};
+  nextFocusDown?: number;
+  nextFocusUp?: number;
+  onEntryHandle?: (handle: number | null) => void;
 };
 
 export default function PlayerControlBar({
@@ -82,16 +86,28 @@ export default function PlayerControlBar({
   appearance = defaultPlayerControlStyle(),
   onEdit,
   getTVFocusProps,
+  nextFocusDown,
+  nextFocusUp,
+  onEntryHandle,
 }: Props) {
+  const entryRef = useCallback(
+    (node: View | React.ElementRef<typeof TouchableOpacity> | null) => {
+      onEntryHandle?.(findNodeHandle(node));
+    },
+    [onEntryHandle],
+  );
   const visible = ids
     .map(id => controls.find(control => control.id === id))
     .filter((control): control is PlayerControl => Boolean(control?.visible));
-  const children = visible.map(control => {
+  const children = visible.map((control, index) => {
     const focusProps = getTVFocusProps(control.id);
     return (
       <Button
         key={control.id}
+        ref={isTV && index === 0 ? entryRef : undefined}
         {...focusProps}
+        nextFocusDown={isTV ? nextFocusDown : undefined}
+        nextFocusUp={isTV ? nextFocusUp : undefined}
         accessibilityRole="button"
         accessibilityLabel={`${control.title}, ${control.label}`}
         accessibilityHint="Hold to edit player controls"

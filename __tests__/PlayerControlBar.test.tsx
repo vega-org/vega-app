@@ -1,6 +1,6 @@
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
-import {ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {ScrollView, StyleSheet, Text, TouchableOpacity} from 'react-native';
 import type {PlayerControlId} from '../src/lib/player/controlLayout';
 import PlayerControlBar, {
   PlayerControl,
@@ -9,6 +9,9 @@ import {normalizePlayerControlStyle, defaultPlayerControlStyle} from '../src/lib
 
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('@expo/vector-icons/MaterialIcons', () => 'Icon');
+jest.mock('../src/lib/tv/useTVFocusBorderColor', () => ({
+  useTVFocusBorderColor: () => '#fff',
+}));
 let mockIsTV = false;
 jest.mock('../src/lib/tv/constants', () => ({get isTV() { return mockIsTV; }}));
 beforeEach(() => { mockIsTV = false; });

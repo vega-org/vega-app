@@ -99,6 +99,7 @@ import {
 import {syncFromSharedFolder} from '../../lib/sync/syncService';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
+import TVFocusPressable from '../../components/tv/TVFocusPressable';
 import useContinueWatchingStore from '../../lib/zustand/continueWatchingStore';
 import useLocalVideoStore from '../../lib/zustand/localVideoStore';
 import useDownloadsStore, {
@@ -274,6 +275,7 @@ const formatTVTimelineTime = (time: number): string => {
 };
 
 const BOTTOM_CONTROL_ICON_COLOR = 'rgba(255,255,255,0.6)';
+const EditControlsButton = isTV ? TVFocusPressable : TouchableOpacity;
 /** "#RGB" / "#RRGGBB" / "#AARRGGBB" to Android "#AARRGGBB" with the given alpha. */
 const withAlpha = (hex: string, opacity: number) => {
   let rgb = hex.replace('#', '');
@@ -1050,6 +1052,8 @@ const Player = ({route}: Props): React.JSX.Element => {
     null,
   );
   const videoSurfaceTVRef = useRef<View>(null);
+  const [topControlTVHandle, setTopControlTVHandle] = useState<number | null>(null);
+  const [bottomControlTVHandle, setBottomControlTVHandle] = useState<number | null>(null);
   const preferredMenuRowRef = useRef<View>(null);
   const [editingControls, setEditingControls] = useState(false);
   const [showMoreControls, setShowMoreControls] = useState(false);
@@ -1198,7 +1202,6 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   const {
     getTVFocusProps,
-    tvFocusedControl,
     showTVControls,
     scrubPosition,
     confirmScrub,
@@ -3793,13 +3796,17 @@ const Player = ({route}: Props): React.JSX.Element => {
         !showEpisodeSidebar &&
         showControls && (
           <>
-            <Pressable
+            <TVFocusPressable
               ref={playPauseTVRef}
+              focusRadius={40 * controlStyle.scale}
+              focusWidth={3}
               onLayout={() =>
                 setPlayPauseTVHandle(findNodeHandle(playPauseTVRef.current))
               }
               nextFocusLeft={playPauseTVHandle ?? undefined}
               nextFocusRight={playPauseTVHandle ?? undefined}
+              nextFocusUp={topControlTVHandle ?? undefined}
+              nextFocusDown={timelineFocusHandle ?? undefined}
               accessibilityRole="button"
               accessibilityLabel={isPaused ? 'Play video' : 'Pause video'}
               hasTVPreferredFocus
@@ -3815,8 +3822,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                 justifyContent: 'center',
                 borderRadius: 40 * controlStyle.scale,
                 borderWidth: 3,
-                borderColor:
-                  tvFocusedControl === 'play_pause' ? primary : 'transparent',
+                borderColor: 'transparent',
                 backgroundColor: 'rgba(0,0,0,0.45)',
                 zIndex: 65,
               }}>
@@ -3825,14 +3831,17 @@ const Player = ({route}: Props): React.JSX.Element => {
                 size={44 * controlStyle.scale}
                 color="white"
               />
-            </Pressable>
-            <Pressable
+            </TVFocusPressable>
+            <TVFocusPressable
               ref={timelineRef}
+              focusWidth={2}
               onLayout={() =>
                 setTimelineFocusHandle(findNodeHandle(timelineRef.current))
               }
               nextFocusLeft={timelineFocusHandle ?? undefined}
               nextFocusRight={timelineFocusHandle ?? undefined}
+              nextFocusUp={playPauseTVHandle ?? undefined}
+              nextFocusDown={bottomControlTVHandle ?? undefined}
               accessibilityRole="adjustable"
               accessibilityLabel="Video timeline. Left and right preview, select seeks, back cancels."
               accessibilityValue={{
@@ -3854,8 +3863,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                 padding: 12,
                 borderRadius: 12,
                 borderWidth: 2,
-                borderColor:
-                  tvFocusedControl === 'timeline' ? primary : 'transparent',
+                borderColor: 'transparent',
                 backgroundColor: 'rgba(20,20,20,0.65)',
                 zIndex: 65,
               }}>
@@ -3896,7 +3904,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                   ? '  •  Select to seek · Back to cancel'
                   : ''}
               </Text>
-            </Pressable>
+            </TVFocusPressable>
           </>
         )}
 
@@ -3927,12 +3935,14 @@ const Player = ({route}: Props): React.JSX.Element => {
                 onWidthChange={setHdrWidth} onInteract={() => setShowControls(true)} />
             {toolbarControls.some(control => control.visible) ? (
                 <PlayerControlBar ids={fittedControlLayout.top} controls={toolbarControls} top
+                  nextFocusDown={playPauseTVHandle ?? undefined}
+                  onEntryHandle={setTopControlTVHandle}
                   onEdit={openControlEditor} appearance={controlStyle} getTVFocusProps={getTVFocusProps} />
             ) : (
-              <TouchableOpacity {...getTVFocusProps('edit_controls')} accessibilityRole="button" accessibilityLabel="Edit player controls" onPress={openControlEditor}
+              <EditControlsButton {...getTVFocusProps('edit_controls')} accessibilityRole="button" accessibilityLabel="Edit player controls" onPress={openControlEditor}
                 className="p-2 items-center justify-center rounded-full">
                 <MaterialCommunityIcons name="tune" size={24 * controlStyle.scale} color={BOTTOM_CONTROL_ICON_COLOR} />
-              </TouchableOpacity>
+              </EditControlsButton>
             )}
             </View>
         </LockAnimatedView>
@@ -3942,6 +3952,8 @@ const Player = ({route}: Props): React.JSX.Element => {
           onLayout={event => setBottomControlHeight(event.nativeEvent.layout.height)}
           style={[controlsStyle, {left: '10%', right: '10%', bottom: 10}]} className="absolute">
           <PlayerControlBar ids={fittedControlLayout.bottom} controls={toolbarControls}
+            nextFocusUp={timelineFocusHandle ?? undefined}
+            onEntryHandle={setBottomControlTVHandle}
             onEdit={openControlEditor} appearance={controlStyle} getTVFocusProps={getTVFocusProps} />
         </NativeAnimated.View>
       )}

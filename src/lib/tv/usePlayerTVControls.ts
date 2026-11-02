@@ -1,7 +1,6 @@
 import {useState, useRef, useCallback, useEffect} from 'react';
 import {isTV} from './constants';
 import {useTVRemote} from './useTVRemote';
-import {useTVFocusBorderColor} from './useTVFocusBorderColor';
 import {settingsStorage} from '../storage';
 
 // Focused and idle controls share border width and padding, so focus only
@@ -38,12 +37,10 @@ export const usePlayerTVControls = ({
   setShowControls,
   showEpisodeSidebar = false,
   setShowEpisodeSidebar,
-  primaryColor,
   onTogglePlayPause,
   onSeekNotification,
   remoteSuspended = false,
 }: UsePlayerTVControlsOptions) => {
-  const focusBorderColor = useTVFocusBorderColor(primaryColor);
   const [isTVControlsVisible, setIsTVControlsVisible] = useState(false);
   const [tvFocusedControl, setTVFocusedControl] = useState<string | null>(null);
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
@@ -296,7 +293,6 @@ export const usePlayerTVControls = ({
           style: TV_CONTROL_IDLE_STYLE,
         };
       }
-      const isFocused = tvFocusedControl === controlId;
       return {
         focusable: true,
         isTVSelectable: true,
@@ -308,12 +304,12 @@ export const usePlayerTVControls = ({
           setTVFocusedControl(prev => (prev === controlId ? null : prev));
           if (controlId === 'timeline') setScrubPosition(null);
         },
-        style: isFocused
-          ? {...TV_CONTROL_IDLE_STYLE, borderColor: focusBorderColor}
-          : TV_CONTROL_IDLE_STYLE,
+        // The outline is drawn by TVFocusPressable from native focus state;
+        // this style only reserves the same space so rows don't reflow.
+        style: TV_CONTROL_IDLE_STYLE,
       };
     },
-    [tvFocusedControl, focusBorderColor, showTVControls, showSettings, showEpisodeSidebar, showControls],
+    [showTVControls, showSettings, showEpisodeSidebar, showControls],
   );
 
   return {
