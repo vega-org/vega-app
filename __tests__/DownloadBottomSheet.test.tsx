@@ -1,6 +1,7 @@
 import {describe, expect, it, jest} from '@jest/globals';
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
+import {ScrollView} from 'react-native';
 
 const mockBottomSheetProps = jest.fn();
 
@@ -23,6 +24,12 @@ jest.mock('@gorhom/bottom-sheet', () => {
     BottomSheetView: ReactNative.View,
     BottomSheetBackdrop: ReactNative.View,
   };
+});
+
+jest.mock('../src/lib/tv', () => ({isTV: false}));
+jest.mock('../src/components/tv', () => {
+  const {View} = require('react-native');
+  return {TVFocusable: View, TVFocusGuide: View};
 });
 
 jest.mock('react-native-gesture-handler', () => {
@@ -103,6 +110,37 @@ describe('DownloadBottomSheet', () => {
         snapPoints: ['50%', '85%'],
       }),
     );
+  });
+
+  it('reopens cached sources with a fresh sheet and no opening animation', () => {
+    const props = {
+      data: Array.from({length: 20}, (_, index) => ({
+        server: `Server ${index}`,
+        link: `https://example.com/${index}.mp4`,
+        type: 'mp4',
+      })),
+      loading: false,
+      setModal: jest.fn(),
+      onPressVideo: jest.fn(),
+      onPressSubs: jest.fn(),
+    };
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<DownloadBottomSheet {...props} showModal />);
+    });
+    const firstScrollView = tree!.root.findByType(ScrollView);
+    act(() => {
+      tree!.update(<DownloadBottomSheet {...props} showModal={false} />);
+    });
+    expect(tree!.toJSON()).toBeNull();
+    act(() => {
+      tree!.update(<DownloadBottomSheet {...props} showModal />);
+    });
+    expect(tree!.root.findByType(ScrollView)).not.toBe(firstScrollView);
+    expect(mockBottomSheetProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({index: 0, animateOnMount: false}),
+    );
+    act(() => tree!.unmount());
   });
 
   it('does not call a missing close method while mounted hidden', () => {

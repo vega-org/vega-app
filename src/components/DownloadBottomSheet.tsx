@@ -222,7 +222,6 @@ const DownloadBottomSheet = ({
   useEffect(() => {
     if (showModal) {
       setActiveTab(1);
-      bottomSheetRef.current?.snapToIndex?.(0);
     }
   }, [showModal]);
 
@@ -938,6 +937,7 @@ const DownloadBottomSheet = ({
         <BottomSheet
           ref={bottomSheetRef}
           index={0}
+          animateOnMount={false}
           enablePanDownToClose
           enableDynamicSizing={false}
           snapPoints={['50%', '85%']}

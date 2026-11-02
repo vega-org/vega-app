@@ -108,6 +108,7 @@ jest.mock('../src/lib/sync/syncService', () => ({
 }));
 
 import SeasonList from '../src/components/SeasonList';
+import Downloader from '../src/components/Downloader';
 
 const props = {
   poster: {},
@@ -119,6 +120,36 @@ const props = {
 } as any;
 
 describe('SeasonList', () => {
+  it.each([
+    ['series', undefined, false, 'series'],
+    ['movie', undefined, false, 'movie'],
+    ['movie', undefined, true, 'movie'],
+    ['movie', 'series', false, 'movie'],
+    ['series', 'movie', false, 'series'],
+  ])('classifies direct downloads for %s with link type %s on TV=%s', async (type, linkType, tv, expected) => {
+    mockIsTV = tv;
+    let tree: renderer.ReactTestRenderer | undefined;
+    try {
+      await act(async () => {
+        tree = renderer.create(
+          <SeasonList
+            {...props}
+            type={type}
+            LinkList={[{title: 'Season 2', directLinks: [{title: 'S2 E1 · Risky Business', link: 'https://example.com/episode', type: linkType}]}]}
+          />,
+        );
+      });
+      const download = tree!.root.findByType(Downloader);
+      expect(download.props.mediaType).toBe(expected);
+      if (expected === 'series') {
+        expect(download.props.fileName).toContain('Risky Business');
+      }
+    } finally {
+      mockIsTV = false;
+      await act(async () => tree?.unmount());
+    }
+  });
+
   it('renders seasons after an empty list is refreshed', async () => {
     let tree: renderer.ReactTestRenderer | undefined;
     await act(async () => {
