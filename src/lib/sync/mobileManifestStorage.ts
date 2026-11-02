@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import {NativeModules} from 'react-native';
+import {settingsStorage} from '../storage';
 import type {SafDownloadLocation} from '../downloadLocation';
 import {
   parseSyncManifest,
@@ -8,6 +9,11 @@ import {
 } from './manifest';
 
 let manifestWriteQueue: Promise<void> = Promise.resolve();
+
+const isSyncActive = () =>
+  typeof settingsStorage?.isSyncEnabled === 'function'
+    ? settingsStorage.isSyncEnabled()
+    : true;
 
 type DirectoryEntry = {uri: string; name: string; isDirectory: boolean};
 
@@ -93,7 +99,7 @@ const getSyncDirectory = async (
   if (existing) {
     return existing;
   }
-  if (!create) {
+  if (!create || !isSyncActive()) {
     return null;
   }
   return createDocument(location.uri, VEGA_SYNC_DIRECTORY, true);
@@ -102,6 +108,9 @@ const getSyncDirectory = async (
 export const readMobileSyncManifests = async (
   location: SafDownloadLocation,
 ): Promise<VegaSyncManifest[]> => {
+  if (!isSyncActive()) {
+    return [];
+  }
   const directory = await getSyncDirectory(location, false);
   if (!directory) {
     return [];
@@ -147,6 +156,9 @@ const writeMobileSyncManifestNow = async (
   manifest: VegaSyncManifest,
   canOverwrite?: CanOverwriteSyncManifest,
 ): Promise<boolean> => {
+  if (!isSyncActive()) {
+    return false;
+  }
   const directory = await getSyncDirectory(location, true);
   if (!directory) {
     throw new Error('Unable to create Vega sync directory');
@@ -186,6 +198,9 @@ export const writeMobileSyncManifest = (
   manifest: VegaSyncManifest,
   canOverwrite?: CanOverwriteSyncManifest,
 ): Promise<boolean> => {
+  if (!isSyncActive()) {
+    return Promise.resolve(false);
+  }
   const write = manifestWriteQueue.then(() =>
     writeMobileSyncManifestNow(location, manifest, canOverwrite),
   );

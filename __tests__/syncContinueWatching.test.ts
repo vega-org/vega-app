@@ -31,6 +31,7 @@ jest.mock('../src/lib/storage/StorageService', () => {
   };
 });
 
+const mockWatchProgress = new Map<string, {position: number; duration: number}>();
 jest.mock('../src/lib/storage', () => ({
   settingsStorage: {
     getDownloadLocationConfig: () => ({
@@ -38,6 +39,13 @@ jest.mock('../src/lib/storage', () => ({
       uri: 'content://storage/tree/primary%3Avega',
       label: 'vega',
     }),
+  },
+  watchProgressStorage: {
+    setProgress: (key: string, position: number, duration: number) => {
+      mockWatchProgress.set(key, {position, duration});
+    },
+    getProgress: (key: string) => mockWatchProgress.get(key) || null,
+    clearAllProgress: () => mockWatchProgress.clear(),
   },
 }));
 
@@ -172,8 +180,35 @@ describe('continue watching sync', () => {
 
     const ids = useContinueWatchingStore.getState().items.map(item => item.id);
     expect(ids).toEqual(['played-show']);
-    expect(cacheStorage.getString('https://example.com/marked-show/1')).toBe(
-      JSON.stringify({position: 1, duration: 1}),
-    );
+    expect(mockWatchProgress.get('https://example.com/marked-show/1')).toEqual({
+      position: 1,
+      duration: 1,
+    });
+  });
+
+  it('applies a newer remote progress clear and skips older history', async () => {
+    mockWatchProgress.clear();
+    mockWatchProgress.set('https://example.com/local-show/1', {
+      position: 500,
+      duration: 1000,
+    });
+    readManifests.mockResolvedValue([
+      {
+        ...remoteManifest([
+          historyEntry('before-clear', 1, 1000, 300, 1200),
+          historyEntry('after-clear', 1, 2000, 400, 1200),
+        ]),
+        progressClearedAt: 1500,
+      },
+    ]);
+
+    await syncFromSharedFolder();
+
+    expect(mockWatchProgress.has('https://example.com/local-show/1')).toBe(false);
+    expect(mockWatchProgress.has('https://example.com/before-clear/1')).toBe(false);
+    expect(mockWatchProgress.get('https://example.com/after-clear/1')).toEqual({
+      position: 400,
+      duration: 1200,
+    });
   });
 });

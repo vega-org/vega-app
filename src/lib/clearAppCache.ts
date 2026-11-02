@@ -21,33 +21,15 @@ const PRESERVED_KEY_PREFIXES = [
 ];
 const PRESERVED_KEYS = new Set(['lastTextTrack', 'lastAudioTrack']);
 
-// Episode progress is saved under the episode link as {position, duration}.
-const isWatchProgress = (value: string): boolean => {
-  if (!value.startsWith('{"position":')) {
-    return false;
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return (
-      typeof parsed.position === 'number' &&
-      typeof parsed.duration === 'number' &&
-      Object.keys(parsed).length === 2
-    );
-  } catch {
-    return false;
-  }
-};
-
-const shouldKeepCacheKey = (key: string, value: string): boolean =>
+const shouldKeepCacheKey = (key: string): boolean =>
   PRESERVED_KEYS.has(key) ||
-  PRESERVED_KEY_PREFIXES.some(prefix => key.startsWith(prefix)) ||
-  isWatchProgress(value);
+  PRESERVED_KEY_PREFIXES.some(prefix => key.startsWith(prefix));
 
 const clearCacheStorage = async (): Promise<void> => {
   const kept: Array<[string, string]> = [];
   for (const key of await cacheStorage.getKeys()) {
     const value = cacheStorage.getString(key);
-    if (value !== undefined && shouldKeepCacheKey(key, value)) {
+    if (value !== undefined && shouldKeepCacheKey(key)) {
       kept.push([key, value]);
     }
   }

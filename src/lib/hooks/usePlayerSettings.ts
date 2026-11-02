@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {
-  cacheStorage,
   settingsStorage,
+  watchProgressStorage,
   PLAYER_RESIZE_MODES,
   PlayerResizeMode,
 } from '../storage';
@@ -28,7 +28,7 @@ export const usePlayerProgress = ({
   const flushProgress = useCallback(() => {
     const progress = pendingProgressRef.current;
     if (!progress) return;
-    cacheStorage.setString(progress.link, JSON.stringify({position: progress.position, duration: progress.duration}));
+    watchProgressStorage.setProgress(progress.link, progress.position, progress.duration);
     progress.onSaved?.(progress.position, progress.duration);
     lastSavedPositionRef.current = progress.position;
     pendingProgressRef.current = null;

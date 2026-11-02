@@ -7,9 +7,17 @@ import useLocalContentStore from '../src/lib/zustand/localContentStore';
 import type {LocalTitle} from '../src/lib/localContent/model';
 const mockCache = new Map<string, string>();
 jest.mock('../src/lib/storage', () => ({
-  cacheStorage: {
-    getString: (key: string) => mockCache.get(key),
-    setString: (key: string, value: string) => mockCache.set(key, value),
+  watchProgressStorage: {
+    getProgress: (key: string) => {
+      try {
+        const parsed = JSON.parse(mockCache.get(key) || 'null');
+        return parsed && typeof parsed.position === 'number' ? parsed : null;
+      } catch {
+        return null;
+      }
+    },
+    setProgress: (key: string, position: number, duration: number) =>
+      mockCache.set(key, JSON.stringify({position, duration})),
   },
 }));
 jest.mock('../src/lib/storage/StorageService', () => ({

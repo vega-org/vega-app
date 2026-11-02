@@ -4,13 +4,13 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../App';
 import type {LocalTitle} from '../../lib/localContent/model';
 import {getLocalPlayerParams, getLocalResume} from '../../lib/localContent/playback';
-import {cacheStorage} from '../../lib/storage';
+import {watchProgressStorage} from '../../lib/storage';
 import {EpisodeResumeCard} from '../EpisodeResumeCard';
 
 export default function LocalResumeCard({title}: {title: LocalTitle}) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const target = getLocalResume(title, uri => {
-    try { return JSON.parse(cacheStorage.getString(uri) || 'null') || undefined; } catch { return undefined; }
+    return watchProgressStorage.getProgress(uri) || undefined;
   });
   if (!target) return null;
   return <EpisodeResumeCard target={target} onPress={() => {

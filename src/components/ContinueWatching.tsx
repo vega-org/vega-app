@@ -23,7 +23,7 @@ import {TVFocusable} from './tv';
 import useLocalContentStore from '../lib/zustand/localContentStore';
 import {localContentId, localContentInfo, localContentLink} from '../lib/localContent/library';
 import {getLocalContinueWatching} from '../lib/localContent/playback';
-import {cacheStorage} from '../lib/storage';
+import {watchProgressStorage} from '../lib/storage';
 
 interface ContinueWatchingCardProps {
   item: ContinueWatchingItem;
@@ -105,7 +105,7 @@ const ContinueWatching = ({localOnly = false}: {localOnly?: boolean}) => {
     () => {
       const localItems: ContinueWatchingItem[] = localTitles.flatMap(title => {
         const target = getLocalContinueWatching(title, uri => {
-          try { return JSON.parse(cacheStorage.getString(uri) || 'null') || undefined; } catch { return undefined; }
+          return watchProgressStorage.getProgress(uri) || undefined;
         });
         if (!target) return [];
         const link = localContentLink(title.id);

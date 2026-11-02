@@ -111,6 +111,9 @@ export enum SettingsKeys {
   ALWAYS_CAST_MODE = 'alwaysCastMode',
   ASK_LOCAL_FILE_FIRST = 'askLocalFileFirst',
   TORRENT_FULL_DOWNLOAD = 'torrentFullDownload',
+
+  // VegaSync
+  SYNC_ENABLED = 'syncEnabled',
 }
 
 /**
@@ -234,6 +237,14 @@ export class SettingsStorage {
 
   setTorrentFullDownload(enabled: boolean): void {
     mainStorage.setBool(SettingsKeys.TORRENT_FULL_DOWNLOAD, enabled);
+  }
+
+  isSyncEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.SYNC_ENABLED, true);
+  }
+
+  setSyncEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.SYNC_ENABLED, enabled);
   }
 
   // Theme settings

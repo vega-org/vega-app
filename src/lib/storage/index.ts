@@ -55,3 +55,12 @@ export type {
   ProviderExtension,
   ProviderModule,
 } from './extensionStorage';
+
+// Export WatchProgressStorage
+export {
+  WatchProgressStorage,
+  watchProgressStorage,
+  migrateWatchProgressFromCacheStorage,
+} from './WatchProgressStorage';
+export type {WatchProgress} from './WatchProgressStorage';
+

@@ -161,11 +161,23 @@ export const providerCookieStorage: IStorageService = new StorageService(
   'provider_cookies',
 );
 
+const storageClearHooks: Array<() => void> = [];
+export const registerStorageClearHook = (hook: () => void): void => {
+  storageClearHooks.push(hook);
+};
+
 export const clearAllMMKVStorage = (): void => {
   cacheStorage.clearAll();
   mainStorage.clearAll();
   providerKvStorage.clearAll();
   providerCookieStorage.clearAll();
+  storageClearHooks.forEach(hook => {
+    try {
+      hook();
+    } catch (e) {
+      console.error("Error running storage clear hook:", e);
+    }
+  });
 };
 
 export const createZustandStorage = (

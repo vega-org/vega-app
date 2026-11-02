@@ -34,7 +34,7 @@ import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {EpisodeLink, Link} from '../lib/providers/types';
 import {RootStackParamList} from '../App';
 import Downloader from './Downloader';
-import {cacheStorage, mainStorage, settingsStorage} from '../lib/storage';
+import {cacheStorage, mainStorage, settingsStorage, watchProgressStorage} from '../lib/storage';
 import {ifExists} from '../lib/file/ifExists';
 import {isTV} from '../lib/tv';
 import {useEpisodes, useStreamData} from '../lib/hooks/useEpisodes';
@@ -123,11 +123,7 @@ interface LastPlayed {
 }
 
 const readProgress = (link: string): {position?: number; duration?: number} => {
-  try {
-    return JSON.parse(cacheStorage.getString(link) || '{}');
-  } catch {
-    return {};
-  }
+  return watchProgressStorage.getProgress(link) || {};
 };
 
 interface StickyMenuState {
@@ -768,9 +764,10 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   const [progressVersion, setProgressVersion] = useState(0);
   const isCompleted = useCallback(
     (link: string) => {
-      const watchProgress = JSON.parse(cacheStorage.getString(link) || '{}');
+      const watchProgress = watchProgressStorage.getProgress(link);
+      if (!watchProgress || !watchProgress.duration) return false;
       const percentage =
-        (watchProgress?.position / watchProgress?.duration) * 100;
+        (watchProgress.position / watchProgress.duration) * 100;
       return percentage > 85;
     },
     [progressVersion],

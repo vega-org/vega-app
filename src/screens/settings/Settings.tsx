@@ -1,8 +1,5 @@
-import BackupExportDialog from '../../components/BackupExportDialog';
 import ScreenSafeArea from '../../components/ui/ScreenSafeArea';
 import {
-  DevSettings,
-  ToastAndroid,
   View,
   ScrollView,
   findNodeHandle,
@@ -106,10 +103,8 @@ const ProviderItem = React.memo(
 import React, {useCallback, useMemo} from 'react';
 import {
   settingsStorage,
-  clearAllMMKVStorage,
   ProviderExtension,
 } from '../../lib/storage';
-import * as Updates from 'expo-updates';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import useContentStore from '../../lib/zustand/contentStore';
 import {
@@ -132,9 +127,6 @@ import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import AppText from '../../components/ui/Text';
 import {useM3Colors} from '../../theme/M3PaletteContext';
-import {showAppDialog} from '../../lib/zustand/appDialogStore';
-import {clearAppCache} from '../../lib/clearAppCache';
-import {exportBackup, pickBackup, restoreBackup, type BackupSelection} from '../../lib/backup';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
 type Props = NativeStackScreenProps<SettingsStackParamList, 'Settings'>;
@@ -147,7 +139,6 @@ const AnimatedSection = ({
 }) => <View>{children}</View>;
 
 const Settings = ({navigation}: Props) => {
-  const [backupOptionsVisible, setBackupOptionsVisible] = React.useState(false);
   const providerManagerRowRef = React.useRef<View>(null);
   const tabNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
@@ -217,92 +208,6 @@ const Settings = ({navigation}: Props) => {
       )),
     [installedProviders, provider.value, colors, handleProviderSelect],
   );
-
-  const clearCacheHandler = useCallback(async () => {
-    if (settingsStorage.isHapticFeedbackEnabled()) {
-      ReactNativeHapticFeedback.trigger('virtualKey', {
-        enableVibrateFallback: true,
-        ignoreAndroidSystemSettings: false,
-      });
-    }
-    await clearAppCache();
-    ToastAndroid.show('App cache cleared', ToastAndroid.SHORT);
-  }, []);
-
-  const reloadApp = useCallback(async (reason: string) => {
-    if (Updates.isEnabled) {
-      await Updates.reloadAsync();
-      return;
-    }
-    DevSettings.reload(reason);
-  }, []);
-
-  const eraseAllLocalData = useCallback(async () => {
-    clearAllMMKVStorage();
-    await reloadApp('All MMKV storage erased');
-  }, [reloadApp]);
-
-  const exportBackupHandler = useCallback(async (selection: BackupSelection) => {
-    setBackupOptionsVisible(false);
-    try {
-      if (await exportBackup(selection)) {
-        ToastAndroid.show('Backup saved', ToastAndroid.SHORT);
-      }
-    } catch (error) {
-      console.error('Failed to export backup:', error);
-      ToastAndroid.show('Failed to save backup', ToastAndroid.SHORT);
-    }
-  }, []);
-
-  const importBackupHandler = useCallback(async () => {
-    try {
-      const backup = await pickBackup();
-      if (!backup) {
-        return;
-      }
-      showAppDialog({
-        title: 'Restore backup?',
-        message:
-          `This restores ${[backup.settings !== undefined && 'settings', backup.library !== undefined && 'library', backup.providers !== undefined && 'providers'].filter(Boolean).join(', ')}. Sections absent from the backup stay unchanged. Vega will restart after restoring.`,
-        actions: [
-          {label: 'Cancel'},
-          {
-            label: 'Restore',
-            variant: 'primary',
-            onPress: async () => {
-              restoreBackup(backup);
-              await reloadApp('Backup restored');
-            },
-          },
-        ],
-      });
-    } catch (error) {
-      showAppDialog({
-        title: 'Could not restore backup',
-        message:
-          error instanceof Error ? error.message : 'Failed to read the file',
-        variant: 'error',
-        actions: [{label: 'OK'}],
-      });
-    }
-  }, [reloadApp]);
-
-  const confirmEraseAllLocalData = useCallback(() => {
-    showAppDialog({
-      title: 'Erase all local data?',
-      message:
-        'This permanently erases every Vega MMKV store, including settings, installed provider data, Library, Continue watching, download records, and cached state. This cannot be undone. Downloaded media files on disk are not deleted.',
-      variant: 'error',
-      actions: [
-        {label: 'Cancel'},
-        {
-          label: 'Erase everything',
-          variant: 'destructive',
-          onPress: eraseAllLocalData,
-        },
-      ],
-    });
-  }, [eraseAllLocalData]);
 
   const ScrollContainer = isTV ? ScrollView : Animated.ScrollView;
 
@@ -440,29 +345,11 @@ const Settings = ({navigation}: Props) => {
             <AnimatedSection delay={300}>
               <SettingsSection title="Data Management">
                 <SettingsRow
-                  title="Clear Cache"
-                  description="Clear temporary cache and images"
-                  icon="delete-outline"
-                  onPress={clearCacheHandler}
-                />
-                <SettingsRow
-                  title="Export backup"
-                  description="Save settings, providers and library to a file"
-                  icon="content-save-outline"
-                  onPress={() => setBackupOptionsVisible(true)}
-                />
-                <SettingsRow
-                  title="Import backup"
-                  description="Restore settings, providers and library from a file"
-                  icon="backup-restore"
-                  onPress={importBackupHandler}
-                />
-                <SettingsRow
-                  title="Erase all local data"
-                  description="Erase all local data"
-                  icon="delete-alert-outline"
+                  title="Data management"
+                  description="Backups, cache, watch progress, and sync"
+                  icon="database-outline"
                   divider={false}
-                  onPress={confirmEraseAllLocalData}
+                  onPress={() => navigation.navigate('DataManagement')}
                 />
               </SettingsSection>
             </AnimatedSection>
@@ -481,8 +368,6 @@ const Settings = ({navigation}: Props) => {
           </View>
         </ScrollContainer>
       </TVFocusGuide>
-      {backupOptionsVisible && <BackupExportDialog
-        onClose={() => setBackupOptionsVisible(false)} onExport={exportBackupHandler} />}
     </ScreenSafeArea>
   );
 };

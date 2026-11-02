@@ -32,6 +32,7 @@ jest.mock('../src/lib/storage/StorageService', () => {
   };
 });
 
+const mockWatchProgress = new Map<string, {position: number; duration: number}>();
 jest.mock('../src/lib/storage', () => ({
   settingsStorage: {
     getDownloadLocationConfig: () => ({
@@ -39,6 +40,13 @@ jest.mock('../src/lib/storage', () => ({
       uri: 'content://storage/tree/primary%3Avega',
       label: 'vega',
     }),
+  },
+  watchProgressStorage: {
+    setProgress: (key: string, position: number, duration: number) => {
+      mockWatchProgress.set(key, {position, duration});
+    },
+    getProgress: (key: string) => mockWatchProgress.get(key) || null,
+    clearAllProgress: () => mockWatchProgress.clear(),
   },
 }));
 
@@ -228,10 +236,11 @@ describe('Up next with shared-folder sync', () => {
     expect(items[0]).toMatchObject({episode: episode(5), position: 0});
     expect(getContinueWatchingRow(items)).toEqual(items);
     // Watched marker of the finished episode; the next one keeps its own.
-    expect(cacheStorage.getString(episode(4).link)).toBe(
-      JSON.stringify({position: 1100, duration: 1200}),
-    );
-    expect(cacheStorage.getString(episode(5).link)).toBeUndefined();
+    expect(mockWatchProgress.get(episode(4).link)).toEqual({
+      position: 1100,
+      duration: 1200,
+    });
+    expect(mockWatchProgress.get(episode(5).link)).toBeUndefined();
   });
 
   it('hides a movie another device watched to the end', async () => {

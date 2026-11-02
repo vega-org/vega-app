@@ -13,11 +13,27 @@ import {
 import useContentStore from './zustand/contentStore';
 import useThemeStore from './zustand/themeStore';
 import {createLibraryBackup, restoreLibraryBackup, validateLibraryBackup, type LibraryBackup} from './libraryBackup';
+import useContinueWatchingStore, {type ContinueWatchingItem} from './zustand/continueWatchingStore';
+import {watchProgressStorage, type WatchProgress} from './storage/WatchProgressStorage';
 
+// Bump only when older apps would misread the file. New optional sections
+// (history, progress) keep version 2 so older apps still import the rest.
 export const BACKUP_VERSION = 2;
 
-export type BackupSelection = {settings: boolean; library: boolean; providers: boolean};
-const ALL_SECTIONS: BackupSelection = {settings: true, library: true, providers: true};
+export type BackupSelection = {
+  settings: boolean;
+  library: boolean;
+  providers: boolean;
+  history: boolean;
+  progress: boolean;
+};
+const ALL_SECTIONS: BackupSelection = {
+  settings: true,
+  library: true,
+  providers: true,
+  history: true,
+  progress: true,
+};
 
 type SettingType = 'bool' | 'string' | 'number' | 'array';
 
@@ -87,6 +103,7 @@ const BACKUP_SETTINGS: Record<string, SettingType> = {
   [SettingsKeys.BYEDPI_ENABLED]: 'bool',
   [SettingsKeys.BYEDPI_CMD_ARGS]: 'string',
   [SettingsKeys.SKIP_IN_APP_WEBVIEW]: 'bool',
+  [SettingsKeys.SYNC_ENABLED]: 'bool',
   // Saved by the Preferences screen without a SettingsKeys entry.
   disableDrawer: 'bool',
   showRecentlyWatched: 'bool',
@@ -111,6 +128,8 @@ export interface VegaBackup {
     disabled?: string[];
     selected?: ProviderExtension;
   };
+  history?: ContinueWatchingItem[];
+  progress?: Record<string, WatchProgress>;
 }
 
 const readSetting = (key: string, type: SettingType) => {
@@ -180,10 +199,119 @@ const isProviderSource = (value: unknown): value is ProviderSource =>
   typeof (value as ProviderSource)?.author === 'string' &&
   typeof (value as ProviderSource)?.url === 'string';
 
+export const validateHistoryBackup = (value: unknown): void => {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    throw new Error('This backup contains an invalid watch history');
+  }
+  for (const item of value) {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      typeof (item as ContinueWatchingItem).id !== 'string' ||
+      typeof (item as ContinueWatchingItem).title !== 'string' ||
+      ((item as ContinueWatchingItem).episodeTitle !== undefined &&
+        typeof (item as ContinueWatchingItem).episodeTitle !== 'string') ||
+      ((item as ContinueWatchingItem).seasonTitle !== undefined &&
+        typeof (item as ContinueWatchingItem).seasonTitle !== 'string') ||
+      !(item as ContinueWatchingItem).episode ||
+      typeof (item as ContinueWatchingItem).episode !== 'object' ||
+      typeof (item as ContinueWatchingItem).episode.title !== 'string' ||
+      typeof (item as ContinueWatchingItem).episode.link !== 'string' ||
+      typeof (item as ContinueWatchingItem).type !== 'string' ||
+      ((item as ContinueWatchingItem).poster !== undefined &&
+        typeof (item as ContinueWatchingItem).poster !== 'string') ||
+      ((item as ContinueWatchingItem).background !== undefined &&
+        typeof (item as ContinueWatchingItem).background !== 'string') ||
+      typeof (item as ContinueWatchingItem).providerValue !== 'string' ||
+      typeof (item as ContinueWatchingItem).infoUrl !== 'string' ||
+      typeof (item as ContinueWatchingItem).position !== 'number' ||
+      !Number.isFinite((item as ContinueWatchingItem).position) ||
+      typeof (item as ContinueWatchingItem).duration !== 'number' ||
+      !Number.isFinite((item as ContinueWatchingItem).duration) ||
+      typeof (item as ContinueWatchingItem).updatedAt !== 'number' ||
+      !Number.isFinite((item as ContinueWatchingItem).updatedAt)
+    ) {
+      throw new Error('This backup contains an invalid watch history');
+    }
+  }
+};
+
+export const validateProgressBackup = (value: unknown): void => {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('This backup contains an invalid watch progress');
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (
+      typeof key !== 'string' ||
+      key.length === 0 ||
+      !entry ||
+      typeof entry !== 'object' ||
+      Array.isArray(entry) ||
+      typeof (entry as WatchProgress).position !== 'number' ||
+      !Number.isFinite((entry as WatchProgress).position) ||
+      typeof (entry as WatchProgress).duration !== 'number' ||
+      !Number.isFinite((entry as WatchProgress).duration)
+    ) {
+      throw new Error('This backup contains an invalid watch progress');
+    }
+  }
+};
+
+export const restoreHistoryBackup = (history?: ContinueWatchingItem[]): void => {
+  if (history === undefined) return;
+  validateHistoryBackup(history);
+  const localItems = useContinueWatchingStore.getState().items;
+  const itemMap = new Map<string, ContinueWatchingItem>();
+  for (const item of localItems) {
+    itemMap.set(item.id, item);
+  }
+  for (const item of history) {
+    const existing = itemMap.get(item.id);
+    if (!existing || item.updatedAt > existing.updatedAt) {
+      itemMap.set(item.id, item);
+    }
+  }
+  // Continue watching keeps 30 titles; a restore must not exceed that.
+  const merged = Array.from(itemMap.values())
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 30);
+  useContinueWatchingStore.setState({items: merged});
+};
+
+export const restoreProgressBackup = (progress?: Record<string, WatchProgress>): void => {
+  if (progress === undefined) return;
+  validateProgressBackup(progress);
+  const updates: Record<string, WatchProgress> = {};
+  for (const [key, imported] of Object.entries(progress)) {
+    const local = watchProgressStorage.getProgress(key);
+    // Imported progress overwrites only if the local key is missing OR the import is marked more watched (position/duration ratio higher).
+    if (!local) {
+      updates[key] = imported;
+      continue;
+    }
+    const localRatio = local.duration > 0 ? local.position / local.duration : 0;
+    const importRatio = imported.duration > 0 ? imported.position / imported.duration : 0;
+    if (importRatio > localRatio) {
+      updates[key] = imported;
+    }
+  }
+  if (Object.keys(updates).length > 0) {
+    watchProgressStorage.setAllProgress(updates);
+  }
+};
+
 export function createBackup(): VegaBackup & {settings: Record<string, SettingValue>};
 export function createBackup(selection: BackupSelection): VegaBackup;
 export function createBackup(selection: BackupSelection = ALL_SECTIONS): VegaBackup {
-  if (!selection.settings && !selection.library && !selection.providers) {
+  if (
+    !selection.settings &&
+    !selection.library &&
+    !selection.providers &&
+    !selection.history &&
+    !selection.progress
+  ) {
     throw new Error('Select at least one section to back up');
   }
   const settings: Record<string, SettingValue> = {};
@@ -220,6 +348,8 @@ export function createBackup(selection: BackupSelection = ALL_SECTIONS): VegaBac
       disabled: mainStorage.getArray<string>(ProvidersKeys.DISABLED_PROVIDERS),
       selected: selected?.value ? selected : undefined,
     }} : {}),
+    ...(selection.history ? {history: useContinueWatchingStore.getState().items} : {}),
+    ...(selection.progress ? {progress: watchProgressStorage.getAllProgress()} : {}),
   };
 }
 
@@ -236,7 +366,7 @@ export const parseBackup = (text: string): VegaBackup => {
   if (data.version > BACKUP_VERSION) {
     throw new Error('This backup was made by a newer version of Vega');
   }
-  const {settings, providers, library} = data;
+  const {settings, providers, library, history, progress} = data;
   const settingsValid = settings !== undefined && settings !== null &&
     typeof settings === 'object' && !Array.isArray(settings);
   const providersValid = providers !== undefined && providers !== null &&
@@ -246,16 +376,22 @@ export const parseBackup = (text: string): VegaBackup => {
   if ((settings !== undefined && !settingsValid) ||
     (providers !== undefined && !providersValid) ||
     (data.version < 2 && (!settingsValid || !providersValid)) ||
-    (settings === undefined && providers === undefined && library === undefined)) {
+    (settings === undefined && providers === undefined && library === undefined && history === undefined && progress === undefined)) {
     throw new Error('This backup file is incomplete');
   }
   validateLibraryBackup(data.library);
+  validateHistoryBackup(data.history);
+  validateProgressBackup(data.progress);
   return data;
 };
 
 export const restoreBackup = (backup: VegaBackup): void => {
   validateLibraryBackup(backup.library);
+  validateHistoryBackup(backup.history);
+  validateProgressBackup(backup.progress);
   restoreLibraryBackup(backup.library);
+  restoreHistoryBackup(backup.history);
+  restoreProgressBackup(backup.progress);
   const settings = backup.settings || {};
   for (const [key, type] of Object.entries(BACKUP_SETTINGS)) {
     const value = settings[key];

@@ -46,6 +46,27 @@ jest.mock('../src/lib/zustand/themeStore', () => ({
   default: {setState: (state: unknown) => mockSetThemeState(state)},
 }));
 
+const mockProgress = new Map<string, {position: number; duration: number}>();
+jest.mock('../src/lib/storage/WatchProgressStorage', () => ({
+  watchProgressStorage: {
+    getProgress: (key: string) => mockProgress.get(key) ?? null,
+    getAllProgress: () => Object.fromEntries(mockProgress),
+    setAllProgress: (entries: Record<string, {position: number; duration: number}>) =>
+      Object.entries(entries).forEach(([key, value]) => mockProgress.set(key, value)),
+  },
+}));
+
+const mockHistoryState = {items: [] as any[]};
+jest.mock('../src/lib/zustand/continueWatchingStore', () => ({
+  __esModule: true,
+  default: {
+    getState: () => mockHistoryState,
+    setState: (state: {items: any[]}) => {
+      mockHistoryState.items = state.items;
+    },
+  },
+}));
+
 jest.mock('expo-document-picker', () => ({getDocumentAsync: jest.fn()}));
 jest.mock('expo-file-system/legacy', () => ({
   StorageAccessFramework: {},
@@ -74,6 +95,8 @@ const provider = {
 describe('backup', () => {
   beforeEach(() => {
     mockValues.clear();
+    mockProgress.clear();
+    mockHistoryState.items = [];
     mockContentState.provider = {value: ''};
     jest.clearAllMocks();
   });
@@ -306,5 +329,116 @@ describe('backup', () => {
     expect(() =>
       parseBackup(JSON.stringify({app: 'vega', version: BACKUP_VERSION})),
     ).toThrow('incomplete');
+  });
+
+  const historyItem = (id: string, updatedAt: number) => ({
+    id,
+    title: `Show ${id}`,
+    episode: {title: 'Episode 1', link: `https://example.com/${id}/1`},
+    type: 'series',
+    providerValue: 'demo',
+    infoUrl: `https://example.com/${id}`,
+    position: 120,
+    duration: 1200,
+    updatedAt,
+  });
+  const only = (section: 'history' | 'progress') => ({
+    settings: false,
+    library: false,
+    providers: false,
+    history: section === 'history',
+    progress: section === 'progress',
+  });
+
+  it('exports watch history and progress only when selected', () => {
+    mockHistoryState.items = [historyItem('a', 10)];
+    mockProgress.set('https://example.com/a/1', {position: 120, duration: 1200});
+    const full = parseBackup(JSON.stringify(createBackup()));
+    expect(full.history).toEqual([historyItem('a', 10)]);
+    expect(full.progress).toEqual({
+      'https://example.com/a/1': {position: 120, duration: 1200},
+    });
+    const historyOnly = createBackup(only('history'));
+    expect(historyOnly.history).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(historyOnly, 'progress')).toBe(false);
+    const progressOnly = createBackup(only('progress'));
+    expect(Object.prototype.hasOwnProperty.call(progressOnly, 'history')).toBe(false);
+  });
+
+  it('merges history by id and keeps the newer entry', () => {
+    mockHistoryState.items = [historyItem('a', 50), historyItem('b', 5)];
+    restoreBackup({
+      app: 'vega',
+      version: BACKUP_VERSION,
+      createdAt: '',
+      history: [historyItem('a', 10), historyItem('b', 90), historyItem('c', 30)],
+    });
+    expect(mockHistoryState.items.map(item => [item.id, item.updatedAt])).toEqual([
+      ['b', 90],
+      ['a', 50],
+      ['c', 30],
+    ]);
+  });
+
+  it('only overwrites progress that is missing or less watched', () => {
+    mockProgress.set('kept', {position: 900, duration: 1000});
+    mockProgress.set('raised', {position: 100, duration: 1000});
+    restoreBackup({
+      app: 'vega',
+      version: BACKUP_VERSION,
+      createdAt: '',
+      progress: {
+        kept: {position: 100, duration: 1000},
+        raised: {position: 1, duration: 1},
+        added: {position: 50, duration: 100},
+      },
+    });
+    expect(mockProgress.get('kept')).toEqual({position: 900, duration: 1000});
+    expect(mockProgress.get('raised')).toEqual({position: 1, duration: 1});
+    expect(mockProgress.get('added')).toEqual({position: 50, duration: 100});
+  });
+
+  it('rejects invalid history or progress without restoring anything', () => {
+    const header = {app: 'vega', version: BACKUP_VERSION, createdAt: ''};
+    expect(() =>
+      parseBackup(JSON.stringify({...header, history: [{id: 'a'}]})),
+    ).toThrow('invalid watch history');
+    expect(() =>
+      parseBackup(JSON.stringify({...header, progress: {a: {position: 'x', duration: 1}}})),
+    ).toThrow('invalid watch progress');
+    expect(() =>
+      restoreBackup({
+        ...header,
+        history: [historyItem('a', 1)],
+        progress: {a: {position: NaN, duration: 1}},
+      } as any),
+    ).toThrow('invalid watch progress');
+    expect(mockHistoryState.items).toEqual([]);
+    expect(mockProgress.size).toBe(0);
+  });
+
+  it('keeps version 2 and ignores unknown sections so apps stay compatible', () => {
+    expect(BACKUP_VERSION).toBe(2);
+    const parsed = parseBackup(
+      JSON.stringify({
+        app: 'vega',
+        version: 2,
+        createdAt: '',
+        settings: {hapticFeedback: true},
+        futureSection: {anything: 1},
+      }),
+    );
+    expect(() => restoreBackup(parsed)).not.toThrow();
+    expect(mockValues.get('hapticFeedback')).toBe(true);
+  });
+
+  it('still imports version 2 backups without history or progress', () => {
+    mockValues.set('hapticFeedback', true);
+    const v2 = {...createBackup(only('history')), version: 2, history: undefined};
+    delete (v2 as any).history;
+    const parsed = parseBackup(JSON.stringify({...v2, settings: {hapticFeedback: true}}));
+    expect(parsed.version).toBe(2);
+    expect(() => restoreBackup(parsed)).not.toThrow();
+    expect(mockHistoryState.items).toEqual([]);
   });
 });
