@@ -46,6 +46,7 @@ import {RootStackParamList} from '../../App';
 import {
   cacheStorage,
   settingsStorage,
+  watchProgressStorage,
 } from '../../lib/storage';
 import Orientation, {
   OrientationLocker,
@@ -169,22 +170,11 @@ const readCachedProgress = (link?: string) => {
   if (!link) {
     return {position: 0, duration: 0};
   }
-  try {
-    const cached = cacheStorage.getString(link);
-    if (!cached) {
-      return {position: 0, duration: 0};
-    }
-    const parsed = JSON.parse(cached) as {
-      position?: number;
-      duration?: number;
-    };
-    return {
-      position: parsed.position || 0,
-      duration: parsed.duration || 0,
-    };
-  } catch {
-    return {position: 0, duration: 0};
-  }
+  const progress = watchProgressStorage.getProgress(link);
+  return {
+    position: progress?.position || 0,
+    duration: progress?.duration || 0,
+  };
 };
 
 const getCachedSkips = (keys: (string | undefined)[]): SkipInterval[] => {
@@ -633,7 +623,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [syncReady, setSyncReady] = useState(false);
 
   useEffect(() => {
-    if (route.params.localContent) {
+    if (route.params.localContent || !settingsStorage.isSyncEnabled()) {
       setSyncReady(true);
       return;
     }

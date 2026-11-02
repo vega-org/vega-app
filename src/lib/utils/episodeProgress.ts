@@ -1,5 +1,5 @@
 import {EpisodeLink} from '../providers/types';
-import {cacheStorage} from '../storage';
+import {watchProgressStorage} from '../storage';
 import {setSyncedEpisodeProgress} from '../sync/syncService';
 
 type SyncDetails = Omit<
@@ -36,10 +36,7 @@ export function markEpisodesWatched<T extends EpisodeLink>(
   }
   const position = watched ? 1 : 0;
   episodes.forEach(episode =>
-    cacheStorage.setString(
-      episode.link,
-      JSON.stringify({position, duration: 1}),
-    ),
+    watchProgressStorage.setProgress(episode.link, position, 1),
   );
   setSyncedEpisodeProgress({
     ...options.sync,

@@ -37,6 +37,7 @@ import Preferences from './screens/settings/Preference';
 import PlayerSettings from './screens/settings/PlayerSettings';
 import PlayerControlSettings from './screens/settings/PlayerControlSettings';
 import Appearance from './screens/settings/Appearance';
+import DataManagement from './screens/settings/DataManagement';
 import {M3ThemeProvider} from './theme/M3ThemeProvider';
 import {AppState, Linking, LogBox, useWindowDimensions} from 'react-native';
 import {vegaCastService} from './lib/remote/vegaCastService';
@@ -50,7 +51,7 @@ import DownloadedDetails from './screens/downloads/DownloadedDetails';
 import SubtitlePreference from './screens/settings/SubtitleSettings';
 import Extensions from './screens/settings/Extensions';
 import Constants from 'expo-constants';
-import {settingsStorage} from './lib/storage';
+import {settingsStorage, migrateWatchProgressFromCacheStorage} from './lib/storage';
 import {syncParallelStreaming} from './lib/parallelStreaming';
 import {updateProvidersService} from './lib/services/UpdateProviders';
 import {QueryClientProvider} from '@tanstack/react-query';
@@ -168,6 +169,7 @@ export type SettingsStackParamList = {
   SubTitlesPreferences: undefined;
   Extensions: {addSource?: string; requestId?: number} | undefined;
   DownloadsStack: undefined;
+  DataManagement: undefined;
 };
 
 export type DownloadsStackParamList = {
@@ -444,6 +446,7 @@ function SettingsStackScreen() {
       />
       <SettingsStack.Screen name="PlayerSettings" component={PlayerSettings} options={subpageOptions} />
       <SettingsStack.Screen name="PlayerControlSettings" component={PlayerControlSettings} options={subpageOptions} />
+      <SettingsStack.Screen name="DataManagement" component={DataManagement} options={subpageOptions} />
       <SettingsStack.Screen
         name="Preferences"
         component={Preferences}
@@ -548,6 +551,12 @@ const App = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    migrateWatchProgressFromCacheStorage().catch(error =>
+      console.warn('Watch progress migration failed:', error),
+    );
+  }, []);
+
   // Reconcile downloads once the store hydrates, then start shared folder sync.
   useEffect(() => {
     let reconciled = false;
@@ -577,19 +586,23 @@ const App = () => {
         reconcileCompletedDownloadOutputs().catch(error =>
           console.warn('Download foreground reconciliation failed:', error),
         );
-        syncFromSharedFolder().catch(error =>
-          console.warn('[VegaSync] Foreground sync failed:', error),
-        );
+        if (settingsStorage.isSyncEnabled()) {
+          syncFromSharedFolder().catch(error =>
+            console.warn('[VegaSync] Foreground sync failed:', error),
+          );
+        }
       } else {
         beginUIInteraction('app-background');
         flushInteractionCommits();
-        publishSyncManifest().catch(error =>
-          console.warn('[VegaSync] Background publish failed:', error),
-        );
+        if (settingsStorage.isSyncEnabled()) {
+          publishSyncManifest().catch(error =>
+            console.warn('[VegaSync] Background publish failed:', error),
+          );
+        }
       }
     });
     const interval = setInterval(() => {
-      if (AppState.currentState === 'active') {
+      if (AppState.currentState === 'active' && settingsStorage.isSyncEnabled()) {
         scheduleWhenIdle(() => syncFromSharedFolder());
       }
     }, 30000);

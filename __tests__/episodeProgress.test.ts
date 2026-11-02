@@ -1,10 +1,12 @@
 import {beforeEach, describe, expect, it, jest} from '@jest/globals';
 
-const mockSetString = jest.fn();
+const mockSetProgress = jest.fn();
 const mockSync = jest.fn();
 
 jest.mock('../src/lib/storage', () => ({
-  cacheStorage: {setString: (...args: unknown[]) => mockSetString(...args)},
+  watchProgressStorage: {
+    setProgress: (...args: unknown[]) => mockSetProgress(...args),
+  },
 }));
 jest.mock('../src/lib/sync/syncService', () => ({
   setSyncedEpisodeProgress: (...args: unknown[]) => mockSync(...args),
@@ -28,7 +30,7 @@ const sync = {
   seasonTitle: 'Season 1',
 };
 
-const writtenLinks = () => mockSetString.mock.calls.map(call => call[0]);
+const writtenLinks = () => mockSetProgress.mock.calls.map(call => call[0]);
 
 describe('episodesUpTo', () => {
   it('includes every episode up to and including the link', () => {
@@ -60,7 +62,7 @@ describe('episodesUpTo', () => {
 
 describe('markEpisodesWatched', () => {
   beforeEach(() => {
-    mockSetString.mockClear();
+    mockSetProgress.mockClear();
     mockSync.mockClear();
   });
 
@@ -70,8 +72,11 @@ describe('markEpisodesWatched', () => {
     });
 
     expect(writtenLinks()).toEqual(episodes.slice(0, 3).map(e => e.link));
-    mockSetString.mock.calls.forEach(call =>
-      expect(JSON.parse(call[1] as string)).toEqual({position: 1, duration: 1}),
+    mockSetProgress.mock.calls.forEach(call =>
+      expect({position: call[1], duration: call[2]}).toEqual({
+        position: 1,
+        duration: 1,
+      }),
     );
     expect(mockSync).toHaveBeenCalledTimes(1);
     expect(mockSync).toHaveBeenCalledWith({
@@ -86,8 +91,11 @@ describe('markEpisodesWatched', () => {
     markEpisodesWatched(episodes, false, {sync, syncEpisode: episodes[1]});
 
     expect(writtenLinks()).toEqual(episodes.map(e => e.link));
-    mockSetString.mock.calls.forEach(call =>
-      expect(JSON.parse(call[1] as string)).toEqual({position: 0, duration: 1}),
+    mockSetProgress.mock.calls.forEach(call =>
+      expect({position: call[1], duration: call[2]}).toEqual({
+        position: 0,
+        duration: 1,
+      }),
     );
     expect(mockSync).toHaveBeenCalledTimes(1);
     expect(mockSync).toHaveBeenCalledWith(
@@ -98,7 +106,7 @@ describe('markEpisodesWatched', () => {
   it('does nothing for an empty list', () => {
     markEpisodesWatched([], true, {sync});
 
-    expect(mockSetString).not.toHaveBeenCalled();
+    expect(mockSetProgress).not.toHaveBeenCalled();
     expect(mockSync).not.toHaveBeenCalled();
   });
 });

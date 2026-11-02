@@ -1,13 +1,13 @@
 import * as Crypto from 'expo-crypto';
 import {NativeModules} from 'react-native';
-import {settingsStorage} from '../storage';
+import {settingsStorage, watchProgressStorage} from '../storage';
 import {
   WatchListKeys,
   watchListStorage,
   type LibraryCollection,
   type WatchListItem,
 } from '../storage/WatchListStorage';
-import {cacheStorage, mainStorage} from '../storage/StorageService';
+import {mainStorage} from '../storage/StorageService';
 import useDownloadsStore, {type DownloadItem} from '../zustand/downloadsStore';
 import {
   createDownloadDirectoryName,
@@ -43,6 +43,11 @@ const REVISION_KEY = 'vega-sync-revision';
 const TOMBSTONES_KEY = 'vega-sync-tombstones';
 const HISTORY_KEY = 'vega-sync-history';
 const PUBLISH_DELAY_MS = 1000;
+
+const isSyncActive = () =>
+  typeof settingsStorage?.isSyncEnabled === 'function'
+    ? settingsStorage.isSyncEnabled()
+    : true;
 
 let initialized = false;
 let applyingRemoteState = false;
@@ -269,12 +274,13 @@ const applyRemoteHistory = (history: Record<string, SyncedHistory>) => {
     const position = item.progress ?? item.currentTime ?? 0;
     const duration = item.duration ?? 0;
     if (episode?.link && duration > 0) {
-      const progress = JSON.stringify({position, duration});
       // Desktop plays downloads from a file path; sourceLink is the provider
       // link the episode list here uses.
       [episode.link, episode.sourceLink]
         .filter((key): key is string => Boolean(key))
-        .forEach(key => cacheStorage.setString(key, progress));
+        .forEach(key =>
+          watchProgressStorage?.setProgress?.(key, position, duration),
+        );
     }
     // Mark watched/unwatched saves a 1/1 or 0/1 entry. It sets episode
     // progress only and is not playback, so it must not add a show here.
@@ -341,7 +347,11 @@ const applyRemoteHistory = (history: Record<string, SyncedHistory>) => {
 // are normal when Syncthing restores an older snapshot, not proof of a new device.
 let publishQueue: Promise<void> = Promise.resolve();
 export const publishSyncManifest = (): Promise<void> => {
+  if (!isSyncActive()) {
+    return Promise.resolve();
+  }
   const publish = publishQueue.then(async () => {
+    if (!isSyncActive()) return;
     const location = settingsStorage.getDownloadLocationConfig();
     if (!location || !isSafDownloadLocation(location)) return;
     await writeMobileSyncManifest(location, buildManifest());
@@ -351,6 +361,9 @@ export const publishSyncManifest = (): Promise<void> => {
 };
 
 const schedulePublish = () => {
+  if (!isSyncActive()) {
+    return;
+  }
   if (applyingRemoteState || publishTimer) {
     return;
   }
@@ -410,11 +423,10 @@ export const setSyncedEpisodeProgress = ({
     updatedAt,
   };
   saveLocalHistory(history);
-  cacheStorage.setString(
-    episode.link,
-    JSON.stringify({position, duration}),
-  );
-  schedulePublish();
+  watchProgressStorage?.setProgress?.(episode.link, position, duration);
+  if (isSyncActive()) {
+    schedulePublish();
+  }
 };
 
 const findLocalDownloads = (item: SyncedDownload) => {
@@ -588,6 +600,9 @@ const applyTombstones = (tombstones: Record<string, SyncTombstone>) => {
 };
 
 const runSharedFolderSync = async (): Promise<void> => {
+  if (!isSyncActive()) {
+    return;
+  }
   if (publishTimer) {
     clearTimeout(publishTimer);
     publishTimer = undefined;
@@ -623,6 +638,9 @@ const runSharedFolderSync = async (): Promise<void> => {
 };
 
 export const syncFromSharedFolder = (): Promise<void> => {
+  if (!isSyncActive()) {
+    return Promise.resolve();
+  }
   if (!syncRequest) {
     syncRequest = runSharedFolderSync().finally(() => {
       syncRequest = undefined;
@@ -658,7 +676,7 @@ export const initializeSyncService = async (): Promise<void> => {
         state.downloads,
       );
       previousDownloads = state.downloads;
-      if (shouldPublish) {
+      if (shouldPublish && isSyncActive()) {
         schedulePublish();
       }
     });
@@ -687,7 +705,9 @@ export const initializeSyncService = async (): Promise<void> => {
         }
       }
       previousHistory = state.items;
-      schedulePublish();
+      if (isSyncActive()) {
+        schedulePublish();
+      }
     });
     useWatchListStore.subscribe(state => {
       if (applyingRemoteState) {
@@ -711,8 +731,12 @@ export const initializeSyncService = async (): Promise<void> => {
       }
       previousWatchList = watchListStorage.getWatchList();
       previousCollections = state.collections;
-      schedulePublish();
+      if (isSyncActive()) {
+        schedulePublish();
+      }
     });
   }
-  await syncFromSharedFolder();
+  if (isSyncActive()) {
+    await syncFromSharedFolder();
+  }
 };

@@ -1,4 +1,4 @@
-import {cacheStorage} from '../storage';
+import {watchProgressStorage} from '../storage';
 import useLocalContentStore from '../zustand/localContentStore';
 import type {LocalTitle} from './model';
 
@@ -6,16 +6,14 @@ export function readLocalProgress(uri: string): {
   position: number;
   duration: number;
 } {
-  try {
-    const value = JSON.parse(cacheStorage.getString(uri) || 'null');
-    if (
-      Number.isFinite(value?.position) &&
-      Number.isFinite(value?.duration) &&
-      value.duration > 0
-    )
-      return value;
-  } catch {
-    /* Old or incomplete progress must not prevent browsing. */
+  const progress = watchProgressStorage.getProgress(uri);
+  if (
+    progress &&
+    Number.isFinite(progress.position) &&
+    Number.isFinite(progress.duration) &&
+    progress.duration > 0
+  ) {
+    return progress;
   }
   return {position: 0, duration: 0};
 }
@@ -30,10 +28,7 @@ export function markLocalEpisodesWatched(
   const targets = [...new Set(uris)].filter(uri => valid.has(uri));
   if (!targets.length) return;
   for (const uri of targets)
-    cacheStorage.setString(
-      uri,
-      JSON.stringify({position: watched ? 1 : 0, duration: 1}),
-    );
+    watchProgressStorage.setProgress(uri, watched ? 1 : 0, 1);
   const uri = watched ? targets[targets.length - 1] : targets[0];
   // Update the local resume record too, otherwise it would override the new cache value.
   useLocalContentStore

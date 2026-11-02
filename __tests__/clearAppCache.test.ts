@@ -71,10 +71,8 @@ describe('clearAppCache', () => {
     expect(mockUnlink).not.toHaveBeenCalledWith('/cache/hls_segments');
   });
 
-  it('keeps watch progress and player choices', async () => {
-    const watched = {
-      'https://example.com/s1e1': '{"position":754,"duration":1420}',
-      'https://example.com/s1e2': '{"position":1,"duration":1}',
+  it('keeps player choices while clearing cache and episode progress', async () => {
+    const preserved = {
       'skips_vega:show:s1e1': '[{"start":0,"end":90}]',
       'LastPlayed:vega:https://example.com/show': '{"link":"s1e1"}',
       'ActiveSeason:Showvega': '{"title":"Season 1"}',
@@ -82,19 +80,21 @@ describe('clearAppCache', () => {
       lastTextTrack: 'English',
       lastAudioTrack: 'Hindi',
     };
-    const fetched = {
+    const cleared = {
+      'https://example.com/s1e1': '{"position":754,"duration":1420}',
+      'https://example.com/s1e2': '{"position":1,"duration":1}',
       'contentInfo:vega:https://example.com/show': '{"title":"Show"}',
       'accent:https://example.com/poster.jpg': '#123456',
       episodes: '[{"position":1,"title":"Episode"}]',
       partial: '{"position":1,"duration":1,"title":"Not progress"}',
     };
-    Object.entries({...watched, ...fetched}).forEach(([key, value]) =>
+    Object.entries({...preserved, ...cleared}).forEach(([key, value]) =>
       mockCacheValues.set(key, value),
     );
 
     await clearAppCache();
 
     expect(mockClearMMKVCache).toHaveBeenCalledTimes(1);
-    expect(Object.fromEntries(mockCacheValues)).toEqual(watched);
+    expect(Object.fromEntries(mockCacheValues)).toEqual(preserved);
   });
 });

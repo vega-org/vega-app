@@ -77,6 +77,7 @@ jest.mock('../src/components/ui/Text', () => {
 jest.mock('../src/lib/storage', () => ({
   cacheStorage: {getString: () => undefined, setString: jest.fn()},
   mainStorage: {getString: () => undefined, setString: jest.fn()},
+  watchProgressStorage: {getProgress: () => null, setProgress: jest.fn()},
   settingsStorage: {
     isHapticFeedbackEnabled: () => false,
     getExcludedQualities: () => [],

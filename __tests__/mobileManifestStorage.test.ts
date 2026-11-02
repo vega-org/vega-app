@@ -28,6 +28,11 @@ const mockNative = {
   }),
 };
 
+jest.mock('../src/lib/storage', () => ({
+  settingsStorage: {
+    isSyncEnabled: () => true,
+  },
+}));
 jest.mock('react-native', () => ({
   NativeModules: {
     get VegaSyncStorage() {
