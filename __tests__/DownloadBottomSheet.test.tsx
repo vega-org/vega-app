@@ -112,7 +112,7 @@ describe('DownloadBottomSheet', () => {
     );
   });
 
-  it('reopens cached sources with a fresh sheet and no opening animation', () => {
+  it('reopens cached sources with a fresh animated sheet', () => {
     const props = {
       data: Array.from({length: 20}, (_, index) => ({
         server: `Server ${index}`,
@@ -138,7 +138,10 @@ describe('DownloadBottomSheet', () => {
     });
     expect(tree!.root.findByType(ScrollView)).not.toBe(firstScrollView);
     expect(mockBottomSheetProps).toHaveBeenLastCalledWith(
-      expect.objectContaining({index: 0, animateOnMount: false}),
+      expect.objectContaining({index: 0}),
+    );
+    expect(mockBottomSheetProps).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({animateOnMount: false}),
     );
     act(() => tree!.unmount());
   });
