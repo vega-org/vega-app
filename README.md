@@ -35,10 +35,6 @@ https://web.vega-app.in
 
 <br>
 
-## Add or Create Provider source
-> [!TIP]
-> Follow the guide here https://vega.8man.in/guide/adding-providers
-
 ##
 <!--  ![Screenshots](https://github.com/user-attachments/assets/b86af756-e66e-4ae7-b2af-61b25cfd8d4e) -->
 <!--<img width="2712" height="1220" alt="Screenshot_2026-08-11-20-07-17-817_com vega" src="https://github.com/user-attachments/assets/e7de4085-fcb1-4504-92e3-a4f011adc879" /> -->
