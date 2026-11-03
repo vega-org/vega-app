@@ -18,7 +18,7 @@ const item = {id: 'ep1', title: 'Episode 1', filePath: 'file:///episode.mkv', to
 it('starts selection on hold without starting playback', async () => {
   const onPlay = jest.fn(); const onStartSelection = jest.fn();
   let tree!: renderer.ReactTestRenderer;
-  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} index={0} totalItems={2} isDeleting={false} onPlay={onPlay} onDelete={jest.fn()} onStartSelection={onStartSelection} />);});
+  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} isDeleting={false} onPlay={onPlay} onDelete={jest.fn()} onStartSelection={onStartSelection} />);});
   act(() => tree.root.findByProps({accessibilityLabel: 'Play Episode 1'}).props.onLongPress());
   expect(onStartSelection).toHaveBeenCalledWith(item);
   expect(onPlay).not.toHaveBeenCalled();
@@ -27,7 +27,7 @@ it('starts selection on hold without starting playback', async () => {
 it('taps toggle selection and hide individual delete controls during selection', async () => {
   const onPlay = jest.fn(); const onToggleSelection = jest.fn();
   let tree!: renderer.ReactTestRenderer;
-  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} index={0} totalItems={2} isDeleting={false} selecting selected onPlay={onPlay} onDelete={jest.fn()} onToggleSelection={onToggleSelection} />);});
+  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} isDeleting={false} selecting selected onPlay={onPlay} onDelete={jest.fn()} onToggleSelection={onToggleSelection} />);});
   act(() => tree.root.findByProps({accessibilityLabel: 'Select Episode 1'}).props.onPress());
   expect(onToggleSelection).toHaveBeenCalledWith(item);
   expect(onPlay).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ it('taps toggle selection and hide individual delete controls during selection',
 it('handles a focused TV remote hold once and ignores the release press', async () => {
   const onPlay = jest.fn(); const onStartSelection = jest.fn();
   let tree!: renderer.ReactTestRenderer;
-  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} index={0} totalItems={2} isDeleting={false} onPlay={onPlay} onDelete={jest.fn()} onStartSelection={onStartSelection} />);});
+  await act(async () => {tree = renderer.create(<DownloadedEpisodeRow item={item} isDeleting={false} onPlay={onPlay} onDelete={jest.fn()} onStartSelection={onStartSelection} />);});
   const control = () => tree.root.findByProps({accessibilityLabel: 'Play Episode 1'});
   act(() => control().props.onFocus());
   const remoteCalls = (useTVRemote as jest.Mock).mock.calls;

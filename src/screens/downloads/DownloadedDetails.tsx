@@ -316,12 +316,10 @@ const DownloadedFileDetails = ({navigation, route}: DownloadedDetailsProps) => {
 
           {isValidating ? (
             <EpisodeListSkeleton downloaded />
-          ) : items.map((item, index) => (
+          ) : items.map(item => (
             <DownloadedEpisodeRow
               key={item.id}
               item={item}
-              index={index}
-              totalItems={items.length}
               isDeleting={!!deletingId}
               selecting={selecting}
               selected={selectedIds.has(item.id)}
