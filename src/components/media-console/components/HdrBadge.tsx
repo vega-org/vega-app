@@ -5,7 +5,7 @@ import {TVFocusable, TVFocusGuide} from '../../tv';
 
 type HdrStatus = {
   type: string; codec: string; resolution: string; transfer: string;
-  colorSpace: string; headroom?: number; displayTypes: string; vendorDolbyPath?: boolean; headroomUnreported?: boolean;
+  colorSpace: string; headroom?: number; displayTypes: string;
   maxCllNits?: number;
 };
 
@@ -80,12 +80,6 @@ export default function HdrBadge({videoView, source, suspended, scale, backgroun
             ['Transfer', details.transfer], ['Color space', details.colorSpace],
             ['HDR/SDR brightness ratio', typeof details.headroom === 'number' ? `${details.headroom.toFixed(2)}×` : 'Not reported'], ['Display supports', details.displayTypes],
           ].map(([label, value]) => <Text key={label} style={{color: '#ccc', fontSize: 13, marginBottom: 8}}>{label}: {value}</Text>)}
-          {details.vendorDolbyPath && <Text style={{color: '#ccc', fontSize: 13, marginBottom: 8}}>
-            Dolby Vision hardware output is active. The Android brightness ratio does not confirm its display headroom on this device.
-          </Text>}
-          {details.headroomUnreported && !details.vendorDolbyPath && <Text style={{color: '#ccc', fontSize: 13, marginBottom: 8}}>
-            HDR rendering is detected independently of the reported brightness ratio. This ratio does not measure the video's peak brightness.
-          </Text>}
           {typeof details.maxCllNits === 'number' && Number.isFinite(details.maxCllNits) && details.maxCllNits > 0 && details.maxCllNits <= 10000 && (
             <Text style={{color: '#ccc', fontSize: 13, marginBottom: 8}}>
               Video peak: {details.maxCllNits} nits (metadata, MaxCLL)

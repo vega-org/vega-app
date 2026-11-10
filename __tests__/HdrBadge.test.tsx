@@ -136,23 +136,25 @@ it('tolerates one failed native query without latching through repeated failures
   expect(badgeCount(tree)).toBe(0);
   act(() => tree.unmount());
 });
-it.each([1, undefined])('explains vendor Dolby output when brightness ratio is %s', async headroom => {
+it.each([1, undefined])('shows Dolby details without brightness commentary when ratio is %s', async headroom => {
   query.mockResolvedValue({type: 'Dolby Vision', codec: 'video/dolby-vision', resolution: '3840 × 2160',
     transfer: 'Dolby Vision', colorSpace: 'Managed by Dolby Vision decoder', headroom,
-    displayTypes: 'Dolby Vision', vendorDolbyPath: true});
+    displayTypes: 'Dolby Vision'});
   let tree!: renderer.ReactTestRenderer;
   await act(async () => {tree = renderer.create(<HdrBadge {...props} />);});
   act(() => tree.root.findByProps({accessibilityLabel: 'HDR playback details'}).props.onPress());
-  expect(JSON.stringify(tree.toJSON())).toContain('does not confirm its display headroom');
+  expect(JSON.stringify(tree.toJSON())).not.toContain('does not confirm its display headroom');
+  expect(JSON.stringify(tree.toJSON())).toContain('HDR/SDR brightness ratio');
   if (headroom === undefined) expect(JSON.stringify(tree.toJSON())).toContain('Not reported');
   act(() => tree.unmount());
 });
 it.each(['HDR', 'HLG'])('keeps the %s badge with a reported ratio of one', async type => {
-  query.mockResolvedValue({...confirmedHdr, type, headroom: 1, headroomUnreported: true});
+  query.mockResolvedValue({...confirmedHdr, type, headroom: 1});
   let tree!: renderer.ReactTestRenderer;
   await act(async () => {tree = renderer.create(<HdrBadge {...props} />);});
   act(() => tree.root.findByProps({accessibilityLabel: 'HDR playback details'}).props.onPress());
-  expect(JSON.stringify(tree.toJSON())).toContain('does not measure the video');
+  expect(JSON.stringify(tree.toJSON())).not.toContain('does not measure the video');
+  expect(JSON.stringify(tree.toJSON())).toContain('1.00');
   expect(JSON.stringify(tree.toJSON())).not.toContain('Dolby Vision hardware output is active');
   act(() => tree.unmount());
 });

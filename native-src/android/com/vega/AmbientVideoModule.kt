@@ -211,8 +211,6 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
                         else -> "Not reported"
                     })
                     headroom?.let { putDouble("headroom", it) }
-                    putBoolean("vendorDolbyPath", dolbyDecoderActive && (headroom == null || headroom <= 1.01))
-                    putBoolean("headroomUnreported", headroom == null || headroom <= 1.01)
                     val maxCll = if (output != null) output.maxCllNits else
                         readMaxCll(color?.hdrStaticInfo?.let { java.nio.ByteBuffer.wrap(it) })
                     maxCll?.let { putInt("maxCllNits", it) }
