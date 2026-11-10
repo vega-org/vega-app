@@ -25,7 +25,8 @@ module.exports = () => {
   const PACKAGE_NAME = IS_PLAYSTORE ? 'vega.app' : 'com.vega';
   const APP_SCHEME = IS_PLAYSTORE ? 'vegaapp' : 'com.vega';
   const plugins = [
-    './plugins/with-custom-native-modules.js',
+            './plugins/with-custom-native-modules.js',
+    './plugins/with-unity-ads.js',
       [
         'expo-camera',
         {
