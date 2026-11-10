@@ -41,6 +41,7 @@ import DownloadLocationDialog from './DownloadLocationDialog';
 import { useM3Colors } from '../theme/M3PaletteContext';
 import { LEGACY_TERTIARY_BACKGROUND } from '../theme/seeds';
 import { showAppDialog } from '../lib/zustand/appDialogStore';
+import {runWithDownloadAd} from '../lib/ads/unityAds';
 
 const DOWNLOAD_PROGRESS_SIZE = 42;
 const DOWNLOAD_PROGRESS_RADIUS = 18;
@@ -270,7 +271,7 @@ const DownloadComponent = ({
   const startDownloadWithLocation = async (request: PendingDownload) => {
     const currentLocation = settingsStorage.getDownloadLocationConfig();
     if (await validateDownloadLocationAccess(currentLocation)) {
-      await downloadManager(request);
+            await runWithDownloadAd(() => downloadManager(request));
       return;
     }
     setPendingDownload(request);
@@ -291,7 +292,7 @@ const DownloadComponent = ({
       const request = pendingDownload;
       setPendingDownload(null);
       setLocationDialogVisible(false);
-      await downloadManager(request);
+            await runWithDownloadAd(() => downloadManager(request));
     } finally {
       setSelectingLocation(false);
     }
