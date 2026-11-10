@@ -1,6 +1,7 @@
 import {downloadManager} from './downloader';
 import {createSubtitleFileName} from './downloadId';
 import {Stream} from './providers/types';
+import {runWithDownloadAd} from './ads/unityAds';
 
 type DownloadRequest = Parameters<typeof downloadManager>[0];
 
@@ -11,7 +12,8 @@ export const queueQuickDownload = async (
   signal?: AbortSignal,
 ) => {
   if (signal?.aborted) return;
-  await downloadManager({
+  await runWithDownloadAd(() =>
+    downloadManager({
     ...request,
     url: stream.link,
     fileType: stream.type,
@@ -28,7 +30,8 @@ export const queueQuickDownload = async (
       language: sub.language || 'Unknown',
       format: sub.type === 'text/vtt' ? 'vtt' : 'srt',
     })),
-  });
+    }),
+  );
   const sub = stream.subtitles?.[0];
   if (!sub || signal?.aborted) return;
   await downloadManager({
