@@ -1,0 +1,86 @@
+name: Build phone APK
+
+# Manual only: Actions tab -> "Build phone APK" -> Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      test_ads:
+        description: 'Use Unity TEST ads (keep on while testing)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      # Phone build with package name com.vega (not TV, not Play Store).
+      APP_VARIANT: standalone
+      UNITY_ADS_TEST_MODE: ${{ inputs.test_ads && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager --install 'cmake;3.22.1' && "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --version; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo 'Android CMake installation failed after three attempts.' >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Android project
+        run: npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
+
+      # No keystore secrets are set, so the project falls back to the debug
+      # keystore. The APK installs fine on a phone; it is just not Play Store signed.
+      - name: Build release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease --build-cache --no-daemon --max-workers=1 --no-parallel --console=plain --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC' \
+            -Pkotlin.compiler.execution.strategy=in-process
+
+      - name: List APKs
+        run: ls -lh android/app/build/outputs/apk/release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vega-phone-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
