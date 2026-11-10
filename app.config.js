@@ -226,6 +226,14 @@ module.exports = () => {
         isTV: IS_TV,
         tmdbApiKey,
         proxyApiUrl,
+                // Unity Ads: Game ID and interstitial placement ID (Unity dashboard).
+        unityAdsGameId:
+          process.env.UNITY_ADS_GAME_ID ||
+          process.env.EXPO_PUBLIC_UNITY_ADS_GAME_ID ||
+          '800358312',
+        unityAdsPlacementId:
+          process.env.UNITY_ADS_PLACEMENT_ID || 'Interstitial_Android',
+        unityAdsTestMode: process.env.UNITY_ADS_TEST_MODE === '1',
       },
     },
   };
