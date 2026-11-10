@@ -32,7 +32,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
     fun initialize(gameId: String, testMode: Boolean, promise: Promise) {
         main.post {
             try {
-                if (UnityAds.isInitialized()) {
+                if (UnityAds.isInitialized) {
                     promise.resolve(true)
                     return@post
                 }
@@ -63,7 +63,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
     fun load(placementId: String, promise: Promise) {
         main.post {
             try {
-                if (!UnityAds.isInitialized()) {
+                if (!UnityAds.isInitialized) {
                     promise.resolve(false)
                     return@post
                 }
@@ -95,7 +95,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
         main.post {
             try {
                 val activity = reactContext.currentActivity
-                if (activity == null || !UnityAds.isInitialized()) {
+                if (activity == null || !UnityAds.isInitialized) {
                     promise.resolve("failed")
                     return@post
                 }
