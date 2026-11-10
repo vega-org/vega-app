@@ -5,11 +5,14 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
 import android.media.MediaFormat
+import android.media.MediaCodecList
+import androidx.media3.common.util.CodecSpecificDataUtil
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.ui.PlayerView
 import android.os.SystemClock
@@ -35,7 +38,24 @@ import com.facebook.react.uimanager.ViewManager
 class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
     override fun getName() = "AmbientVideo"
     private var lastHdrDiagnostic = ""
+    private var lastDolbyDiagnostic = ""
     private val hdrObservers = java.util.WeakHashMap<ExoPlayer, HdrOutputObserver>()
+    // Codec capabilities are static for this process. Avoid enumeration on every badge poll.
+    private val dolbyProfilesByDecoder by lazy {
+        val profiles = mutableMapOf<String, Set<Int>>()
+        try {
+            for (codec in MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos) {
+                try {
+                    if (codec.isEncoder) continue
+                    val type = codec.supportedTypes.firstOrNull { it.equals("video/dolby-vision", true) } ?: continue
+                    val supportedProfiles = codec.getCapabilitiesForType(type).profileLevels.map { it.profile }.toSet()
+                    profiles[codec.name] = supportedProfiles
+                    if (Build.VERSION.SDK_INT >= 29) profiles[codec.canonicalName] = supportedProfiles
+                } catch (_: Exception) { /* Broken vendor entry must not hide other codecs. */ }
+            }
+        } catch (_: Exception) { /* Unknown capability fails closed. */ }
+        profiles.toMap()
+    }
 
     private data class OutputColor(val format: Format, val transfer: Int?, val space: Int?, val maxCllNits: Int?)
 
@@ -52,7 +72,7 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
         }
     }
 
-    private class HdrOutputObserver : VideoFrameMetadataListener, Player.Listener {
+    private class HdrOutputObserver : VideoFrameMetadataListener, Player.Listener, AnalyticsListener {
         @Volatile var output: OutputColor? = null
         private var lastMediaFormat: MediaFormat? = null
         override fun onVideoFrameAboutToBeRendered(timeUs: Long, releaseNs: Long, format: Format, mediaFormat: MediaFormat?) {
@@ -69,6 +89,9 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
             output = OutputColor(format, number(MediaFormat.KEY_COLOR_TRANSFER), number(MediaFormat.KEY_COLOR_STANDARD), maxCll)
         }
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { output = null }
+        override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String,
+            initializedTimestampMs: Long, initializationDurationMs: Long) { output = null }
+        override fun onVideoDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) { output = null }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { output = null }
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) output = null
@@ -80,6 +103,7 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
             hdrObservers.forEach { (player, observer) ->
                 player.clearVideoFrameMetadataListener(observer)
                 player.removeListener(observer)
+                player.removeAnalyticsListener(observer)
             }
             hdrObservers.clear()
         }
@@ -114,6 +138,7 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
                     hdrObservers.getOrPut(it) {
                         HdrOutputObserver().also { observer ->
                             it.addListener(observer)
+                            it.addAnalyticsListener(observer)
                             it.setVideoFrameMetadataListener(observer)
                         }
                     }
@@ -148,12 +173,23 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
                 val dolby = format.sampleMimeType == "video/dolby-vision"
                 val decoder = findVideoView(root)?.videoDecoderStatus
                 val decoderName = decoder?.getString("name").orEmpty()
+                val dolbyProfile = if (dolby) CodecSpecificDataUtil.getCodecProfileAndLevel(format)?.first else null
+                val decoderSupportsDolby = HdrPlaybackPolicy.supportsDolbyProfile(
+                    dolbyProfile, if (dolby) dolbyProfilesByDecoder[decoderName] else null)
                 val dolbyDecoderActive = HdrPlaybackPolicy.dolbyDecoderActive(
-                    dolby, supported.contains(1), decoderName,
-                    decoder?.getString("mode") == "hardware", rendered)
+                    dolby, supported.contains(1), decoderSupportsDolby,
+                    decoder?.getString("mode") == "hardware",
+                    output != null && (counters?.renderedOutputBufferCount ?: 0) > 0)
+                val decoderDiagnostic = "decoder=$decoderName dvProfile=$dolbyProfile dvCapable=$decoderSupportsDolby dvActive=$dolbyDecoderActive"
+                if (decoderDiagnostic != lastDolbyDiagnostic) {
+                    lastDolbyDiagnostic = decoderDiagnostic
+                    android.util.Log.d("VegaHDR", decoderDiagnostic)
+                }
                 // Some Dolby hardware paths use vendor display signalling while
                 // reporting SDR color aspects and a framework brightness ratio of 1.
-                // Require rendered DV frames and the actual Dolby hardware decoder;
+                // Require matching DV frame evidence and an active hardware decoder
+                // advertising the source DV profile. This identifies the decoder path,
+                // not independent confirmation of panel dynamic-metadata processing;
                 // the source MIME/display capability alone must never enable this.
                 val headroom = if (Build.VERSION.SDK_INT >= 34 && display.isHdrSdrRatioAvailable) display.hdrSdrRatio.toDouble() else null
                 if (!HdrPlaybackPolicy.hasHdrEvidence(output?.transfer ?: output?.format?.colorInfo?.colorTransfer,
@@ -172,7 +208,7 @@ class AmbientVideoModule(context: ReactApplicationContext) : ReactContextBaseJav
                         C.COLOR_SPACE_BT2020 -> "BT.2020"
                         C.COLOR_SPACE_BT709 -> "BT.709"
                         C.COLOR_SPACE_BT601 -> "BT.601"
-                        else -> if (dolby) "Managed by Dolby Vision decoder" else "Not reported"
+                        else -> "Not reported"
                     })
                     headroom?.let { putDouble("headroom", it) }
                     putBoolean("vendorDolbyPath", dolbyDecoderActive && (headroom == null || headroom <= 1.01))
