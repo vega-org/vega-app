@@ -154,6 +154,7 @@ import {
   shouldAutoPlayNext,
 } from '../../lib/player/autoNext';
 import {useSleepTimer} from '../../lib/hooks/useSleepTimer';
+import {useMidrollAds} from '../../lib/ads/useMidrollAds';
 import {useNextEpisodePrefetch} from '../../lib/hooks/useNextEpisodePrefetch';
 
 import {
@@ -1258,9 +1259,14 @@ const Player = ({route}: Props): React.JSX.Element => {
     enabled: localDecision === 'online',
   });
 
+    // Assigned once isCasting is known (see useMidrollAds below).
+  const midrollProgressRef = useRef<
+    ((time: number, duration: number) => void) | undefined
+  >(undefined);
   const handleProgressWithTime = useCallback(
     (e: {currentTime: number; seekableDuration: number}) => {
       handleProgress(e);
+            midrollProgressRef.current?.(e.currentTime, e.seekableDuration);
       checkSleepTimer();
       prefetchNextEpisode(e.currentTime, e.seekableDuration);
       playbackTimeRef.current = e.currentTime;
@@ -1585,6 +1591,14 @@ const Player = ({route}: Props): React.JSX.Element => {
     !Platform.isTV && (Boolean(remoteMediaClient) || isRemoteActive);
   const isRemoteActiveRef = useRef(isRemoteActive);
   isRemoteActiveRef.current = isRemoteActive;
+    // Unity Ads mid-roll: pause, show an interstitial, resume. Phones only,
+  // never while casting.
+  const midrollAds = useMidrollAds({
+    enabled: !Platform.isTV && !isCasting,
+    pause: () => playerRef.current?.pause(),
+    resume: () => playerRef.current?.resume(),
+  });
+  midrollProgressRef.current = midrollAds.onProgress;
 
   useEffect(() => {
     if (Platform.isTV) return;
