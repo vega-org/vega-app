@@ -233,6 +233,8 @@ module.exports = () => {
           '800358312',
         unityAdsPlacementId:
           process.env.UNITY_ADS_PLACEMENT_ID || 'Interstitial_Android',
+                unityAdsRewardedPlacementId:
+          process.env.UNITY_ADS_REWARDED_PLACEMENT_ID || 'Rewarded_Android',
         unityAdsTestMode: process.env.UNITY_ADS_TEST_MODE === '1',
       },
     },
