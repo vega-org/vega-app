@@ -84,6 +84,8 @@ import {
 } from './lib/sync/syncService';
 import StreamingTabBar from './components/navigation/StreamingTabBar';
 import AppDialogHost from './components/AppDialogHost';
+import {preloadAd} from './lib/ads/unityAds';
+import {useAppOpenAd} from './lib/ads/useAppOpenAd';
 import {RemoteVolumeToast} from './components/remote-player/RemoteVolumeToast';
 import {
   getAnalytics,
@@ -528,6 +530,11 @@ function TabStack() {
 }
 
 const App = () => {
+    useAppOpenAd();
+  // Warm up the rewarded ad that plays with downloads.
+  useEffect(() => {
+    preloadAd('rewarded');
+  }, []);
   useEffect(()=>{
     void Linking.getInitialURL().then(url=>{if(url)vegaCastService.handleInvitation(url);});
     const subscription=Linking.addEventListener('url',event=>{vegaCastService.handleInvitation(event.url);});
