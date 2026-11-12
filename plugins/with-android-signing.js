@@ -102,13 +102,27 @@ afterEvaluate {
         fs.writeFileSync(buildGradle, gradleText, 'utf8');
       }
 
-      // Fix release buildType to use signingConfigs.release instead of debug
+      // Keep debug fallback unless all release signing env vars are provided.
+      const hasReleaseSigningEnv =
+        !!process.env.MYAPP_UPLOAD_STORE_FILE &&
+        !!process.env.MYAPP_UPLOAD_STORE_PASSWORD &&
+        !!process.env.MYAPP_UPLOAD_KEY_ALIAS &&
+        !!process.env.MYAPP_UPLOAD_KEY_PASSWORD;
+
       gradleText = fs.readFileSync(buildGradle, 'utf8');
-      gradleText = gradleText.replace(
-        /release\s*\{[^}]*signingConfig\s+signingConfigs\.debug/,
-        match =>
-          match.replace('signingConfigs.debug', 'signingConfigs.release'),
-      );
+      if (hasReleaseSigningEnv) {
+        gradleText = gradleText.replace(
+          /release\s*\{[^}]*signingConfig\s+signingConfigs\.debug/,
+          match =>
+            match.replace('signingConfigs.debug', 'signingConfigs.release'),
+        );
+      } else {
+        gradleText = gradleText.replace(
+          /release\s*\{[^}]*signingConfig\s+signingConfigs\.release/,
+          match =>
+            match.replace('signingConfigs.release', 'signingConfigs.debug'),
+        );
+      }
       fs.writeFileSync(buildGradle, gradleText, 'utf8');
 
       return cfg;

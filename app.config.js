@@ -25,7 +25,8 @@ module.exports = () => {
   const PACKAGE_NAME = IS_PLAYSTORE ? 'vega.app' : 'com.vega';
   const APP_SCHEME = IS_PLAYSTORE ? 'vegaapp' : 'com.vega';
   const plugins = [
-    './plugins/with-custom-native-modules.js',
+            './plugins/with-custom-native-modules.js',
+    './plugins/with-unity-ads.js',
       [
         'expo-camera',
         {
@@ -225,6 +226,16 @@ module.exports = () => {
         isTV: IS_TV,
         tmdbApiKey,
         proxyApiUrl,
+                // Unity Ads: Game ID and interstitial placement ID (Unity dashboard).
+        unityAdsGameId:
+          process.env.UNITY_ADS_GAME_ID ||
+          process.env.EXPO_PUBLIC_UNITY_ADS_GAME_ID ||
+          '800358312',
+        unityAdsPlacementId:
+          process.env.UNITY_ADS_PLACEMENT_ID || 'Interstitial_Android',
+                unityAdsRewardedPlacementId:
+          process.env.UNITY_ADS_REWARDED_PLACEMENT_ID || 'Rewarded_Android',
+        unityAdsTestMode: process.env.UNITY_ADS_TEST_MODE === '1',
       },
     },
   };
