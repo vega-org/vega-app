@@ -1,6 +1,7 @@
 import {findSavedSubtitle, savedSubtitleLabel} from '../../lib/subtitles/savedSubtitles';
 import RemovableSubtitleRow from '../../components/RemovableSubtitleRow';
 import {getPlaybackQuality} from '../../lib/player/playbackQuality';
+import {getStreamDrm} from '../../lib/player/streamDrm';
 import {localContentId} from '../../lib/localContent/library';
 import useLocalContentStore from '../../lib/zustand/localContentStore';
 import PlayerMoreMenu from '../../components/PlayerMoreMenu';
@@ -1564,8 +1565,9 @@ const Player = ({route}: Props): React.JSX.Element => {
   const canCastStream = useMemo(
     () =>
       !Platform.isTV &&
+      !selectedStream?.drm &&
       isCastableStreamUrl(processedStreamUrl, selectedStream?.type),
-    [processedStreamUrl, selectedStream?.type],
+    [processedStreamUrl, selectedStream?.type, selectedStream?.drm],
   );
   const isLocalOrDownloadedStream = useMemo(
     () =>
@@ -1576,13 +1578,14 @@ const Player = ({route}: Props): React.JSX.Element => {
   );
   const isRemoteActive =
     !Platform.isTV &&
+    !selectedStream?.drm &&
     (Boolean(remoteMediaClient) ||
       Boolean(connectedRemoteDevice) ||
       castRequested ||
       Boolean((route.params as any)?.alwaysCast) ||
       settingsStorage.isAlwaysCastMode());
   const isCasting =
-    !Platform.isTV && (Boolean(remoteMediaClient) || isRemoteActive);
+    !Platform.isTV && !selectedStream?.drm && (Boolean(remoteMediaClient) || isRemoteActive);
   const isRemoteActiveRef = useRef(isRemoteActive);
   isRemoteActiveRef.current = isRemoteActive;
 
@@ -3076,10 +3079,11 @@ const Player = ({route}: Props): React.JSX.Element => {
           minBackBufferMemoryReservePercent: 0.25,
           cacheSizeMB: 0,
         },
-        shouldCache: true,
+        shouldCache: !selectedStream?.drm,
         ...(selectedStream?.type === 'm3u8' && {type: 'm3u8'}),
         ...(selectedStream?.type === 'mpd' && {type: 'mpd'}),
         headers: selectedStream?.headers,
+        drm: getStreamDrm(selectedStream?.drm),
         metadata: {
           title: route.params?.primaryTitle,
           subtitle: activeEpisode?.title,
@@ -3151,6 +3155,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       selectedStream.link,
       selectedStream.type,
       selectedStream.headers,
+      selectedStream.drm,
       activeEpisode?.title,
       handleProgressWithTime,
       combinedSkips,

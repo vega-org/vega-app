@@ -41,6 +41,20 @@ export interface SkipInterval {
 }
 
 // getStream
+/** JSON-serializable DRM configuration returned by a provider. */
+export interface StreamDrm {
+  type: 'widevine' | 'playready' | 'clearkey' | 'fairplay';
+  licenseServer?: string;
+  /** License request headers, separate from stream/manifest headers. */
+  headers?: Record<string, string>;
+  /** ClearKey key IDs mapped to keys, both 32-character hexadecimal strings. */
+  clearKeys?: Record<string, string>;
+  multiDrm?: boolean;
+  contentId?: string;
+  certificateUrl?: string;
+  base64Certificate?: boolean;
+}
+
 export interface Stream {
   server: string;
   link: string;
@@ -50,6 +64,7 @@ export interface Stream {
   tags?: string[];
   subtitles?: TextTracks;
   headers?: any;
+  drm?: StreamDrm;
   skip?: SkipInterval[];
 }
 
