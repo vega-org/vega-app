@@ -34,6 +34,7 @@ module.exports = () => {
         },
       ],
     './plugins/android-native-config.js',
+    './plugins/with-display-density.js',
     './plugins/with-saf-copy-module.js',
     './plugins/with-uri-permission-module.js',
     './plugins/with-proguard-rules.js',
