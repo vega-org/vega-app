@@ -1,3 +1,4 @@
+import {liveTimeLabel, type PlaybackTimeline} from '../../../../lib/player/liveTimeline';
 import React, {
   Dispatch,
   SetStateAction,
@@ -30,6 +31,8 @@ interface SeekbarProps {
   setSeekerWidth: Dispatch<SetStateAction<number>>;
   time?: number;
   duration: number;
+  timeline?: PlaybackTimeline;
+  onGoLive?: () => void;
   showDuration: boolean;
   showTimeRemaining: boolean;
   showHours: boolean;
@@ -59,6 +62,8 @@ export const Seekbar = ({
   showTimeRemaining,
   time,
   duration,
+  timeline,
+  onGoLive,
   toggleTimer,
   resetControlTimeout,
   seeking,
@@ -87,6 +92,9 @@ export const Seekbar = ({
       ),
     [seekerPosition, trackWidth],
   );
+  const live = timeline?.isLive === true;
+  const canSeek = timeline?.canSeek ?? duration > 0;
+  const liveLabel = timeline ? liveTimeLabel(time ?? 0, timeline) : 'LIVE';
   const timestampStyle = {
     color: 'hsl(0, 0%, 70%)',
     fontSize: 12 * controlScale,
@@ -112,14 +120,15 @@ export const Seekbar = ({
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          live ? 'Go Live' : showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
+          if (live) { onGoLive?.(); return; }
           toggleTimer();
           resetControlTimeout();
         }}>
         <Text style={timestampStyle}>
-          {formatTime({
+          {live ? liveLabel : formatTime({
             duration,
             time,
             showDuration,
@@ -136,9 +145,11 @@ export const Seekbar = ({
           alignSelf: 'center',
           flexShrink: 1,
           minWidth: 0,
+          opacity: canSeek ? 1 : 0.35,
         }}
         collapsable={false}
-        {...seekerPanHandlers}>
+        {...(canSeek ? seekerPanHandlers : {})}
+        pointerEvents={canSeek ? 'auto' : 'none'}>
         {seeking && trackWidth > 0 ? (
           <View
             style={[styles.preview, {left: previewLeft, bottom: 30 * size}]}
@@ -317,14 +328,15 @@ export const Seekbar = ({
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          live ? 'Go Live' : showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
+          if (live) { onGoLive?.(); return; }
           toggleTimer();
           resetControlTimeout();
         }}>
         <Text style={timestampStyle}>
-          {formatTime({
+          {live ? (liveLabel === 'LIVE' ? 'LIVE' : 'Go Live') : formatTime({
             duration,
             time: showTimeRemaining
               ? Math.max(0, duration - (time ?? 0))
