@@ -153,7 +153,7 @@ module.exports = () => {
       autolinking: {exclude: ['expo-splash-screen']},
       plugins,
       slug: 'vega',
-      version: '5.3.2',
+      version: '5.3.3',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,
@@ -163,7 +163,7 @@ module.exports = () => {
           ? {googleServicesFile: androidGoogleServicesFile}
           : {}),
         package: PACKAGE_NAME,
-        versionCode: 217,
+        versionCode: 218,
         permissions: [
           'FOREGROUND_SERVICE',
           'FOREGROUND_SERVICE_DATA_SYNC',
