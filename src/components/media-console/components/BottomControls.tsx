@@ -27,7 +27,6 @@ interface BottomControlsProps {
   currentTime: number;
   duration: number;
   timeline?: PlaybackTimeline;
-  onGoLive?: () => void;
   seekColor: string;
   toggleTimer: () => void;
   resetControlTimeout: () => void;
@@ -55,7 +54,6 @@ export const BottomControls = ({
   disableSeekbar,
   duration,
   timeline,
-  onGoLive,
   seekColor,
   showDuration,
   showHours,
@@ -91,7 +89,6 @@ export const BottomControls = ({
       showTimeRemaining={showTimeRemaining}
       duration={duration}
       timeline={timeline}
-      onGoLive={onGoLive}
       time={currentTime}
       toggleTimer={toggleTimer}
       resetControlTimeout={resetControlTimeout}

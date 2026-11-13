@@ -1167,11 +1167,6 @@ const AnimatedVideoPlayer = (
                   currentTime={currentTime}
                   duration={duration}
                   timeline={timeline}
-                  onGoLive={() => {
-                    seekVideo(timelineRef.current.liveEdge);
-                    setPaused(false);
-                    resetControlTimeout();
-                  }}
                   seekColor={seekColor}
                   toggleTimer={toggleTimer}
                   resetControlTimeout={resetControlTimeout}
