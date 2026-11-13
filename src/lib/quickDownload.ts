@@ -11,6 +11,7 @@ export const queueQuickDownload = async (
   signal?: AbortSignal,
 ) => {
   if (signal?.aborted) return;
+  if (stream.drm) throw new Error('DRM streams do not support offline downloads');
   await downloadManager({
     ...request,
     url: stream.link,

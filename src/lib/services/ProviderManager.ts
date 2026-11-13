@@ -1,4 +1,5 @@
 import {throwIfProviderAborted} from '../sandbox/abort';
+import {getStreamDrm} from '../player/streamDrm';
 import {ToastAndroid} from 'react-native';
 import axios from 'axios';
 import {headers as commonHeaders} from '../providers/headers';
@@ -356,9 +357,11 @@ export class ProviderManager {
           Array.isArray(streams) ? streams.length : 0
         } streams in ${Date.now() - startedAt}ms`,
       );
+      const validatedStreams = this.requireArray<Stream>(streams, providerValue, 'getStream');
+      for (const stream of validatedStreams) getStreamDrm(stream.drm);
       return this.withJarCookies(
         getStreamModule.author,
-        this.requireArray<Stream>(streams, providerValue, 'getStream'),
+        isDownload ? validatedStreams.filter(stream => !stream.drm) : validatedStreams,
       );
     } catch (error) {
       console.error('Error in stream function:', error);
