@@ -13,11 +13,13 @@ export const Title = (title: TitleProps) => {
   if (title) {
     return (
       <View style={[styles.control, _styles.title, {
-        paddingTop: 8 * (title.scale ?? 1), paddingBottom: 8 * (title.scale ?? 1),
+        paddingTop: 0, paddingBottom: 0,
       }]}>
+        <View style={{height: 40 * (title.scale ?? 1), justifyContent: 'center'}}>
         <Text style={[styles.text, _styles.titleText, {fontSize: 18 * (title.scale ?? 1), lineHeight: 24 * (title.scale ?? 1), includeFontPadding: false}]} numberOfLines={1}>
           {title.primary}
         </Text>
+        </View>
         {title.secondary && (
           <Text
             style={[_styles.secondaryText, {color: 'hsl(0, 0%, 70%)', fontSize: 12 * (title.scale ?? 1), lineHeight: 16 * (title.scale ?? 1), includeFontPadding: false}]}
