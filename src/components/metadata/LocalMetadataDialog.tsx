@@ -20,10 +20,14 @@ export default function LocalMetadataDialog({
   visible,
   onClose,
   title,
+  onRescan,
+  rescanning = false,
 }: {
   visible: boolean;
   onClose: () => void;
   title: LocalTitle;
+  onRescan?: () => void;
+  rescanning?: boolean;
 }) {
   const colors = useM3Colors();
   const insets = useSafeAreaInsets();
@@ -107,6 +111,20 @@ export default function LocalMetadataDialog({
               }}>
               <AppText style={{color: colors.onSurface}}>Edit metadata</AppText>
             </TVFocusable>
+            {onRescan && <TVFocusable
+              accessibilityRole="button"
+              accessibilityLabel="Rescan folder"
+              disabled={rescanning}
+              onPress={() => {
+                if (rescanning) return;
+                onClose();
+                onRescan();
+              }}
+              style={{minHeight: 48, paddingHorizontal: 16, justifyContent: 'center'}}>
+              <AppText style={{color: colors.onSurface}}>
+                {rescanning ? 'Rescanning…' : 'Rescan folder'}
+              </AppText>
+            </TVFocusable>}
             {title.metadata && (
               <TVFocusable
                 accessibilityRole="button"

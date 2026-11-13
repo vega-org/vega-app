@@ -115,6 +115,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     }
   }, []);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isAtTop, setIsAtTop] = useState(true);
   const [statusBarScrimVisible, setStatusBarScrimVisible] = useState(false);
@@ -186,19 +187,23 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   // Promise chain instead of try/finally: React Compiler skips any component
   // that contains a finally clause.
   const handleRefresh = useCallback(() => {
+    if (refreshInFlight.current) return Promise.resolve();
+    refreshInFlight.current = true;
     setRefreshing(true);
     setRefreshVersion(version => version + 1);
-    return Promise.race([
+    const refresh = localTitle ? refetch() : Promise.race([
       refetch(),
       new Promise(resolve => setTimeout(resolve, 10000)),
-    ]).catch(cause => {
+    ]);
+    return refresh.catch(cause => {
       ToastAndroid.show(cause instanceof Error ? cause.message : 'Unable to refresh this title', ToastAndroid.LONG);
     }).finally(() => {
+      refreshInFlight.current = false;
       setTimeout(() => {
         setRefreshing(false);
       }, 50);
     });
-  }, [refetch]);
+  }, [refetch, localTitle]);
 
   const handleScroll = useCallback((event: any) => {
     const offsetY = event.nativeEvent?.contentOffset?.y ?? 0;
@@ -471,6 +476,8 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
             visible={metadataMenuVisible}
             onClose={() => setMetadataMenuVisible(false)}
             title={localTitle}
+            onRescan={handleRefresh}
+            rescanning={refreshing}
           />}
           {info && !localTitle && <ProviderMetadataDialog
             visible={metadataMenuVisible}

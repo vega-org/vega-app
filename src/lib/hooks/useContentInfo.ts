@@ -164,7 +164,9 @@ export const useContentDetails = (link: string, providerValue: string) => {
       refetch: async () => {
         if (!localTitle) return;
         const episodes = await scanEpisodes(localTitle.folderUri, listLocalFolder, undefined, !localTitle.rootFilesOnly);
-        useLocalContentStore.getState().saveTitles([{...localTitle, episodes}]);
+        // Keep edits made during the scan and never recreate a removed import.
+        const latest = useLocalContentStore.getState().titles.find(title => title.id === localId);
+        if (latest) useLocalContentStore.getState().saveTitles([{...latest, episodes}]);
       },
     };
   }
