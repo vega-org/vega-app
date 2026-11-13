@@ -1,4 +1,4 @@
-import {liveTimeLabel, type PlaybackTimeline} from '../../../../lib/player/liveTimeline';
+import type {PlaybackTimeline} from '../../../../lib/player/liveTimeline';
 import React, {
   Dispatch,
   SetStateAction,
@@ -32,7 +32,6 @@ interface SeekbarProps {
   time?: number;
   duration: number;
   timeline?: PlaybackTimeline;
-  onGoLive?: () => void;
   showDuration: boolean;
   showTimeRemaining: boolean;
   showHours: boolean;
@@ -63,7 +62,6 @@ export const Seekbar = ({
   time,
   duration,
   timeline,
-  onGoLive,
   toggleTimer,
   resetControlTimeout,
   seeking,
@@ -94,7 +92,6 @@ export const Seekbar = ({
   );
   const live = timeline?.isLive === true;
   const canSeek = timeline?.canSeek ?? duration > 0;
-  const liveLabel = timeline ? liveTimeLabel(time ?? 0, timeline) : 'LIVE';
   const timestampStyle = {
     color: 'hsl(0, 0%, 70%)',
     fontSize: 12 * controlScale,
@@ -114,21 +111,20 @@ export const Seekbar = ({
         justifyContent: 'center',
         alignItems: 'center',
       }}>
-      <Pressable
+      {!live && <Pressable
         hitSlop={12}
         // TV uses the Player timeline; this toggle has no focus ring there.
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          live ? 'Go Live' : showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
-          if (live) { onGoLive?.(); return; }
           toggleTimer();
           resetControlTimeout();
         }}>
         <Text style={timestampStyle}>
-          {live ? liveLabel : formatTime({
+          {formatTime({
             duration,
             time,
             showDuration,
@@ -136,7 +132,7 @@ export const Seekbar = ({
             showTimeRemaining: false,
           })}
         </Text>
-      </Pressable>
+      </Pressable>}
       <View
         style={{
           ...styles.container,
@@ -323,20 +319,19 @@ export const Seekbar = ({
           />
         </View>
       </View>
-      <Pressable
+      {!live && <Pressable
         hitSlop={12}
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          live ? 'Go Live' : showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
-          if (live) { onGoLive?.(); return; }
           toggleTimer();
           resetControlTimeout();
         }}>
         <Text style={timestampStyle}>
-          {live ? (liveLabel === 'LIVE' ? 'LIVE' : 'Go Live') : formatTime({
+          {formatTime({
             duration,
             time: showTimeRemaining
               ? Math.max(0, duration - (time ?? 0))
@@ -346,7 +341,7 @@ export const Seekbar = ({
             showTimeRemaining,
           })}
         </Text>
-      </Pressable>
+      </Pressable>}
     </View>
   );
 };

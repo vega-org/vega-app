@@ -3485,7 +3485,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       toolbarControls.some((control) => control.id === id && control.visible),
     ).length *
       (48 * controlStyle.scale) +
-    20 + hdrWidth;
+    20 + hdrWidth + (playbackWindow.isLive ? 68 * controlStyle.scale : 0);
 
   const subtitleControlsVisible = showControls && !isCasting && !isPlayerLocked &&
     !showSettings && !showEpisodeSidebar && !editingControls;
@@ -3921,6 +3921,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                   }}
                 />
               </View>
+              {!playbackWindow.isLive && (
               <Text style={{color: 'white', fontSize: 14 * controlStyle.scale, marginTop: 6, textAlign: 'center'}}>
                 {playbackWindow.isLive ? liveTimeLabel(scrubPosition ?? currentPlaybackTime, playbackWindow) : formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
                 {playbackWindow.isLive ? (playbackWindow.canSeek ? 'Go Live' : 'LIVE') : videoPositionRef.current.duration > 0
@@ -3932,6 +3933,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                   ? '  •  Select to seek · Back to cancel'
                   : ''}
               </Text>
+              )}
             </TVFocusPressable>
           </>
         )}
@@ -3958,6 +3960,28 @@ const Player = ({route}: Props): React.JSX.Element => {
             </TouchableOpacity>
           )}
             <View style={{flexDirection: 'row', alignItems: 'center', display: isPlayerLocked ? 'none' : 'flex'}}>
+              {playbackWindow.isLive && (
+                <TVFocusPressable
+                  {...getTVFocusProps('live')}
+                  disabled={!playbackWindow.canSeek}
+                  accessibilityRole={playbackWindow.canSeek ? 'button' : 'text'}
+                  accessibilityLabel={playbackWindow.canSeek ? 'Live stream. Go Live' : 'Live stream'}
+                  onPress={() => {
+                    const window = playbackWindowRef.current;
+                    if (!window.canSeek) return;
+                    playerRef.current?.seek(window.liveEdge);
+                    setIsPaused(false);
+                    setShowControls(true);
+                  }}
+                  style={{width: 56 * controlStyle.scale, height: 40 * controlStyle.scale,
+                    marginRight: 12 * controlStyle.scale, borderRadius: 20 * controlStyle.scale,
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: `rgba(0,0,0,${controlStyle.backgroundOpacity})`}}>
+                  <View style={{width: 6 * controlStyle.scale, height: 6 * controlStyle.scale,
+                    borderRadius: 3 * controlStyle.scale, backgroundColor: '#ef4444', marginRight: 5 * controlStyle.scale}} />
+                  <Text style={{color: '#fff', fontSize: 12 * controlStyle.scale, fontWeight: '700'}}>LIVE</Text>
+                </TVFocusPressable>
+              )}
               <HdrBadge videoView={nativeVideoViewRef} source={String(videoPlayerProps.source?.uri || '')}
                 suspended={streamLoading || editingControls || isPlayerLocked} scale={controlStyle.scale} backgroundOpacity={controlStyle.backgroundOpacity}
                 onWidthChange={setHdrWidth} onInteract={() => setShowControls(true)} />
