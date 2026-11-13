@@ -10,6 +10,25 @@ const {
 
 function withCustomNativeModules(config) {
   config = withProjectBuildGradle(config, cfg => {
+    const frescoMarker = '// Vega: Fresco image reference lifetime fix (issue #637).';
+    if (!cfg.modResults.contents.includes(frescoMarker)) {
+      // RN 0.86 still selects 3.6.0. Fresco 3.7.0 includes upstream #2839:
+      // read image info before drawable callbacks can close its reference.
+      // Align the entire group, including optional GIF/WebP and OkHttp modules.
+      cfg.modResults.contents += `
+${frescoMarker}
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.facebook.fresco') {
+                details.useVersion '3.7.0'
+                details.because 'Fresco 3.7 fixes the closed image reference startup crash (#637)'
+            }
+        }
+    }
+}
+`;
+    }
     const marker = '// Vega: align Media3 with react-native-video and its FFmpeg decoder.';
     if (!cfg.modResults.contents.includes(marker)) {
       cfg.modResults.contents += `
