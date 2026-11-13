@@ -1051,6 +1051,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [showMoreControls, setShowMoreControls] = useState(false);
   const nativeVideoViewRef = useRef<View>(null);
   const [hdrWidth, setHdrWidth] = useState(0);
+  const [liveBadgeWidth, setLiveBadgeWidth] = useState(0);
   const [decoderMode, setDecoderMode] = useState<'hardware' | 'software'>('hardware');
   const decoderRestartRef = useRef(false);
   const decoderSwitchBusyRef = useRef(false);
@@ -3485,7 +3486,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       toolbarControls.some((control) => control.id === id && control.visible),
     ).length *
       (48 * controlStyle.scale) +
-    20 + hdrWidth + (playbackWindow.isLive ? 68 * controlStyle.scale : 0);
+    20 + hdrWidth + (playbackWindow.isLive ? liveBadgeWidth || 64 * controlStyle.scale : 0);
 
   const subtitleControlsVisible = showControls && !isCasting && !isPlayerLocked &&
     !showSettings && !showEpisodeSidebar && !editingControls;
@@ -3973,13 +3974,15 @@ const Player = ({route}: Props): React.JSX.Element => {
                     setIsPaused(false);
                     setShowControls(true);
                   }}
-                  style={{width: 56 * controlStyle.scale, height: 40 * controlStyle.scale,
-                    marginRight: 12 * controlStyle.scale, borderRadius: 20 * controlStyle.scale,
+                  onLayout={event => setLiveBadgeWidth(event.nativeEvent.layout.width + 8 * controlStyle.scale)}
+                  style={{minHeight: 40 * controlStyle.scale, padding: 8 * controlStyle.scale,
+                    marginRight: 8 * controlStyle.scale, borderRadius: 20 * controlStyle.scale,
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                     backgroundColor: `rgba(0,0,0,${controlStyle.backgroundOpacity})`}}>
                   <View style={{width: 6 * controlStyle.scale, height: 6 * controlStyle.scale,
                     borderRadius: 3 * controlStyle.scale, backgroundColor: '#ef4444', marginRight: 5 * controlStyle.scale}} />
-                  <Text style={{color: '#fff', fontSize: 12 * controlStyle.scale, fontWeight: '700'}}>LIVE</Text>
+                  <Text allowFontScaling={false} style={{color: '#fff', fontSize: 12 * controlStyle.scale,
+                    lineHeight: 16 * controlStyle.scale, includeFontPadding: false, fontWeight: '700'}}>LIVE</Text>
                 </TVFocusPressable>
               )}
               <HdrBadge videoView={nativeVideoViewRef} source={String(videoPlayerProps.source?.uri || '')}

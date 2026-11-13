@@ -16,7 +16,7 @@ export const Back = ({onBack, showControls, scale = 1}: BackProps) => {
         alignItems: 'center', justifyContent: 'center'}}>
       <MaterialIcons
         name="arrow-back-ios-new"
-        size={24 * scale}
+        size={20 * scale}
         color="rgba(255,255,255,0.68)"
       />
     </Control>

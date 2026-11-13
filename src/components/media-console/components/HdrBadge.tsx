@@ -54,13 +54,13 @@ export default function HdrBadge({videoView, source, suspended, scale, backgroun
   const iconHeight = status ? status.type === 'Dolby Vision'
     ? 16 * scale : (32 * scale) / hdrIconWidth(status.type, 1) : 0;
   const buttonWidth = status ? Math.max(56 * scale, hdrIconWidth(status.type, iconHeight) + 16 * scale) : 0;
-  const width = status ? buttonWidth + 12 * scale : 0;
+  const width = status ? buttonWidth + 8 * scale : 0;
   useEffect(() => {
     onWidthChange?.(width);
     return () => onWidthChange?.(0);
   }, [width, onWidthChange]);
   return <>
-    {status && <View style={{justifyContent: 'center', marginRight: 12 * scale,
+    {status && <View style={{justifyContent: 'center', marginRight: 8 * scale,
       backgroundColor: `rgba(0,0,0,${backgroundOpacity})`, borderRadius: 28 * scale}}>
       <TVFocusable registerScreenFocus={false} accessibilityRole="button" accessibilityLabel="HDR playback details"
         onPress={() => {onInteract(); setDetails(status);}}
