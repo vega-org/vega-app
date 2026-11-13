@@ -1,3 +1,4 @@
+import {playbackTimeline, liveTimeLabel, type LiveTimelineEvent} from '../../lib/player/liveTimeline';
 import {findSavedSubtitle, savedSubtitleLabel} from '../../lib/subtitles/savedSubtitles';
 import RemovableSubtitleRow from '../../components/RemovableSubtitleRow';
 import {getPlaybackQuality} from '../../lib/player/playbackQuality';
@@ -1144,6 +1145,15 @@ const Player = ({route}: Props): React.JSX.Element => {
     isPlayerLocked,
   ]);
 
+  const [playbackWindow, setPlaybackWindow] = useState(() => playbackTimeline({}));
+  const playbackWindowRef = useRef(playbackWindow);
+  playbackWindowRef.current = playbackWindow;
+  useEffect(() => {
+    const next = playbackTimeline({});
+    playbackWindowRef.current = next;
+    setPlaybackWindow(next);
+  }, [selectedStream?.link]);
+
   const {videoPositionRef, handleProgress, flushProgress, hasProgressRef} =
     usePlayerProgress({
       activeEpisode,
@@ -1201,6 +1211,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   } = usePlayerTVControls({
     playerRef,
     videoPositionRef,
+    timelineRef: playbackWindowRef,
     showSettings,
     setShowSettings,
     showControls,
@@ -1220,6 +1231,11 @@ const Player = ({route}: Props): React.JSX.Element => {
   const handleTimelinePress = useCallback(() => {
     if (scrubPosition !== null) {
       confirmScrub();
+    } else if (playbackWindowRef.current.isLive) {
+      if (playbackWindowRef.current.canSeek) {
+        playerRef.current?.seek(playbackWindowRef.current.liveEdge);
+        setIsPaused(false);
+      }
     } else {
       setShowTimeRemaining(prev => {
         const next = !prev;
@@ -1260,7 +1276,18 @@ const Player = ({route}: Props): React.JSX.Element => {
   });
 
   const handleProgressWithTime = useCallback(
-    (e: {currentTime: number; seekableDuration: number}) => {
+    (e: {currentTime: number; seekableDuration: number} & LiveTimelineEvent) => {
+      const next = playbackTimeline(e, e.seekableDuration);
+      playbackWindowRef.current = next;
+      setPlaybackWindow(previous => previous.isLive === next.isLive && previous.canSeek === next.canSeek && previous.duration === next.duration && previous.liveEdge === next.liveEdge ? previous : next);
+      if (next.isLive) {
+        // Live window positions are not resumable episode progress.
+        videoPositionRef.current = {position: e.currentTime, duration: next.duration};
+        playbackTimeRef.current = e.currentTime;
+        setCurrentPlaybackTime(e.currentTime);
+        checkSleepTimer();
+        return;
+      }
       handleProgress(e);
       checkSleepTimer();
       prefetchNextEpisode(e.currentTime, e.seekableDuration);
@@ -3024,10 +3051,16 @@ const Player = ({route}: Props): React.JSX.Element => {
           .setStreamDuration(torrentHash, Number(e.duration))
           .catch(() => {});
       }
-      const wd = getStartPosition();
+      const nextWindow = playbackTimeline(e as LiveTimelineEvent, Number(e?.duration));
+      playbackWindowRef.current = nextWindow;
+      setPlaybackWindow(nextWindow);
+      const wd = nextWindow.isLive ? 0 : getStartPosition();
       markStreamLoaded();
       // A source opened at its start position is already there.
       const loadedAt = Number(e?.currentTime) || 0;
+      if (nextWindow.isLive && nextWindow.canSeek && !decoderRestart) {
+        playerRef.current?.seek(nextWindow.duration);
+      }
       if (!decoderRestart && wd > 5 && Math.abs(loadedAt - wd) > 2) {
         playerRef.current?.seek(wd);
         resumeAppliedRef.current = true;
@@ -3838,9 +3871,9 @@ const Player = ({route}: Props): React.JSX.Element => {
               nextFocusUp={playPauseTVHandle ?? undefined}
               nextFocusDown={bottomControlTVHandle ?? undefined}
               accessibilityRole="adjustable"
-              accessibilityLabel="Video timeline. Left and right preview, select seeks, back cancels."
+              accessibilityLabel={playbackWindow.isLive ? (playbackWindow.canSeek ? "Live DVR timeline. Left and right preview, select seeks or returns to live." : "LIVE. Seeking unavailable.") : "Video timeline. Left and right preview, select seeks, back cancels."}
               accessibilityValue={{
-                text: `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${
+                text: playbackWindow.isLive ? liveTimeLabel(scrubPosition ?? currentPlaybackTime, playbackWindow) : `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${
                   videoPositionRef.current.duration > 0
                     ? (showTimeRemaining
                         ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))} remaining`
@@ -3889,8 +3922,8 @@ const Player = ({route}: Props): React.JSX.Element => {
                 />
               </View>
               <Text style={{color: 'white', fontSize: 14 * controlStyle.scale, marginTop: 6, textAlign: 'center'}}>
-                {formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
-                {videoPositionRef.current.duration > 0
+                {playbackWindow.isLive ? liveTimeLabel(scrubPosition ?? currentPlaybackTime, playbackWindow) : formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
+                {playbackWindow.isLive ? (playbackWindow.canSeek ? 'Go Live' : 'LIVE') : videoPositionRef.current.duration > 0
                   ? (showTimeRemaining
                       ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))}`
                       : formatTVTimelineTime(videoPositionRef.current.duration))

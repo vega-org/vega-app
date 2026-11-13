@@ -1,3 +1,4 @@
+import {playbackTimeline, clampTimelineSeek, type LiveTimelineEvent} from '../../lib/player/liveTimeline';
 import AmbientBackground from './components/AmbientBackground';
 import {getAmbientBars} from '../../lib/player/ambient';
 import {useControlVisibility} from './hooks/useControlVisibility';
@@ -194,6 +195,9 @@ const AnimatedVideoPlayer = (
   const [currentTime, setCurrentTime] = useState(0);
   const [error, setError] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [timeline, setTimeline] = useState(() => playbackTimeline({}));
+  const timelineRef = useRef(timeline);
+  timelineRef.current = timeline;
   const [buffering, setBuffering] = useState(false);
   const [cachedDuration, setCachedDuration] = useState(0);
   const [cachedPosition, setCachedPosition] = useState(0);
@@ -363,6 +367,11 @@ const AnimatedVideoPlayer = (
 
   const _onLoadStart = useCallback(
     (e: OnLoadStartData) => {
+      const next = playbackTimeline({});
+      timelineRef.current = next;
+      setTimeline(next);
+      setDuration(0);
+      setSeeking(false);
       setLoading(true);
 
       if (typeof onLoadStart === 'function') {
@@ -377,7 +386,10 @@ const AnimatedVideoPlayer = (
 
   const _onLoad = useCallback(
     (data: OnLoadData) => {
-      setDuration(data.duration);
+      setDuration(Number.isFinite(data.duration) && data.duration > 0 ? data.duration : 0);
+      const next = playbackTimeline(data as LiveTimelineEvent, data.duration);
+      timelineRef.current = next;
+      setTimeline(next);
       setLoading(false);
 
       if (showControlsRef.current) {
@@ -393,6 +405,10 @@ const AnimatedVideoPlayer = (
 
   const _onProgress = useCallback(
     (data: OnProgressData) => {
+      const next = playbackTimeline(data as LiveTimelineEvent, duration);
+      timelineRef.current = next;
+      setTimeline(previous => previous.isLive === next.isLive && previous.canSeek === next.canSeek && previous.duration === next.duration && previous.liveEdge === next.liveEdge ? previous : next);
+      if (next.isLive) setDuration(next.duration);
       setLoading(false);
       if (!seekingRef.current && !buffering) {
         const newCurrentTime = data.currentTime;
@@ -555,6 +571,9 @@ const AnimatedVideoPlayer = (
   );
 
   const seekVideo = useCallback((time: number) => {
+    const target = clampTimelineSeek(time, timelineRef.current);
+    if (target === undefined) return;
+    time = target;
     try {
       console.log('seekVideo called with time:', time);
       console.log('videoRef.current:', !!videoRef?.current);
@@ -583,7 +602,8 @@ const AnimatedVideoPlayer = (
   }, []);
 
   const {volumePanResponder, seekPanResponder} = usePanResponders({
-    duration,
+    duration: timeline.canSeek ? duration : 0,
+    isLive: timeline.isLive,
     volumeOffset,
     loading,
     seekerWidth,
@@ -815,10 +835,12 @@ const AnimatedVideoPlayer = (
         typeof time === 'number'
           ? currentTime - time
           : currentTime - rewindTime;
-      setCurrentTime(newTime);
-      videoRef?.current?.seek(newTime);
+      const target = clampTimelineSeek(newTime, timelineRef.current);
+      if (target === undefined) return;
+      setCurrentTime(target);
+      seekVideo(target);
     },
-    [currentTime, rewindTime, videoRef],
+    [currentTime, rewindTime, seekVideo],
   );
 
   const forward = useCallback(
@@ -827,10 +849,12 @@ const AnimatedVideoPlayer = (
         typeof time === 'number'
           ? currentTime + time
           : currentTime + rewindTime;
-      setCurrentTime(newTime);
-      videoRef?.current?.seek(newTime);
+      const target = clampTimelineSeek(newTime, timelineRef.current);
+      if (target === undefined) return;
+      setCurrentTime(target);
+      seekVideo(target);
     },
-    [currentTime, rewindTime, videoRef],
+    [currentTime, rewindTime, seekVideo],
   );
 
   // Memoize onBuffer callback
@@ -934,7 +958,7 @@ const AnimatedVideoPlayer = (
         }
       | undefined;
 
-    if (!seeking) {
+    if (!seeking || timeline.isLive) {
       setSeekThumbnailUri(null);
       setSeekThumbnailLoading(false);
       return;
@@ -998,6 +1022,7 @@ const AnimatedVideoPlayer = (
     return () => clearTimeout(debounce);
   }, [
     seeking,
+    timeline.isLive,
     seekThumbnailTimestampMs,
     thumbnailHeaders,
     thumbnailHeadersKey,
@@ -1115,6 +1140,7 @@ const AnimatedVideoPlayer = (
                   tapActionTimeout={tapActionTimeout}
                   tapAnywhereToPause={tapAnywhereToPause}
                   showControls={showControls}
+                  seekEnabled={timeline.canSeek}
                   seekButtonsEnabled={
                     !hideAllControlls && !disablePlayPause && !disableSeekButtons
                   }
@@ -1140,6 +1166,12 @@ const AnimatedVideoPlayer = (
                   showTimeRemaining={_showTimeRemaining}
                   currentTime={currentTime}
                   duration={duration}
+                  timeline={timeline}
+                  onGoLive={() => {
+                    seekVideo(timelineRef.current.liveEdge);
+                    setPaused(false);
+                    resetControlTimeout();
+                  }}
                   seekColor={seekColor}
                   toggleTimer={toggleTimer}
                   resetControlTimeout={resetControlTimeout}
@@ -1162,7 +1194,7 @@ const AnimatedVideoPlayer = (
             )}
           </>
         }
-        {!hideAllControlls && !disablePlayPause && !disableSeekButtons ? (
+        {!hideAllControlls && !disablePlayPause && !disableSeekButtons && timeline.canSeek ? (
           <SeekControls
             size={54 * controlScale}
             seekSeconds={rewindTime}

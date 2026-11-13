@@ -3,6 +3,7 @@ import {PanResponder} from 'react-native';
 
 interface PanRespondersProps {
   duration: number;
+  isLive?: boolean;
   volumeOffset: number;
   loading: boolean;
   seekerPosition: number;
@@ -22,6 +23,7 @@ interface PanRespondersProps {
 
 export const usePanResponders = ({
   duration,
+  isLive = false,
   volumeOffset,
   loading,
   seekerPosition,
@@ -40,6 +42,7 @@ export const usePanResponders = ({
 }: PanRespondersProps) => {
   const propsRef = useRef({
     duration,
+    isLive,
     volumeOffset,
     loading,
     seekerWidth,
@@ -58,6 +61,7 @@ export const usePanResponders = ({
 
   propsRef.current = {
     duration,
+    isLive,
     volumeOffset,
     loading,
     seekerWidth,
@@ -112,8 +116,8 @@ export const usePanResponders = ({
     });
 
     const seekPanResponder = PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => propsRef.current.duration > 0,
+      onMoveShouldSetPanResponder: () => propsRef.current.duration > 0,
       onPanResponderGrant: (evt) => {
         const {
           setSeeking: setSeek,
@@ -218,7 +222,7 @@ export const usePanResponders = ({
         const percent = sWidth > 0 ? constrainedPosition / sWidth : 0;
         const time = dur * percent;
 
-        if (time >= dur && !isLoading) {
+        if (!propsRef.current.isLive && dur > 0 && time >= dur && !isLoading) {
           if (typeof handleEnd === 'function') {
             handleEnd();
           }

@@ -1,3 +1,4 @@
+import {clampTimelineSeek, playbackTimeline, type PlaybackTimeline} from '../player/liveTimeline';
 import {useState, useRef, useCallback, useEffect} from 'react';
 import {isTV} from './constants';
 import {useTVRemote} from './useTVRemote';
@@ -14,6 +15,7 @@ const TV_CONTROL_IDLE_STYLE = {
 
 interface UsePlayerTVControlsOptions {
   playerRef: React.RefObject<any>;
+  timelineRef?: React.RefObject<PlaybackTimeline>;
   videoPositionRef: React.RefObject<{position: number; duration: number}>;
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
@@ -30,6 +32,7 @@ interface UsePlayerTVControlsOptions {
 
 export const usePlayerTVControls = ({
   playerRef,
+  timelineRef,
   videoPositionRef,
   showSettings,
   setShowSettings,
@@ -73,19 +76,24 @@ export const usePlayerTVControls = ({
     }, 8000);
   }, [setShowControls, showSettings, showEpisodeSidebar]);
 
+  const seekTarget = useCallback((position: number) => {
+    const timeline = timelineRef?.current ?? playbackTimeline({}, videoPositionRef.current.duration);
+    return clampTimelineSeek(position, timeline);
+  }, [timelineRef, videoPositionRef]);
+
   const performTVSeek = useCallback(
     (delta: number) => {
       if (!playerRef.current || !videoPositionRef.current) {
         return;
       }
 
-      const duration = videoPositionRef.current.duration || Infinity;
       const currentBase =
         pendingSeekPositionRef.current !== null
           ? pendingSeekPositionRef.current
           : videoPositionRef.current.position || 0;
 
-      const targetPos = Math.max(0, Math.min(duration, currentBase + delta));
+      const targetPos = seekTarget(currentBase + delta);
+      if (targetPos === undefined) { showTVControls(); return; }
       pendingSeekPositionRef.current = targetPos;
       seekDeltaAccumulatorRef.current += delta;
       showTVControls();
@@ -101,13 +109,14 @@ export const usePlayerTVControls = ({
       }
       seekDebounceTimerRef.current = setTimeout(() => {
         if (playerRef.current && pendingSeekPositionRef.current !== null) {
-          playerRef.current.seek?.(pendingSeekPositionRef.current);
+          const target = seekTarget(pendingSeekPositionRef.current);
+          if (target !== undefined) playerRef.current.seek?.(target);
           pendingSeekPositionRef.current = null;
           seekDeltaAccumulatorRef.current = 0;
         }
       }, 350);
     },
-    [playerRef, videoPositionRef, onSeekNotification, showTVControls],
+    [playerRef, videoPositionRef, onSeekNotification, showTVControls, seekTarget],
   );
 
   const handleTVSeekForward = useCallback(() => {
@@ -122,16 +131,19 @@ export const usePlayerTVControls = ({
     const duration = videoPositionRef.current?.duration || 0;
     if (duration <= 0) return;
     setScrubPosition(previous =>
-      Math.max(0, Math.min(duration, (previous ?? videoPositionRef.current.position) + delta)),
+      seekTarget((previous ?? videoPositionRef.current.position) + delta) ?? null,
     );
     showTVControls();
-  }, [showTVControls, videoPositionRef]);
+  }, [showTVControls, videoPositionRef, seekTarget]);
 
   const confirmScrub = useCallback(() => {
-    if (scrubPosition !== null) playerRef.current?.seek?.(scrubPosition);
+    if (scrubPosition !== null) {
+      const target = seekTarget(scrubPosition);
+      if (target !== undefined) playerRef.current?.seek?.(target);
+    }
     setScrubPosition(null);
     showTVControls();
-  }, [playerRef, scrubPosition, showTVControls]);
+  }, [playerRef, scrubPosition, showTVControls, seekTarget]);
   const cancelScrub = useCallback(() => setScrubPosition(null), []);
   const hideTVControls = useCallback(() => {
     if (tvControlsTimeoutRef.current) clearTimeout(tvControlsTimeoutRef.current);
