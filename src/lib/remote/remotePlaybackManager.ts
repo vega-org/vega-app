@@ -400,9 +400,22 @@ class RemotePlaybackManager {
   }
 
   /** Single mapping from Cast receiver state to the remote store. */
+  private lastCastDiagnosticKey = '';
+
   handleCastStatus(status: MediaStatus | null, sourceLabel?: string): void {
     if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return;
     if (!status || this.ending) return;
+    const diagnosticKey = JSON.stringify([this.currentSessionId, status.playerState, status.idleReason]);
+    if (diagnosticKey !== this.lastCastDiagnosticKey) {
+      this.lastCastDiagnosticKey = diagnosticKey;
+      console.info('[CastStatus] transition', {
+        sessionId: this.currentSessionId,
+        playerState: status.playerState, idleReason: status.idleReason,
+        position: status.streamPosition, contentType: status.mediaInfo?.contentType,
+        timelineOffset: this.timelineOffset, sourceDuration: this.sourceDuration,
+        changingAudio: this.changingAudio,
+      });
+    }
 
     const supportedCmds =
       typeof status.supportedMediaCommands === 'number'
@@ -471,13 +484,16 @@ class RemotePlaybackManager {
     )
       return;
     if (status.idleReason === MediaPlayerIdleReason.ERROR) {
-      console.warn('Chromecast receiver playback failed', {
+      const failedSessionId = this.currentSessionId;
+      console.warn('[CastStatus] receiver playback failed', {
+        sessionId: failedSessionId, idleReason: status.idleReason, position: status.streamPosition,
         contentType: status.mediaInfo?.contentType,
       });
       store.setStatus('error');
       store.cancelSeek();
       this.getLastDeliveryError().then(deliveryError => {
-        if (this.ending) return;
+        if (this.ending || this.currentSessionId !== failedSessionId) return;
+        console.warn('[CastStatus] delivery diagnosis', {sessionId: failedSessionId, deliveryError: deliveryError?.replace(/https?:\/\/\S+/g, '[media URL]').slice(0, 240) || 'none recorded'});
         useRemoteStore
           .getState()
           .setErrorMessage(
@@ -2908,6 +2924,7 @@ class RemotePlaybackManager {
   }
 
   stop(): Promise<void> {
+    console.info('[CastStatus] stop requested', {sessionId: this.currentSessionId});
     this.pendingRetirements.clear();
     this.lastReceiverUri = '';
     this.cancelQueuedSeek();
