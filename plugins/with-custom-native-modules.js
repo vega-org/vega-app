@@ -78,15 +78,15 @@ allprojects {
       if (fs.existsSync(sourceDir)) {
         const files = fs.readdirSync(sourceDir);
         for (const file of files) {
-          if (file.endsWith('.kt')) {
+          if (file.endsWith('.kt') || file.endsWith('.java')) {
             const sourceFile = path.join(sourceDir, file);
             const targetFile = path.join(targetDir, file);
 
             // Read the file and update the package name
             let content = fs.readFileSync(sourceFile, 'utf8');
             content = content.replace(
-              /^package com\.vega$/m,
-              `package ${packageName}`,
+              /^package com\.vega(;?)$/m,
+              (_, terminator) => `package ${packageName}${terminator}`,
             );
             // Imports between these files must follow the package rename,
             // or variant builds (e.g. vega.app) cannot resolve com.vega.*.
