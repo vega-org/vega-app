@@ -1,3 +1,4 @@
+import {topControlPillStyle} from '../../lib/player/topControlPillStyle';
 import {playbackTimeline, liveTimeLabel, type LiveTimelineEvent} from '../../lib/player/liveTimeline';
 import {findSavedSubtitle, savedSubtitleLabel} from '../../lib/subtitles/savedSubtitles';
 import RemovableSubtitleRow from '../../components/RemovableSubtitleRow';
@@ -3975,8 +3976,8 @@ const Player = ({route}: Props): React.JSX.Element => {
                     setShowControls(true);
                   }}
                   onLayout={event => setLiveBadgeWidth(event.nativeEvent.layout.width + 8 * controlStyle.scale)}
-                  style={{minHeight: 40 * controlStyle.scale, padding: 8 * controlStyle.scale,
-                    marginRight: 8 * controlStyle.scale, borderRadius: 20 * controlStyle.scale,
+                  style={{...topControlPillStyle(controlStyle.scale),
+                    marginRight: 8 * controlStyle.scale,
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                     backgroundColor: `rgba(0,0,0,${controlStyle.backgroundOpacity})`}}>
                   <View style={{width: 6 * controlStyle.scale, height: 6 * controlStyle.scale,
