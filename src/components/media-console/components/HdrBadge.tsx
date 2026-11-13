@@ -1,3 +1,4 @@
+import {topControlPillStyle} from '../../../lib/player/topControlPillStyle';
 import React, {useEffect, useState} from 'react';
 import HdrFormatIcon, {hdrIconWidth} from './HdrFormatIcon';
 import {AppState, findNodeHandle, Modal, NativeModules, Platform, Text, View} from 'react-native';
@@ -61,10 +62,10 @@ export default function HdrBadge({videoView, source, suspended, scale, backgroun
   }, [width, onWidthChange]);
   return <>
     {status && <View style={{justifyContent: 'center', marginRight: 8 * scale,
-      backgroundColor: `rgba(0,0,0,${backgroundOpacity})`, borderRadius: 28 * scale}}>
+      backgroundColor: `rgba(0,0,0,${backgroundOpacity})`, borderRadius: 20 * scale}}>
       <TVFocusable registerScreenFocus={false} accessibilityRole="button" accessibilityLabel="HDR playback details"
         onPress={() => {onInteract(); setDetails(status);}}
-        borderRadius={20 * scale} style={{width: buttonWidth, height: 40 * scale,
+        borderRadius={20 * scale} style={{...topControlPillStyle(scale), width: buttonWidth,
           alignItems: 'center', justifyContent: 'center', borderRadius: 20 * scale}}>
         <HdrFormatIcon type={status.type} height={status.type === 'Dolby Vision' ? 14 * scale : iconHeight} />
       </TVFocusable>
