@@ -3933,6 +3933,15 @@ diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/r
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
+@@ -56,7 +56,7 @@
+         }
+         sourceActivity = from
+ 
+-        val mediaSession = MediaSession.Builder(this, player)
++        val mediaSession = MediaSession.Builder(this, SafeBufferingPlayer(player))
+             .setId("RNVideoPlaybackService_" + player.hashCode())
+             .setCallback(VideoPlaybackCallback())
+             .setCustomLayout(immutableListOf(seekForwardBtn, seekBackwardBtn))
 @@ -66,7 +66,7 @@
          addSession(mediaSession)
  
@@ -4291,3 +4300,38 @@ diff --git a/node_modules/react-native-video/lib/types/events.d.ts b/node_module
      duration: number;
      naturalSize: Readonly<{
          width: number;
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java
+new file mode 100644
+--- /dev/null
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java
+@@ -0,0 +1,30 @@
++package com.brentvatne.exoplayer;
++
++import androidx.media3.common.ForwardingPlayer;
++import androidx.media3.common.Player;
++
++/** Protect Android media sessions from invalid/absolute live buffer timestamps. */
++public final class SafeBufferingPlayer extends ForwardingPlayer {
++    private final int notificationPlayerId;
++
++    public SafeBufferingPlayer(Player player) {
++        super(player);
++        notificationPlayerId = player.hashCode();
++    }
++
++    @Override
++    public int getBufferedPercentage() {
++        long duration = getDuration();
++        long buffered = getBufferedPosition();
++        // Media3 calculates and checked-casts before clamping, which can throw.
++        if (duration < 0 || buffered < 0) return 0;
++        if (duration == 0 || buffered >= duration) return 100;
++        return (int) ((buffered / (double) duration) * 100.0);
++    }
++
++    @Override
++    public int hashCode() {
++        // Notification intents must still resolve the original ExoPlayer registry key.
++        return notificationPlayerId;
++    }
++}
