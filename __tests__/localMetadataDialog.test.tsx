@@ -41,12 +41,13 @@ const title = {
 };
 let tree: renderer.ReactTestRenderer;
 const close = jest.fn();
+const rescan = jest.fn();
 beforeEach(() => {
   jest.clearAllMocks();
   useLocalContentStore.setState({titles: [title]});
   act(() => {
     tree = renderer.create(
-      <LocalMetadataDialog visible onClose={close} title={title} />,
+      <LocalMetadataDialog visible onClose={close} title={title} onRescan={rescan} />,
     );
   });
 });
@@ -87,4 +88,17 @@ it('can restore folder/file names without removing the imported title', () => {
     episodes: title.episodes,
   });
   expect(useLocalContentStore.getState().titles[0].metadata).toBeUndefined();
+});
+
+it('offers Rescan folder in the three-dot menu and closes before scanning', () => {
+  press('Rescan folder');
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(rescan).toHaveBeenCalledTimes(1);
+});
+it('disables rescan while a scan is already active', () => {
+  act(() => tree.update(<LocalMetadataDialog visible onClose={close} title={title} onRescan={rescan} rescanning />));
+  const button = tree.root.findAllByType('TVFocusable' as any).find(node => node.props.accessibilityLabel === 'Rescan folder')!;
+  expect(button.props.disabled).toBe(true);
+  press('Rescan folder');
+  expect(rescan).not.toHaveBeenCalled();
 });
