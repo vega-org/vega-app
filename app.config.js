@@ -235,6 +235,9 @@ module.exports = () => {
           process.env.LEVELPLAY_INTERSTITIAL_AD_UNIT_ID || 'hpxqa0p9uunhw8lj',
         levelPlayRewardedAdUnitId:
           process.env.LEVELPLAY_REWARDED_AD_UNIT_ID || 'qaus1hgter1p8kfd',
+        // Short on-screen messages about why an ad did not show.
+        // Off by default; set LEVELPLAY_DEBUG=1 to turn them on.
+        levelPlayDebug: process.env.LEVELPLAY_DEBUG === '1',
       },
     },
   };
