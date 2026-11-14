@@ -149,7 +149,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     'https://placehold.jp/24/363636/ffffff/900x1200.png?text=Vega';
   // Posters and small images are blurred behind the page, with the sharp
   // poster shown in the header instead of stretched across it.
-  const {ready: backdropReady, posterLike: backdropPosterLike} =
+  const {ready: backdropReady, posterLike: backdropPosterLike, aspectRatio: backdropAspectRatio} =
     useArtworkShape(backgroundImage);
 
   // Register only while this screen is focused. A hidden screen in a
@@ -365,6 +365,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                 <ContentOverview
                   backgroundImage={backgroundImage}
                   headerPoster={backdropPosterLike ? backgroundImage : undefined}
+                  headerPosterAspectRatio={backdropAspectRatio}
                   genres={meta?.genres}
                   inLibrary={inLibrary}
                   isLoading={isLoading && !info}

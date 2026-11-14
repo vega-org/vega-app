@@ -289,9 +289,14 @@ const prefetchHeroMetadata = async (
 export const isPosterLikeArtwork = (width: number, height: number) =>
   width / height < 1.2 || width < 1000;
 
-// Image URL to whether it is poster-like, so a hero shown again is not
+// Cache shape and aspect ratio by URL so artwork shown again is not
 // measured again.
-const artworkShapeCache = new Map<string, boolean>();
+type ArtworkShape = {posterLike: boolean; aspectRatio?: number};
+const artworkShapeCache = new Map<string, ArtworkShape>();
+const measuredArtworkShape = (width: number, height: number): ArtworkShape => ({
+  posterLike: isPosterLikeArtwork(width, height),
+  aspectRatio: width > 0 && height > 0 ? width / height : undefined,
+});
 
 /**
  * Measures an image to decide how to show it as a backdrop. `ready` turns
@@ -299,33 +304,33 @@ const artworkShapeCache = new Map<string, boolean>();
  * image sharp and then switching it to blurred.
  */
 export const useArtworkShape = (uri: string | undefined) => {
-  const [shape, setShape] = useState<{uri: string; posterLike: boolean}>();
+  const [shape, setShape] = useState<ArtworkShape & {uri: string}>();
   const cached = uri ? artworkShapeCache.get(uri) : undefined;
   useEffect(() => {
     if (!uri || artworkShapeCache.has(uri)) {
       return;
     }
     let cancelled = false;
-    const done = (posterLike: boolean) => {
-      artworkShapeCache.set(uri, posterLike);
+    const done = (measured: ArtworkShape) => {
+      artworkShapeCache.set(uri, measured);
       if (!cancelled) {
-        setShape({uri, posterLike});
+        setShape({uri, ...measured});
       }
     };
     Image.getSize(
       uri,
-      (width, height) => done(isPosterLikeArtwork(width, height)),
-      () => done(false),
+      (width, height) => done(measuredArtworkShape(width, height)),
+      () => done({posterLike: false}),
     );
     return () => {
       cancelled = true;
     };
   }, [uri]);
   if (cached !== undefined) {
-    return {ready: true, posterLike: cached};
+    return {ready: true, ...cached};
   }
   const ready = !!uri && shape?.uri === uri;
-  return {ready, posterLike: ready && shape?.posterLike === true};
+  return {ready, posterLike: ready && shape?.posterLike === true, aspectRatio: ready ? shape?.aspectRatio : undefined};
 };
 
 /** Measures an image ahead of time so useArtworkShape answers at once. */
@@ -336,8 +341,8 @@ export const prefetchArtworkShape = (uri: string | undefined) => {
   Image.getSize(
     uri,
     (width, height) =>
-      artworkShapeCache.set(uri, isPosterLikeArtwork(width, height)),
-    () => artworkShapeCache.set(uri, false),
+      artworkShapeCache.set(uri, measuredArtworkShape(width, height)),
+    () => artworkShapeCache.set(uri, {posterLike: false}),
   );
 };
 

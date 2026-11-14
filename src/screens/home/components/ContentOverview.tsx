@@ -1,7 +1,8 @@
+import {fitArtworkSize} from '../../../lib/artworkLayout';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React, {useEffect, useMemo, useState} from 'react';
-import {Image, Linking, View, findNodeHandle} from 'react-native';
+import {Image, Linking, View, findNodeHandle, useWindowDimensions} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {useM3Colors} from '../../../theme/M3PaletteContext';
 import SkeletonLoader from '../../../components/Skeleton';
@@ -12,8 +13,9 @@ import useTVNavigationStore from '../../../lib/zustand/tvNavigationStore';
 
 interface ContentOverviewProps {
   backgroundImage?: string;
-  /** Sharp poster drawn in the header when the backdrop is a poster. */
+  /** Sharp artwork fitted at its original ratio over the blurred backdrop. */
   headerPoster?: string;
+  headerPosterAspectRatio?: number;
   genres?: string[];
   inLibrary: boolean;
   isLoading: boolean;
@@ -153,6 +155,7 @@ const CompactChip = ({label}: {label: string}) => {
 
 const ContentOverview = ({
   headerPoster,
+  headerPosterAspectRatio,
   genres,
   inLibrary,
   isLoading,
@@ -179,6 +182,9 @@ const ContentOverview = ({
   year,
 }: ContentOverviewProps) => {
   const insets = useSafeAreaInsets();
+  const {width: screenWidth} = useWindowDimensions();
+  const artworkTop = (isTV ? 42 : insets.top + 12) + 8;
+  const artworkSize = fitArtworkSize(headerPosterAspectRatio ?? 2 / 3, screenWidth - 48, 340 - artworkTop - 20);
   const colors = useM3Colors();
   const [logoFailed, setLogoFailed] = useState(false);
   const metadata = useMemo(
@@ -220,23 +226,24 @@ const ContentOverview = ({
             pointerEvents="none"
             style={{
               alignItems: 'center',
+              justifyContent: 'center',
               bottom: 20,
               left: 0,
               position: 'absolute',
               right: 0,
-              top: (isTV ? 42 : insets.top + 12) + 8,
+              top: artworkTop,
             }}>
             <View
               style={{
-                aspectRatio: 2 / 3,
+                width: artworkSize.width,
+                height: artworkSize.height,
                 borderRadius: 12,
                 elevation: 12,
-                height: '100%',
                 overflow: 'hidden',
               }}>
               <Image
                 source={{uri: headerPoster}}
-                resizeMode="cover"
+                resizeMode="contain"
                 resizeMethod="resize"
                 style={{height: '100%', width: '100%'}}
               />
