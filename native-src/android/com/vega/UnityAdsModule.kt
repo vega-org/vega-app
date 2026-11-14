@@ -3,6 +3,7 @@ package com.vega
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
@@ -38,6 +39,8 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
 
     private var initialized = false
     private var initializing = false
+    private var debug = false
+    private var debugToastsLeft = 4
     private val initWaiters = ArrayList<(Boolean) -> Unit>()
     private val slots = HashMap<String, Slot>()
 
@@ -76,6 +79,17 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    /** Short on-screen message (debug builds only) saying why an ad failed. */
+    private fun debugToast(message: String) {
+        if (!debug || debugToastsLeft <= 0) return
+        debugToastsLeft -= 1
+        try {
+            Toast.makeText(reactContext.applicationContext, message, Toast.LENGTH_LONG).show()
+        } catch (e: Throwable) {
+            // A toast problem must never affect the app.
+        }
+    }
+
     private fun finishInit(ok: Boolean) {
         initializing = false
         initialized = ok
@@ -85,9 +99,10 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun initialize(appKey: String, promise: Promise) {
+    fun initialize(appKey: String, debug: Boolean, promise: Promise) {
         main.post {
             try {
+                this.debug = debug
                 if (initialized) {
                     promise.resolve(true)
                     return@post
@@ -107,6 +122,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
                         }
 
                         override fun onInitFailed(error: LevelPlayInitError) {
+                            debugToast("Ads init failed: ${error.errorCode} ${error.errorMessage}")
                             finishInit(false)
                         }
                     },
@@ -131,6 +147,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
                         }
 
                         override fun onAdLoadFailed(error: LevelPlayAdError) {
+                            debugToast("$kind ad load failed: ${error.errorCode} ${error.errorMessage}")
                             slot.finishLoad(false)
                         }
 
@@ -140,6 +157,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
                             error: LevelPlayAdError,
                             adInfo: LevelPlayAdInfo,
                         ) {
+                            debugToast("$kind ad show failed: ${error.errorCode} ${error.errorMessage}")
                             slot.finishShow("failed")
                         }
 
@@ -165,6 +183,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
                         }
 
                         override fun onAdLoadFailed(error: LevelPlayAdError) {
+                            debugToast("$kind ad load failed: ${error.errorCode} ${error.errorMessage}")
                             slot.finishLoad(false)
                         }
 
@@ -178,6 +197,7 @@ class UnityAdsModule(private val reactContext: ReactApplicationContext) :
                             error: LevelPlayAdError,
                             adInfo: LevelPlayAdInfo,
                         ) {
+                            debugToast("$kind ad show failed: ${error.errorCode} ${error.errorMessage}")
                             slot.finishShow("failed")
                         }
 
