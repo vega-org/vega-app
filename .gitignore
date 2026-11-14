@@ -96,3 +96,6 @@ google-services.json
 #env
 .env
 .env.*
+
+# Source-built and cached FFmpeg ARMv7 output
+.native/

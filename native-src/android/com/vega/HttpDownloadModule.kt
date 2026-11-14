@@ -333,6 +333,11 @@ class HttpDownloadModule(
             } catch (error: Exception) {
                 File(outputPath).delete()
                 promise.reject("MUX_FAILED", error.message ?: error.toString(), error)
+            } catch (error: Error) {
+                if (error is VirtualMachineError || error is ThreadDeath) throw error
+                File(outputPath).delete()
+                promise.reject("MUX_NATIVE_UNAVAILABLE",
+                    "Video finalization is unavailable on this device. Update Vega to a build with matching FFmpeg libraries.", error)
             }
         }.apply { isDaemon = true }.start()
     }
@@ -368,6 +373,13 @@ class HttpDownloadModule(
             } catch (error: Exception) {
                 output.delete()
                 promise.reject("HLS_FINALIZE_FAILED", error.message ?: error.toString(), error)
+            } catch (error: Error) {
+                // FFmpegKit wraps native linker failures in java.lang.Error;
+                // subsequent calls can also throw NoClassDefFoundError.
+                if (error is VirtualMachineError || error is ThreadDeath) throw error
+                output.delete()
+                promise.reject("HLS_NATIVE_UNAVAILABLE",
+                    "Video finalization is unavailable on this device. Update Vega to a build with matching FFmpeg libraries.", error)
             }
         }.apply { isDaemon = true }.start()
     }

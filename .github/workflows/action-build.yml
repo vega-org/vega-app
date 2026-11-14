@@ -17,7 +17,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: nightly
-    timeout-minutes: 150
+    timeout-minutes: 240
     permissions:
       contents: write
     env:
@@ -61,6 +61,8 @@ jobs:
             sleep 10
           done
 
+      - uses: ./.github/actions/ffmpeg-armv7
+
       - name: Load nightly signing credentials
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -98,6 +100,7 @@ jobs:
             -Pkotlin.compiler.execution.strategy=in-process
           cd ..
           python3 scripts/check-tv-device-support.py
+          python3 scripts/check-ffmpeg-abis.py android/app/build/outputs/apk/release/*.apk
           node scripts/collect-action-build.cjs apk "$RUNNER_TEMP/action-build-files/vega-tv.apk"
 
       - name: Generate Play Store TV project
@@ -118,6 +121,7 @@ jobs:
             -Pkotlin.compiler.execution.strategy=in-process
           cd ..
           python3 scripts/check-tv-device-support.py
+          python3 scripts/check-ffmpeg-abis.py android/app/build/outputs/bundle/release/*.aab
           node scripts/collect-action-build.cjs aab "$RUNNER_TEMP/action-build-files/vega-tv-playstore.aab"
 
       # No Actions artifact upload: binaries stay in the draft release only.

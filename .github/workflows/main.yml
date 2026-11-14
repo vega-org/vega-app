@@ -74,7 +74,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '22'
           cache: 'npm'
 
       - name: Set up JDK 17
@@ -156,7 +156,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -167,6 +167,13 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+
+      - uses: ./.github/actions/ffmpeg-armv7
+
+      - name: Generate standalone native project
+        env:
+          APP_VARIANT: standalone
+        run: npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
 
       # Decode the keystore from your secret
       - name: Decode keystore
@@ -198,6 +205,14 @@ jobs:
             -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
             -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}" \
             --stacktrace
+
+      - name: Verify packaged FFmpeg ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for apk in android/app/build/outputs/apk/release/*.apk; do
+            python3 scripts/check-ffmpeg-abis.py "$apk"
+          done
 
       # Find and identify the APKs
       - name: Identify APKs

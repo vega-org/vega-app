@@ -101,3 +101,20 @@ https://reactnative.dev/docs/signed-apk-android
  </picture>
 </a>
 
+
+### ARMv7 FFmpeg native libraries
+
+The FFmpegKit Maven package supplies 64-bit libraries only. Universal ARM
+releases also need matching source-built ARMv7 libraries. On Linux (or WSL),
+install the prerequisites in `.github/actions/ffmpeg-armv7/action.yml`, set
+`ANDROID_SDK_ROOT` and `ANDROID_NDK_ROOT` (NDK 27.2.12479018), and run
+`bash scripts/build-ffmpeg-armv7.sh` before `expo prebuild`. EAS/custom build
+pipelines must run this preparation before native project generation too.
+
+The script pins FFmpegKit 8.1.9's source revision and LGPL HTTPS configuration
+(gnutls and gmp) to match the Maven dependency. Generated libraries and license
+notices are kept under `.native/ffmpeg-armv7` and copied during prebuild.
+Release workflows build/cache this output and verify both ARM ABIs in APK/AAB
+files. Release builds fail if ARMv7 FFmpegKit is missing instead of shipping
+another incomplete universal APK. No separately sourced, older FFmpeg JNI
+libraries are mixed into the current FFmpegKit API.
