@@ -1,3 +1,4 @@
+import {fitArtworkSize} from '../lib/artworkLayout';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {useIsFocused, useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -10,6 +11,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  useWindowDimensions,
   AppState,
   Image,
   Modal,
@@ -323,7 +325,8 @@ const Hero = memo(
     // Posters and small images are shown blurred instead of stretched sharp.
     // The image is drawn once its size is known, so it never jumps from sharp
     // to blurred.
-    const {ready: artworkReady, posterLike} = useArtworkShape(imageUri);
+    const {ready: artworkReady, posterLike, aspectRatio} = useArtworkShape(imageUri);
+    const {width: viewportWidth} = useWindowDimensions();
     // The title block waits for the same measurement, so it appears once at
     // its final size instead of shrinking when poster mode kicks in.
     const textReady = !imageUri || artworkReady;
@@ -333,6 +336,8 @@ const Hero = memo(
     // Poster mode also uses a smaller logo and title to leave it more room.
     const posterTop = insets.top + 8;
     const posterBottom = HERO_CONTENT_BOTTOM + contentHeight + 10;
+    const posterSize = fitArtworkSize(aspectRatio ?? 2 / 3, viewportWidth - 48,
+      Math.max(0, HERO_HEIGHT - posterTop - posterBottom));
     const showPoster =
       posterLike &&
       contentHeight > 0 &&
@@ -542,6 +547,7 @@ const Hero = memo(
               style={[
                 {
                   alignItems: 'center',
+                  justifyContent: 'center',
                   bottom: posterBottom,
                   left: 0,
                   position: 'absolute',
@@ -554,15 +560,15 @@ const Hero = memo(
                 key={`poster-${imageUri}`}
                 entering={FadeIn.duration(450)}
                 style={{
-                  aspectRatio: 2 / 3,
+                  width: posterSize.width,
+                  height: posterSize.height,
                   borderRadius: 12,
                   elevation: 12,
-                  height: '100%',
                   overflow: 'hidden',
                 }}>
                 <Image
                   source={imageSource}
-                  resizeMode="cover"
+                  resizeMode="contain"
                   resizeMethod="resize"
                   style={{height: '100%', width: '100%'}}
                 />
