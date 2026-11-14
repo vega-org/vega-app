@@ -1,3 +1,4 @@
+import {normalizeContentTags} from '../lib/contentTags';
 import {fitArtworkSize} from '../lib/artworkLayout';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {useIsFocused, useNavigation} from '@react-navigation/native';
@@ -468,7 +469,7 @@ const Hero = memo(
     const genres = useMemo(
       // Poster mode keeps genres to one short row to leave the poster room.
       () =>
-        (heroData?.genre || heroData?.tags || []).slice(0, posterLike ? 2 : 3),
+        normalizeContentTags(heroData?.genre || heroData?.tags || []).slice(0, posterLike ? 2 : 3),
       [heroData, posterLike],
     );
     const openDetails = useCallback(() => {

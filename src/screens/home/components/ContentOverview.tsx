@@ -1,3 +1,4 @@
+import {normalizeContentTags} from '../../../lib/contentTags';
 import {fitArtworkSize} from '../../../lib/artworkLayout';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -189,9 +190,7 @@ const ContentOverview = ({
   const [logoFailed, setLogoFailed] = useState(false);
   const metadata = useMemo(
     () =>
-      [year, runtime, ...(genres ?? []), ...(tags ?? [])]
-        .filter(Boolean)
-        .map(String)
+      normalizeContentTags([year, runtime, ...(genres ?? []), ...(tags ?? [])])
         .slice(0, 6),
     [genres, runtime, tags, year],
   );
