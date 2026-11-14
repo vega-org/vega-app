@@ -117,7 +117,7 @@ export default function PlayerControlBar({
         delayLongPress={500}
         style={[
           focusProps.style,
-          top && {...topControlPillStyle(appearance.scale), width: 40 * appearance.scale},
+          top && {...topControlPillStyle(appearance.scale), width: 24 * appearance.scale + 8},
           !top && {
             minHeight: Math.max(44, 44 * appearance.scale),
             flexShrink: 0,
@@ -154,7 +154,7 @@ export default function PlayerControlBar({
   if (top)
     return (
       <View testID="player-top-control-row" collapsable={false}
-        style={[{flexDirection: 'row', alignItems: 'center', gap: 8 * appearance.scale}, backgroundStyle,
+        style={[{flexDirection: 'row', alignItems: 'center', gap: 20 * appearance.scale, paddingHorizontal: BOTTOM_EDGE_PADDING}, backgroundStyle,
           {height: 40 * appearance.scale, borderRadius: 20 * appearance.scale}, isTV && {overflow: 'visible'}]}>
         {children}
       </View>

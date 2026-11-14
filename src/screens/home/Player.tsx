@@ -3482,11 +3482,11 @@ const Player = ({route}: Props): React.JSX.Element => {
   const settingsControl = toolbarControls.find(control => control.id === 'settings')!;
   settingsControl.visible = moreControls.length > 0;
   toolbarControlsRef.current = toolbarControls;
-  const toolbarHeaderInset =
-    fittedControlLayout.top.filter((id) =>
-      toolbarControls.some((control) => control.id === id && control.visible),
-    ).length *
-      (48 * controlStyle.scale) +
+  const topControlCount = fittedControlLayout.top.filter(id =>
+    toolbarControls.some(control => control.id === id && control.visible),
+  ).length;
+  const toolbarHeaderInset = topControlCount * (24 * controlStyle.scale + 8) +
+    Math.max(0, topControlCount - 1) * 20 * controlStyle.scale + 24 +
     20 + hdrWidth + (playbackWindow.isLive ? liveBadgeWidth || 64 * controlStyle.scale : 0);
 
   const subtitleControlsVisible = showControls && !isCasting && !isPlayerLocked &&
@@ -3975,9 +3975,9 @@ const Player = ({route}: Props): React.JSX.Element => {
                     setIsPaused(false);
                     setShowControls(true);
                   }}
-                  onLayout={event => setLiveBadgeWidth(event.nativeEvent.layout.width + 8 * controlStyle.scale)}
-                  style={{...topControlPillStyle(controlStyle.scale),
-                    marginRight: 8 * controlStyle.scale,
+                  onLayout={event => setLiveBadgeWidth(event.nativeEvent.layout.width + 20 * controlStyle.scale)}
+                  style={{...topControlPillStyle(controlStyle.scale), paddingHorizontal: 16,
+                    marginRight: 20 * controlStyle.scale,
                     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                     backgroundColor: `rgba(0,0,0,${controlStyle.backgroundOpacity})`}}>
                   <View style={{width: 6 * controlStyle.scale, height: 6 * controlStyle.scale,
