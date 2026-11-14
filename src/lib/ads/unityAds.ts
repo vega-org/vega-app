@@ -1,34 +1,36 @@
 import {NativeModules, Platform} from 'react-native';
 import Constants from 'expo-constants';
 
-type UnityAdsNative = {
-  initialize(gameId: string, testMode: boolean): Promise<boolean>;
-  load(placementId: string): Promise<boolean>;
-  show(placementId: string): Promise<'completed' | 'skipped' | 'failed'>;
+type LevelPlayNative = {
+  initialize(appKey: string): Promise<boolean>;
+  load(kind: AdKind, adUnitId: string): Promise<boolean>;
+  show(
+    kind: AdKind,
+    adUnitId: string,
+  ): Promise<'completed' | 'skipped' | 'failed'>;
 };
 
-const native: UnityAdsNative | undefined = NativeModules.VegaUnityAds;
+const native: LevelPlayNative | undefined = NativeModules.VegaUnityAds;
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, unknown>;
 
-// Placement IDs come from the Unity dashboard (Monetization > Placements);
-// these are Unity's default placement names.
-export const UNITY_PLACEMENT_ID = String(
-  extra.unityAdsPlacementId || 'Interstitial_Android',
+// Unity LevelPlay (ironSource) dashboard values: the app key (Setup > Apps) and
+// the ad unit IDs (Setup > Ad units). They are set in app.config.js.
+const APP_KEY = String(extra.levelPlayAppKey || '').trim();
+const INTERSTITIAL_AD_UNIT_ID = String(
+  extra.levelPlayInterstitialAdUnitId || '',
 ).trim();
-export const UNITY_REWARDED_PLACEMENT_ID = String(
-  extra.unityAdsRewardedPlacementId || 'Rewarded_Android',
+const REWARDED_AD_UNIT_ID = String(
+  extra.levelPlayRewardedAdUnitId || '',
 ).trim();
-const GAME_ID = String(extra.unityAdsGameId || '800358312').trim();
-const TEST_MODE = __DEV__ || Boolean(extra.unityAdsTestMode);
 
 // Never show two ads closer together than this, whatever the trigger.
 const MIN_GAP_MS = 45_000;
 export type AdKind = 'interstitial' | 'rewarded';
 
-const PLACEMENT_IDS: Record<AdKind, string> = {
-  interstitial: UNITY_PLACEMENT_ID,
-  rewarded: UNITY_REWARDED_PLACEMENT_ID,
+const AD_UNIT_IDS: Record<AdKind, string> = {
+  interstitial: INTERSTITIAL_AD_UNIT_ID,
+  rewarded: REWARDED_AD_UNIT_ID,
 };
 
 // Each placement loads and becomes ready on its own.
@@ -43,13 +45,13 @@ let showing = false;
 let lastShownAt = 0;
 
 export const isAdsSupported = () =>
-  Platform.OS === 'android' && !Platform.isTV && !!native && !!GAME_ID;
+  Platform.OS === 'android' && !Platform.isTV && !!native && !!APP_KEY;
 
 export const initUnityAds = (): Promise<boolean> => {
   if (!isAdsSupported()) return Promise.resolve(false);
   if (!initPromise) {
     initPromise = native!
-      .initialize(GAME_ID, TEST_MODE)
+      .initialize(APP_KEY)
       .catch(() => false)
       .then(ok => {
         if (!ok) initPromise = null; // allow a retry later
@@ -63,13 +65,14 @@ export const initUnityAds = (): Promise<boolean> => {
 export const preloadAd = async (
   kind: AdKind = 'interstitial',
 ): Promise<boolean> => {
-  if (!isAdsSupported() || ready[kind]) return ready[kind];
+  if (!isAdsSupported() || !AD_UNIT_IDS[kind]) return false;
+  if (ready[kind]) return true;
   const inFlight = loading[kind];
   if (inFlight) return inFlight;
   const promise = (async () => {
     try {
       if (!(await initUnityAds())) return false;
-      ready[kind] = await native!.load(PLACEMENT_IDS[kind]);
+      ready[kind] = await native!.load(kind, AD_UNIT_IDS[kind]);
       return ready[kind];
     } catch {
       return false;
@@ -102,7 +105,7 @@ const showAd = async (
   showing = true;
   ready[kind] = false;
   try {
-    const result = await native!.show(PLACEMENT_IDS[kind]);
+    const result = await native!.show(kind, AD_UNIT_IDS[kind]);
     if (result !== 'failed') lastShownAt = Date.now();
     return result;
   } catch {
@@ -126,7 +129,7 @@ export const showRewarded = async (): Promise<boolean> => {
 };
 
 /**
- * Runs a download while a Unity rewarded ad plays on top of it. The download is never
+ * Runs a download while a rewarded ad plays on top of it. The download is never
  * delayed or blocked by the ad, and an ad failure never fails the download.
  */
 export const runWithDownloadAd = async <T>(task: () => Promise<T>): Promise<T> => {
@@ -135,3 +138,4 @@ export const runWithDownloadAd = async <T>(task: () => Promise<T>): Promise<T> =
   await showRewarded().catch(() => false);
   return running;
 };
+
