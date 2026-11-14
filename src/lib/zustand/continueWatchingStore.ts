@@ -25,6 +25,7 @@ export interface ContinueWatchingItem {
 interface ContinueWatchingState {
   items: ContinueWatchingItem[];
   upsertItem: (item: ContinueWatchingItem) => void;
+  recordLivePlayback: (id: string, episode: EpisodeLink) => void;
   updateProgress: (
     id: string,
     position: number,
@@ -63,6 +64,18 @@ const useContinueWatchingStore = create<ContinueWatchingState>()(
               .slice(0, 29),
           ].sort((a, b) => b.updatedAt - a.updatedAt),
         })),
+      recordLivePlayback: (id, episode) => set(state => {
+        const item = state.items.find(entry => entry.id === id &&
+          getEpisodeIdentity(entry.episode) === getEpisodeIdentity(episode));
+        if (!item) return state;
+        const now = Date.now();
+        // Keep recency without persisting a moving DVR window as resume progress.
+        if (state.items[0] === item && item.position === 0 && item.duration === 0 && item.updatedAt > 0 &&
+            now >= item.updatedAt && now - item.updatedAt < 5000) return state;
+        return {items: state.items.map(entry => entry === item
+          ? {...entry, position: 0, duration: 0, updatedAt: now} : entry)
+          .sort((a, b) => b.updatedAt - a.updatedAt)};
+      }),
       updateProgress: (id, position, duration, episode) =>
         set(state => ({
           items: state.items

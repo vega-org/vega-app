@@ -1,3 +1,4 @@
+jest.mock('../src/lib/storage/StorageService', () => ({createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()})}));
 import {beforeEach, describe, expect, it, jest} from '@jest/globals';
 
 jest.mock('react-native-mmkv-storage', () => ({
@@ -171,4 +172,42 @@ describe('continue watching store', () => {
       expect(useContinueWatchingStore.getState().items).toEqual(items);
     });
   });
+});
+
+describe('live channel recency', () => {
+  beforeEach(() => useContinueWatchingStore.setState({items: []}));
+  it('moves a live channel ahead of previously watched titles without resume progress', () => {
+    const channel = createItem('live', 0);
+    useContinueWatchingStore.setState({items: [createItem('movie', 100), channel]});
+    useContinueWatchingStore.getState().recordLivePlayback('live', channel.episode);
+    const first = useContinueWatchingStore.getState().items[0];
+    expect(first).toMatchObject({id: 'live', position: 0, duration: 0});
+    expect(first.updatedAt).toBeGreaterThan(100);
+  });
+  it('clears obsolete DVR progress and throttles repeated activity writes', () => {
+    const channel = {...createItem('live', 0), position: 90, duration: 100};
+    useContinueWatchingStore.setState({items: [channel]});
+    const store = useContinueWatchingStore.getState();
+    store.recordLivePlayback('live', channel.episode);
+    const recorded = useContinueWatchingStore.getState().items;
+    expect(recorded[0]).toMatchObject({position: 0, duration: 0});
+    store.recordLivePlayback('live', channel.episode);
+    expect(useContinueWatchingStore.getState().items).toBe(recorded);
+  });
+  it('ignores stale episode callbacks and removed channels', () => {
+    const channel = createItem('live', 0);
+    useContinueWatchingStore.setState({items: [channel]});
+    const before = useContinueWatchingStore.getState().items;
+    useContinueWatchingStore.getState().recordLivePlayback('live', {title: 'other', link: 'other'});
+    useContinueWatchingStore.getState().recordLivePlayback('removed', channel.episode);
+    expect(useContinueWatchingStore.getState().items).toBe(before);
+  });
+});
+
+it('immediately promotes a recently revisited channel even within the write throttle', () => {
+  const now = Date.now();
+  const channel = createItem('live', now - 500);
+  useContinueWatchingStore.setState({items: [createItem('movie', now - 100), channel]});
+  useContinueWatchingStore.getState().recordLivePlayback('live', channel.episode);
+  expect(useContinueWatchingStore.getState().items[0].id).toBe('live');
 });

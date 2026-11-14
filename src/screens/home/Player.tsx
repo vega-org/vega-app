@@ -679,6 +679,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   const upsertContinueWatching = useContinueWatchingStore(
     state => state.upsertItem,
   );
+  const recordLivePlayback = useContinueWatchingStore(state => state.recordLivePlayback);
   const updateContinueWatchingProgress = useContinueWatchingStore(
     state => state.updateProgress,
   );
@@ -1284,6 +1285,9 @@ const Player = ({route}: Props): React.JSX.Element => {
       setPlaybackWindow(previous => previous.isLive === next.isLive && previous.canSeek === next.canSeek && previous.duration === next.duration && previous.liveEdge === next.liveEdge ? previous : next);
       if (next.isLive) {
         // Live window positions are not resumable episode progress.
+        if (!isPaused && !route.params.localContent && continueWatchingId && activeEpisode) {
+          recordLivePlayback(continueWatchingId, activeEpisode);
+        }
         videoPositionRef.current = {position: e.currentTime, duration: next.duration};
         playbackTimeRef.current = e.currentTime;
         setCurrentPlaybackTime(e.currentTime);
@@ -1308,7 +1312,8 @@ const Player = ({route}: Props): React.JSX.Element => {
         setCurrentPlaybackTime(e.currentTime);
       }
     },
-    [handleProgress, videoPositionRef, checkSleepTimer, prefetchNextEpisode],
+    [handleProgress, videoPositionRef, checkSleepTimer, prefetchNextEpisode, isPaused,
+      route.params.localContent, continueWatchingId, activeEpisode, recordLivePlayback],
   );
 
   // The TV timeline shows the running time, so it needs every progress tick.
