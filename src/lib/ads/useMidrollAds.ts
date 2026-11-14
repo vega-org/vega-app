@@ -48,8 +48,14 @@ export function useMidrollAds({pause, resume, enabled}: Options) {
         lastTimeRef.current = currentTime;
         busyRef.current = true;
         pauseRef.current();
-        showInterstitial()
+        // Give a still-loading ad a moment, so the pre-roll is not lost.
+        showInterstitial({waitMs: 2000})
           .catch(() => false)
+          .then(shown => {
+            // No pre-roll (ad not ready or too soon after another ad): bring
+            // the first mid-roll forward instead of skipping ads altogether.
+            if (!shown) nextAtRef.current = Math.min(nextAtRef.current, 60);
+          })
           .finally(() => {
             resumeRef.current();
             busyRef.current = false;
