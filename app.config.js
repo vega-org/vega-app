@@ -175,6 +175,8 @@ module.exports = () => {
           'WRITE_SETTINGS',
           'WAKE_LOCK',
           'POST_NOTIFICATIONS',
+          // Advertising ID for ad personalisation and fill (not in Play Store builds).
+          ...(IS_PLAYSTORE ? [] : ['com.google.android.gms.permission.AD_ID']),
         ],
         blockedPermissions: [
           // Casting uses WebRTC data channels, not microphone capture.
@@ -226,16 +228,13 @@ module.exports = () => {
         isTV: IS_TV,
         tmdbApiKey,
         proxyApiUrl,
-                // Unity Ads: Game ID and interstitial placement ID (Unity dashboard).
-        unityAdsGameId:
-          process.env.UNITY_ADS_GAME_ID ||
-          process.env.EXPO_PUBLIC_UNITY_ADS_GAME_ID ||
-          '800358312',
-        unityAdsPlacementId:
-          process.env.UNITY_ADS_PLACEMENT_ID || 'Interstitial_Android',
-                unityAdsRewardedPlacementId:
-          process.env.UNITY_ADS_REWARDED_PLACEMENT_ID || 'Rewarded_Android',
-        unityAdsTestMode: process.env.UNITY_ADS_TEST_MODE === '1',
+        // Unity LevelPlay (ironSource): app key and ad unit IDs from the
+        // LevelPlay dashboard (Setup > Apps and Setup > Ad units).
+        levelPlayAppKey: process.env.LEVELPLAY_APP_KEY || '298c8a105',
+        levelPlayInterstitialAdUnitId:
+          process.env.LEVELPLAY_INTERSTITIAL_AD_UNIT_ID || 'hpxqa0p9uunhw8lj',
+        levelPlayRewardedAdUnitId:
+          process.env.LEVELPLAY_REWARDED_AD_UNIT_ID || 'qaus1hgter1p8kfd',
       },
     },
   };
