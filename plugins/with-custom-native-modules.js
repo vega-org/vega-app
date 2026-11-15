@@ -107,6 +107,15 @@ allprojects {
         fs.cpSync(sourceJniDir, targetJniDir, {recursive: true});
       }
 
+      // Source-built ARMv7 FFmpegKit supplements the Maven artifact's 64-bit ABIs.
+      const armv7 = path.join(projectRoot, '.native', 'ffmpeg-armv7');
+      if (fs.existsSync(path.join(armv7, 'armeabi-v7a'))) {
+        fs.cpSync(path.join(armv7, 'armeabi-v7a'), path.join(targetJniDir, 'armeabi-v7a'), {recursive: true});
+        const licenses = path.join(armv7, 'licenses');
+        if (fs.existsSync(licenses)) fs.cpSync(licenses,
+          path.join(projectRoot, 'android/app/src/main/assets/ffmpeg-armv7'), {recursive: true});
+      }
+
       return cfg;
     },
   ]);
@@ -230,9 +239,28 @@ allprojects {
       contents = contents.replace(
         /dependencies\s*\{/,
         match =>
-          `${match}\n    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.8'\n`,
+          `${match}\n    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.9'\n`,
       );
     }
+
+    // Keep pre-existing native projects aligned with the source-built JNI API.
+    contents = contents.replace(/dev\.ffmpegkit-maintained:ffmpeg-kit-https:[^'"\s]+/g,
+      'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.9');
+    const armv7Guard = '// Vega: require complete ARMv7 FFmpegKit in release builds';
+    if (!contents.includes(armv7Guard)) contents += `
+${armv7Guard}
+def verifyFfmpegArmv7 = tasks.register('verifyFfmpegArmv7') {
+    doLast {
+        ['ffmpegkit', 'ffmpegkit_abidetect', 'avcodec', 'avformat', 'avutil', 'avfilter', 'avdevice', 'swresample', 'swscale'].each { name ->
+            def library = file("src/main/jniLibs/armeabi-v7a/lib" + name + ".so")
+            if (!library.isFile()) throw new GradleException("Missing ARMv7 FFmpegKit: " + library + ". Run bash scripts/build-ffmpeg-armv7.sh before Expo prebuild.")
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name.startsWith('merge') && task.name.endsWith('ReleaseNativeLibs')) task.dependsOn(verifyFfmpegArmv7)
+}
+`;
 
     if (!contents.includes('libtorrent4j:2.1.0-39')) {
       contents = contents.replace(
