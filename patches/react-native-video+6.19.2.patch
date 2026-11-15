@@ -1123,7 +1123,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  import androidx.media3.common.util.UnstableApi
  import androidx.media3.exoplayer.ExoPlayer
  import androidx.media3.ui.AspectRatioFrameLayout
-@@ -52,17 +55,39 @@
+@@ -52,17 +55,35 @@
          resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
      }
  
@@ -1139,10 +1139,10 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +        // Add custom subtitle overlay above PlayerView
 +        addView(customSubtitleOverlay)
 +
-         // Add live badge with its own layout parameters
-         val liveBadgeLayoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
-         liveBadgeLayoutParams.setMargins(16, 16, 16, 16)
-         addView(liveBadge, liveBadgeLayoutParams)
+-        // Add live badge with its own layout parameters
+-        val liveBadgeLayoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+-        liveBadgeLayoutParams.setMargins(16, 16, 16, 16)
+-        addView(liveBadge, liveBadgeLayoutParams)
      }
  
 +    // Scale only PlayerView. The existing subtitle overlay is its unscaled sibling.
