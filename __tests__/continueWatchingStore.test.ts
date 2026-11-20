@@ -172,6 +172,114 @@ describe('continue watching store', () => {
       expect(useContinueWatchingStore.getState().items).toEqual(items);
     });
   });
+
+  describe('manually marking episodes watched', () => {
+    const season = [1, 2, 3, 4, 5].map(n => ({
+      title: `Episode ${n}`,
+      link: `https://example.com/e${n}`,
+    }));
+
+    it('advances an existing show to the next unwatched episode and promotes it', () => {
+      const {upsertItem, markEpisodesWatched} =
+        useContinueWatchingStore.getState();
+      upsertItem({
+        ...createItem('show', 10),
+        seasonTitle: 'Season 1',
+        episode: season[1],
+        position: 500,
+        duration: 1200,
+      });
+      upsertItem(createItem('other', 20));
+
+      expect(
+        markEpisodesWatched({
+          id: 'show',
+          title: 'Show',
+          providerValue: 'vega',
+          infoUrl: 'show',
+          type: 'series',
+          seasonTitle: 'Season 1',
+          seasonEpisodes: season,
+          markedEpisodes: [season[1]],
+          watched: true,
+          readProgress: () => null,
+        }),
+      ).toBe(true);
+
+      const [first, second] = useContinueWatchingStore.getState().items;
+      expect(first).toMatchObject({
+        id: 'show',
+        episode: season[2],
+        episodeTitle: 'Episode 3',
+        position: 0,
+        duration: 0,
+      });
+      expect(second.id).toBe('other');
+    });
+
+    it('adds a new series with a next episode and keeps the 30-item cap', () => {
+      useContinueWatchingStore.setState({
+        items: Array.from({length: 30}, (_, index) =>
+          createItem(`old-${index}`, 1000 - index),
+        ),
+      });
+
+      const changed = useContinueWatchingStore
+        .getState()
+        .markEpisodesWatched({
+          id: 'new-show',
+          title: 'New Show',
+          providerValue: 'vega',
+          infoUrl: 'new-show',
+          type: 'series',
+          seasonTitle: 'Season 1',
+          seasonEpisodes: season,
+          markedEpisodes: [season[0]],
+          watched: true,
+          readProgress: () => null,
+        });
+
+      expect(changed).toBe(true);
+      const items = useContinueWatchingStore.getState().items;
+      expect(items).toHaveLength(30);
+      expect(items[0]).toMatchObject({
+        id: 'new-show',
+        episode: season[1],
+        episodeTitle: 'Episode 2',
+      });
+      expect(items.some(item => item.id === 'old-29')).toBe(false);
+    });
+
+    it('returns false and preserves store reference when nothing changes', () => {
+      useContinueWatchingStore.setState({
+        items: [
+          {
+            ...createItem('show', 10),
+            episode: season[3],
+            position: 600,
+            duration: 1200,
+          },
+        ],
+      });
+      const before = useContinueWatchingStore.getState().items;
+
+      expect(
+        useContinueWatchingStore.getState().markEpisodesWatched({
+          id: 'show',
+          title: 'Show',
+          providerValue: 'vega',
+          infoUrl: 'show',
+          type: 'series',
+          seasonTitle: 'Season 1',
+          seasonEpisodes: season,
+          markedEpisodes: [season[0]],
+          watched: true,
+          readProgress: () => null,
+        }),
+      ).toBe(false);
+      expect(useContinueWatchingStore.getState().items).toBe(before);
+    });
+  });
 });
 
 describe('live channel recency', () => {

@@ -3,7 +3,11 @@ import {createJSONStorage, persist} from 'zustand/middleware';
 import type {EpisodeLink} from '../providers/types';
 import {getEpisodeIdentity} from '../utils/episodeIdentity';
 import {createZustandStorage} from '../storage/StorageService';
-import {getUpNextItem} from '../player/upNext';
+import {
+  getContinueWatchingAfterMark,
+  getUpNextItem,
+  type ManualWatchContext,
+} from '../player/upNext';
 
 export interface ContinueWatchingItem {
   id: string;
@@ -45,6 +49,12 @@ interface ContinueWatchingState {
     next?: EpisodeLink,
     nextProgress?: {position: number; duration: number},
   ) => boolean;
+  /**
+   * Updates (or creates for an in-progress series) the Continue Watching entry
+   * when episodes are manually marked watched or unwatched. Returns true when
+   * the store changed.
+   */
+  markEpisodesWatched: (context: ManualWatchContext) => boolean;
   removeItem: (id: string) => void;
 }
 
@@ -104,6 +114,30 @@ const useContinueWatchingStore = create<ContinueWatchingState>()(
           items: state.items
             .map(existing => (existing.id === id ? upNext : existing))
             .sort((a, b) => b.updatedAt - a.updatedAt),
+        }));
+        return true;
+      },
+      markEpisodesWatched: context => {
+        const existing = get().items.find(
+          item =>
+            item.id === context.id ||
+            (item.infoUrl === context.infoUrl &&
+              item.providerValue === context.providerValue),
+        );
+        const updated = getContinueWatchingAfterMark(existing, context);
+        if (!updated || updated === existing) {
+          return false;
+        }
+        set(state => ({
+          items: [
+            updated,
+            ...state.items
+              .filter(
+                item => item.id !== existing?.id && item.id !== updated.id,
+              )
+              .sort((a, b) => b.updatedAt - a.updatedAt)
+              .slice(0, 29),
+          ].sort((a, b) => b.updatedAt - a.updatedAt),
         }));
         return true;
       },

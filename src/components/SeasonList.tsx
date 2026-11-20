@@ -54,7 +54,6 @@ import {LEGACY_TERTIARY_BACKGROUND} from '../theme/seeds';
 import Text from './ui/Text';
 import EpisodeRowContent from './EpisodeRowContent';
 import EpisodeDetailsDialog from './EpisodeDetailsDialog';
-import {setSyncedEpisodeProgress} from '../lib/sync/syncService';
 import {episodesUpTo, markEpisodesWatched} from '../lib/utils/episodeProgress';
 import {TVFocusable, TVFocusGuide, TVTouchable} from './tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
@@ -972,90 +971,6 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     [],
   );
 
-  // Memoized mark as watched handler
-  const markAsWatched = useCallback(() => {
-    if (stickyMenu.link) {
-      cacheStorage.setString(
-        stickyMenu.link,
-        JSON.stringify({
-          position: 1,
-          duration: 1,
-        }),
-      );
-      const episode = [
-        ...episodeList,
-        ...(activeSeason.directLinks || []),
-      ].find(item => item.link === stickyMenu.link);
-      if (episode) {
-        setSyncedEpisodeProgress({
-          episode,
-          title: metaTitle,
-          poster: poster.poster,
-          background: poster.background,
-          provider: providerValue,
-          infoUrl: routeParams.link,
-          type,
-          position: 1,
-          duration: 1,
-          seasonTitle: activeSeason.title,
-        });
-      }
-      setStickyMenu({active: false});
-    }
-  }, [
-    activeSeason.directLinks,
-    episodeList,
-    metaTitle,
-    poster.background,
-    poster.poster,
-    providerValue,
-    routeParams.link,
-    stickyMenu.link,
-    type,
-  ]);
-
-  // Memoized mark as unwatched handler
-  const markAsUnwatched = useCallback(() => {
-    if (stickyMenu.link) {
-      cacheStorage.setString(
-        stickyMenu.link,
-        JSON.stringify({
-          position: 0,
-          duration: 1,
-        }),
-      );
-      const episode = [
-        ...episodeList,
-        ...(activeSeason.directLinks || []),
-      ].find(item => item.link === stickyMenu.link);
-      if (episode) {
-        setSyncedEpisodeProgress({
-          episode,
-          title: metaTitle,
-          poster: poster.poster,
-          background: poster.background,
-          provider: providerValue,
-          infoUrl: routeParams.link,
-          type,
-          position: 0,
-          duration: 1,
-          seasonTitle: activeSeason.title,
-        });
-      }
-      setStickyMenu({active: false});
-    }
-  }, [
-    activeSeason.directLinks,
-    episodeList,
-    metaTitle,
-    poster.background,
-    poster.poster,
-    providerValue,
-    routeParams.link,
-    stickyMenu.link,
-    type,
-  ]);
-
   // The long-pressed episode's list, in episode order (not the sort order).
   const stickyMenuEpisodes = useMemo(() => {
     const link = stickyMenu.link;
@@ -1079,6 +994,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           seasonTitle: activeSeason.title,
         },
         syncEpisode,
+        seasonEpisodes: stickyMenuEpisodes,
       });
       setProgressVersion(version => version + 1);
       setStickyMenu({active: false});
@@ -1090,9 +1006,56 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       poster.poster,
       providerValue,
       routeParams.link,
+      stickyMenuEpisodes,
       type,
     ],
   );
+
+  // Memoized mark as watched handler
+  const markAsWatched = useCallback(() => {
+    if (!stickyMenu.link) return;
+    const episode =
+      stickyMenuEpisodes.find(item => item.link === stickyMenu.link) ||
+      [...episodeList, ...(activeSeason.directLinks || [])].find(
+        item => item.link === stickyMenu.link,
+      );
+    if (episode) {
+      markEpisodes([episode], true, episode);
+    } else {
+      watchProgressStorage.setProgress(stickyMenu.link, 1, 1);
+      setProgressVersion(version => version + 1);
+      setStickyMenu({active: false});
+    }
+  }, [
+    activeSeason.directLinks,
+    episodeList,
+    markEpisodes,
+    stickyMenu.link,
+    stickyMenuEpisodes,
+  ]);
+
+  // Memoized mark as unwatched handler
+  const markAsUnwatched = useCallback(() => {
+    if (!stickyMenu.link) return;
+    const episode =
+      stickyMenuEpisodes.find(item => item.link === stickyMenu.link) ||
+      [...episodeList, ...(activeSeason.directLinks || [])].find(
+        item => item.link === stickyMenu.link,
+      );
+    if (episode) {
+      markEpisodes([episode], false, episode);
+    } else {
+      watchProgressStorage.setProgress(stickyMenu.link, 0, 1);
+      setProgressVersion(version => version + 1);
+      setStickyMenu({active: false});
+    }
+  }, [
+    activeSeason.directLinks,
+    episodeList,
+    markEpisodes,
+    stickyMenu.link,
+    stickyMenuEpisodes,
+  ]);
 
   const markPreviousAsWatched = useCallback(() => {
     if (stickyMenu.link) {
@@ -1521,6 +1484,9 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     };
   }, [lastPlayedKey, continueItems, routeParams.link, providerValue]);
   const [lastPlayed, setLastPlayed] = useState<LastPlayed | null>(readLastPlayed);
+  useEffect(() => {
+    setLastPlayed(readLastPlayed());
+  }, [readLastPlayed]);
   useFocusEffect(
     useCallback(() => {
       setLastPlayed(readLastPlayed());
@@ -1542,6 +1508,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       : undefined;
 
   const resumeTarget = useMemo((): (ResumeTarget & {link?: string}) | null => {
+    if (progressVersion < 0) return null;
     if (lastPlayed && lastSeason) {
       // Last episode is in another season: switch to it on press.
       return {
@@ -1558,7 +1525,14 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       const {position = 0, duration = 0} = readProgress(item.link);
       const fraction = duration > 0 ? position / duration : 0;
       if (fraction > 0.85) {
-        const next = seasonItems[index + 1];
+        const next = seasonItems.slice(index + 1).find(candidate => {
+          const progress = readProgress(candidate.link);
+          return !(
+            progress.duration &&
+            progress.position !== undefined &&
+            progress.position / progress.duration > 0.85
+          );
+        });
         return next ? {mode: 'next', title: next.title, link: next.link} : null;
       }
       return {
@@ -1566,14 +1540,15 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         title: item.title,
         link: item.link,
         progress: fraction || undefined,
-        remainingSeconds: duration > 0 ? duration - position : undefined,
+        remainingSeconds:
+          duration > 1 && position > 0 ? duration - position : undefined,
       };
     }
     if (seasonItems.length > 1) {
       return {mode: 'start', title: seasonItems[0].title, link: seasonItems[0].link};
     }
     return null;
-  }, [lastPlayed, lastSeason, seasonItems]);
+  }, [lastPlayed, lastSeason, progressVersion, seasonItems]);
 
   const playLink = useCallback(
     (link: string) => {
