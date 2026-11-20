@@ -96,10 +96,20 @@ jest.mock('../src/lib/zustand/downloadsStore', () => ({
   __esModule: true,
   default: (selector: (state: object) => unknown) => selector({downloads: {}}),
 }));
-jest.mock('../src/lib/zustand/continueWatchingStore', () => ({
-  __esModule: true,
-  default: (selector: (state: object) => unknown) => selector({items: []}),
-}));
+const mockMarkContinueWatching = jest.fn();
+jest.mock('../src/lib/zustand/continueWatchingStore', () => {
+  const store = (selector: (state: object) => unknown) =>
+    selector({items: []});
+  store.getState = () => ({
+    items: [],
+    markEpisodesWatched: (...args: unknown[]) =>
+      mockMarkContinueWatching(...args),
+  });
+  return {
+    __esModule: true,
+    default: store,
+  };
+});
 jest.mock('../src/theme/M3PaletteContext', () => ({
   useM3Colors: () => ({}),
 }));
@@ -237,5 +247,59 @@ describe('SeasonList', () => {
       expect(rows[1].props.accessibilityLabel).toBe('Deselect Part 2');
       expect(rows[1].props.accessibilityState).toEqual({selected: true});
     });
+  });
+
+  it('updates Continue Watching when marking an episode watched from the long-press menu', async () => {
+    mockMarkContinueWatching.mockClear();
+    let tree: renderer.ReactTestRenderer | undefined;
+    try {
+      await act(async () => {
+        tree = renderer.create(
+          <SeasonList
+            {...props}
+            LinkList={[{title: 'Season 1', episodesLink: 'https://example.com/s1'}]}
+          />,
+        );
+      });
+
+      const [first] = tree!.root.findAll(
+        node =>
+          typeof node.type !== 'string' &&
+          node.props.accessibilityRole === 'button' &&
+          typeof node.props.onLongPress === 'function',
+        {deep: false},
+      );
+      await act(async () => {
+        first.props.onLongPress();
+      });
+
+      const markWatchedButton = tree!.root.find(
+        node =>
+          typeof node.props.onPress === 'function' &&
+          node.findAll(child => child.children.includes('Mark as watched'))
+            .length > 0,
+        {deep: false},
+      );
+      await act(async () => {
+        markWatchedButton.props.onPress();
+      });
+
+      expect(mockMarkContinueWatching).toHaveBeenCalledTimes(1);
+      expect(mockMarkContinueWatching).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: props.routeParams.link,
+          infoUrl: props.routeParams.link,
+          providerValue: props.providerValue,
+          watched: true,
+          markedEpisodes: [expect.objectContaining({link: mockParts[0].link})],
+          seasonEpisodes: [
+            expect.objectContaining({link: mockParts[0].link}),
+            expect.objectContaining({link: mockParts[1].link}),
+          ],
+        }),
+      );
+    } finally {
+      await act(async () => tree?.unmount());
+    }
   });
 });
