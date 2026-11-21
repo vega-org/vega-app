@@ -52,6 +52,7 @@ export const getResponsiveCardWidth = (
 interface MediaPosterCardProps {
   title: string;
   poster?: string;
+  onPosterError?: () => void;
   width: number;
   subtitle?: string;
   badge?: number | string;
@@ -96,6 +97,7 @@ const MediaPosterCardBase = React.forwardRef<View, MediaPosterCardProps>(
     {
       title,
       poster,
+      onPosterError,
       width,
       subtitle,
       badge,
@@ -350,6 +352,7 @@ const MediaPosterCardBase = React.forwardRef<View, MediaPosterCardProps>(
                   {poster ? (
                     <Image
                       source={{uri: poster}}
+                      onError={onPosterError}
                       resizeMode="cover"
                       // Decode at card size. Android otherwise decodes remote
                       // images at full resolution, which wastes memory and
