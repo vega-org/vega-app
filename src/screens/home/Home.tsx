@@ -233,7 +233,6 @@ const Home = ({}: Props) => {
         scrollKey={item.key}
         error={item.error}
         deferPosts={item.deferPosts}
-        useHomeArtwork
       />
     ),
     [providerValue],

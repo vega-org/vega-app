@@ -311,19 +311,16 @@ const Hero = memo(
       provider.value,
     );
 
-    const [failedArtwork, setFailedArtwork] = useState<string>();
-    const homeImage = hero?.homeImage !== failedArtwork ? hero?.homeImage : undefined;
     const imageSource = useMemo(
       () => ({
         uri:
-          homeImage ||
           heroData?.background ||
           heroData?.image ||
           heroData?.poster ||
           hero?.image ||
           '',
       }),
-      [hero?.image, heroData, homeImage],
+      [hero?.image, heroData],
     );
     const imageUri = imageSource.uri;
     // Posters and small images are shown blurred instead of stretched sharp.
@@ -517,7 +514,6 @@ const Hero = memo(
                 entering={FadeIn.duration(450)}
                 source={imageSource}
                 onLoad={updateSearchButtonColor}
-                onError={homeImage ? () => setFailedArtwork(homeImage) : undefined}
                 resizeMode="cover"
                 resizeMethod="resize"
                 // A tall cover crop otherwise retains full-HD landscape bitmaps.

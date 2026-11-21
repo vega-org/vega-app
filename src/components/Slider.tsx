@@ -38,16 +38,8 @@ const SliderSeparator = () => <View style={{width: 14}} />;
 // One memoized cell per post, so the press handler stays stable and
 // MediaPosterCard skips re-rendering when the list re-renders.
 const SliderPosterItem = memo(
-  ({item, onPressItem, useHomeArtwork}: {
-    item: Post;
-    onPressItem: (item: Post) => void;
-    useHomeArtwork: boolean;
-  }) => {
-    const [failedArtwork, setFailedArtwork] = React.useState<string>();
-    const homeImage = useHomeArtwork && failedArtwork !== item.homeImage ? item.homeImage : undefined;
-    const aspectRatio = homeImage ? 16 / 9 : item.aspectRatio;
-    const ratio = parseAspectRatio(aspectRatio, 2 / 3);
-    const onPosterError = useCallback(() => setFailedArtwork(homeImage), [homeImage]);
+  ({item, onPressItem}: {item: Post; onPressItem: (item: Post) => void}) => {
+    const ratio = parseAspectRatio(item.aspectRatio, 2 / 3);
     const cardWidth = ratio > 1.2 ? 220 : ratio > 0.85 ? 150 : 124;
     const handlePress = useCallback(
       () => onPressItem(item),
@@ -57,10 +49,9 @@ const SliderPosterItem = memo(
     return (
       <MediaPosterCard
         title={item.title}
-        poster={homeImage || item.image}
-        onPosterError={homeImage ? onPosterError : undefined}
+        poster={item.image}
         width={cardWidth}
-        aspectRatio={aspectRatio}
+        aspectRatio={item.aspectRatio}
         borderRadius={item.borderRadius}
         cornerTag={item.cornerTag || item.tag}
         onPress={handlePress}
@@ -79,7 +70,6 @@ const Slider = ({
   isSearch = false,
   error,
   deferPosts = false,
-  useHomeArtwork = false,
 }: {
   isLoading: boolean;
   title: string;
@@ -90,7 +80,6 @@ const Slider = ({
   isSearch?: boolean;
   error?: string;
   deferPosts?: boolean;
-  useHomeArtwork?: boolean;
 }): React.ReactElement => {
   // Explicit row providers must not subscribe recycled/offscreen rows to the
   // global selection change before Home supplies their new data.
@@ -166,9 +155,9 @@ const Slider = ({
 
   const renderItem = useCallback(
     ({item}: {item: Post}) => (
-      <SliderPosterItem item={item} onPressItem={handleItemPress} useHomeArtwork={useHomeArtwork} />
+      <SliderPosterItem item={item} onPressItem={handleItemPress} />
     ),
-    [handleItemPress, useHomeArtwork],
+    [handleItemPress],
   );
 
   const keyExtractor = useCallback(
