@@ -1,3 +1,4 @@
+import {isExcludedQuality} from '../streamQuality';
 import {useSavedSubtitles} from './useSavedSubtitles';
 import {savedSubtitleTrack, subtitleVideoKey} from '../subtitles/savedSubtitles';
 import {deduplicateVideoTracks} from '../player/playbackQuality';
@@ -589,7 +590,7 @@ export const fetchStreamList = async ({
       // Filter out excluded qualities
       const excludedQualities = settingsStorage.getExcludedQualities() || [];
       const filteredQualities = data?.filter(
-        streamItem => !excludedQualities.includes(streamItem?.quality + 'p'),
+        streamItem => !isExcludedQuality(streamItem?.quality, excludedQualities),
       );
 
       remoteStreams =

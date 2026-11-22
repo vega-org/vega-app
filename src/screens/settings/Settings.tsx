@@ -129,6 +129,8 @@ import AppText from '../../components/ui/Text';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
+import Constants from 'expo-constants';
+import {searchSettings} from './settingsSearch';
 type Props = NativeStackScreenProps<SettingsStackParamList, 'Settings'>;
 
 const AnimatedSection = ({
@@ -139,6 +141,10 @@ const AnimatedSection = ({
 }) => <View>{children}</View>;
 
 const Settings = ({navigation}: Props) => {
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
+  const results = searchSettings(searchQuery, {isTV, isPlayStore});
+  const searching = searchQuery.trim().length > 0;
   const providerManagerRowRef = React.useRef<View>(null);
   const tabNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
@@ -249,122 +255,182 @@ const Settings = ({navigation}: Props) => {
               </Animated.View>
             )}
 
-            {/* Content provider section */}
-            <AnimatedSection delay={100}>
-              <View className="mb-6">
-                <AppText
-                  role="labelLarge"
-                  className="mb-3"
-                  style={{color: colors.onSurfaceVariant}}>
-                  Content Provider
+            <View
+              style={{
+                alignItems: 'center',
+                backgroundColor: colors.surfaceContainerHighest,
+                borderColor: colors.outlineVariant,
+                borderRadius: 24,
+                borderWidth: 1,
+                flexDirection: 'row',
+                marginBottom: 20,
+                minHeight: 52,
+                paddingHorizontal: 14,
+              }}>
+              <MaterialIcons name="search" size={22} color={colors.onSurfaceVariant} />
+              <TextInput
+                accessibilityLabel="Search settings"
+                autoCorrect={false}
+                onChangeText={setSearchQuery}
+                placeholder="Search settings"
+                placeholderTextColor={colors.onSurfaceVariant}
+                returnKeyType="search"
+                style={{color: colors.onSurface, flex: 1, fontSize: 16, paddingHorizontal: 10}}
+                value={searchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TVFocusable
+                  accessibilityLabel="Clear settings search"
+                  accessibilityRole="button"
+                  onPress={() => setSearchQuery('')}
+                  style={{alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44}}>
+                  <MaterialIcons name="close" size={22} color={colors.onSurfaceVariant} />
+                </TVFocusable>
+              )}
+            </View>
+            {searching ? (
+              results.length > 0 ? (
+                <SettingsSection title="Search results">
+                  {results.map((result, index) => result.route === 'Settings' ? (
+                    <DnsPreference key={result.label} />
+                  ) : (
+                    <SettingsRow
+                      key={result.label}
+                      title={result.label}
+                      description={result.page}
+                      divider={index < results.length - 1}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        navigation.navigate(result.route);
+                      }}
+                    />
+                  ))}
+                </SettingsSection>
+              ) : (
+                <AppText role="bodyMedium" style={{color: colors.onSurfaceVariant}}>
+                  No matching settings
                 </AppText>
-                <View
-                  style={{
-                    backgroundColor: colors.background,
-                    borderColor: colors.outlineVariant,
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    height: 116,
-                    justifyContent: 'center',
-                  }}>
-                  <ScrollView
-                    horizontal
-                    nestedScrollEnabled
-                    focusable={false}
-                    accessible={false}
-                    showsHorizontalScrollIndicator={false}
-                    style={{flexGrow: 0}}
-                    contentContainerStyle={{
-                      alignItems: 'center',
-                      paddingHorizontal: 10,
-                    }}>
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      {providersList}
+              )
+            ) : (
+              <>
+                {/* Content provider section */}
+                <AnimatedSection delay={100}>
+                  <View className="mb-6">
+                    <AppText
+                      role="labelLarge"
+                      className="mb-3"
+                      style={{color: colors.onSurfaceVariant}}>
+                      Content Provider
+                    </AppText>
+                    <View
+                      style={{
+                        backgroundColor: colors.background,
+                        borderColor: colors.outlineVariant,
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        height: 116,
+                        justifyContent: 'center',
+                      }}>
+                      <ScrollView
+                        horizontal
+                        nestedScrollEnabled
+                        focusable={false}
+                        accessible={false}
+                        showsHorizontalScrollIndicator={false}
+                        style={{flexGrow: 0}}
+                        contentContainerStyle={{
+                          alignItems: 'center',
+                          paddingHorizontal: 10,
+                        }}>
+                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                          {providersList}
+                        </View>
+                        {installedProviders.length === 0 && (
+                          <AppText
+                            role="bodyMedium"
+                            style={{color: colors.onSurfaceVariant}}>
+                            No providers installed
+                          </AppText>
+                        )}
+                      </ScrollView>
                     </View>
-                    {installedProviders.length === 0 && (
-                      <AppText
-                        role="bodyMedium"
-                        style={{color: colors.onSurfaceVariant}}>
-                        No providers installed
-                      </AppText>
+                  </View>
+                  <SettingsSection title="Provider tools">
+                    <SettingsRow
+                      ref={providerManagerRowRef}
+                      hasTVPreferredFocus={isTV && installedProviders.length === 0}
+                      title="Provider Manager"
+                      description="Install, update, and test provider extensions"
+                      icon="puzzle-outline"
+                      divider={false}
+                      onPress={() => navigation.navigate('Extensions')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
+
+                {/* Network Section */}
+                <AnimatedSection delay={150}>
+                  <SettingsSection title="Network">
+                    <DnsPreference />
+                  </SettingsSection>
+                </AnimatedSection>
+
+                {/* Main options section */}
+                <AnimatedSection delay={200}>
+                  <SettingsSection title="Options">
+                    <SettingsRow
+                      title="Appearance"
+                      // description="Accent colors and launcher icon"
+                      icon="palette-outline"
+                      onPress={() => navigation.navigate('Appearance')}
+                    />
+                    <SettingsRow
+                      title="Player settings"
+                      icon="play-circle-outline"
+                      onPress={() => navigation.navigate('PlayerSettings')}
+                    />
+                    {hideDownloadsTab && (
+                      <SettingsRow
+                        title="Downloads"
+                        icon="download-circle-outline"
+                        onPress={() => navigation.navigate('DownloadsStack')}
+                      />
                     )}
-                  </ScrollView>
-                </View>
-              </View>
-              <SettingsSection title="Provider tools">
-                <SettingsRow
-                  ref={providerManagerRowRef}
-                  hasTVPreferredFocus={isTV && installedProviders.length === 0}
-                  title="Provider Manager"
-                  description="Install, update, and test provider extensions"
-                  icon="puzzle-outline"
-                  divider={false}
-                  onPress={() => navigation.navigate('Extensions')}
-                />
-              </SettingsSection>
-            </AnimatedSection>
+                    <SettingsRow
+                      title="Preferences"
+                      icon="tune-variant"
+                      divider={false}
+                      onPress={() => navigation.navigate('Preferences')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* Network Section */}
-            <AnimatedSection delay={150}>
-              <SettingsSection title="Network">
-                <DnsPreference />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* Data Management section */}
+                <AnimatedSection delay={300}>
+                  <SettingsSection title="Data Management">
+                    <SettingsRow
+                      title="Data management"
+                      description="Backups, cache, watch progress, and sync"
+                      icon="database-outline"
+                      divider={false}
+                      onPress={() => navigation.navigate('DataManagement')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* Main options section */}
-            <AnimatedSection delay={200}>
-              <SettingsSection title="Options">
-                <SettingsRow
-                  title="Appearance"
-                  // description="Accent colors and launcher icon"
-                  icon="palette-outline"
-                  onPress={() => navigation.navigate('Appearance')}
-                />
-                <SettingsRow
-                  title="Player settings"
-                  icon="play-circle-outline"
-                  onPress={() => navigation.navigate('PlayerSettings')}
-                />
-                {hideDownloadsTab && (
-                  <SettingsRow
-                    title="Downloads"
-                    icon="download-circle-outline"
-                    onPress={() => navigation.navigate('DownloadsStack')}
-                  />
-                )}
-                <SettingsRow
-                  title="Preferences"
-                  icon="tune-variant"
-                  divider={false}
-                  onPress={() => navigation.navigate('Preferences')}
-                />
-              </SettingsSection>
-            </AnimatedSection>
-
-            {/* Data Management section */}
-            <AnimatedSection delay={300}>
-              <SettingsSection title="Data Management">
-                <SettingsRow
-                  title="Data management"
-                  description="Backups, cache, watch progress, and sync"
-                  icon="database-outline"
-                  divider={false}
-                  onPress={() => navigation.navigate('DataManagement')}
-                />
-              </SettingsSection>
-            </AnimatedSection>
-
-            {/* About & GitHub section */}
-            <AnimatedSection delay={400}>
-              <SettingsSection title="About">
-                <SettingsRow
-                  title="About Vega"
-                  icon="information-outline"
-                  onPress={() => navigation.navigate('About')}
-                />
-                <GitHubStarButton primary={colors.primary} />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* About & GitHub section */}
+                <AnimatedSection delay={400}>
+                  <SettingsSection title="Vega">
+                    <SettingsRow
+                      title={isPlayStore ? 'About Vega' : 'About & updates'}
+                      icon="information-outline"
+                      onPress={() => navigation.navigate('About')}
+                    />
+                    <GitHubStarButton primary={colors.primary} />
+                  </SettingsSection>
+                </AnimatedSection>
+              </>
+            )}
           </View>
         </ScrollContainer>
       </TVFocusGuide>

@@ -1,3 +1,4 @@
+import {isExcludedQuality} from '../../lib/streamQuality';
 import ExternalAppPreference from './components/ExternalAppPreference';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import Surface from '../../components/ui/Surface';
@@ -199,11 +200,13 @@ const Preferences = ({navigation}: any) => {
             />
             <SettingsSwitchRow
               title="Hide downloads tab"
+              description="Move Downloads from the tab bar to Settings"
               value={hideDownloadsTab}
               onValueChange={setHideDownloadsTab}
             />
             <SettingsSwitchRow
               title="Hamburger menu"
+              description="This switch currently has no effect on the Home provider menu button"
               value={showHamburgerMenu}
               onValueChange={next => {
                 settingsStorage.setShowHamburgerMenu(next);
@@ -218,6 +221,7 @@ const Preferences = ({navigation}: any) => {
             />
             <SettingsSwitchRow
               title="Disable drawer"
+              description="Turn off the swipe-out provider drawer on Home"
               value={disableDrawer}
               onValueChange={next => {
                 settingsStorage.setBool('disableDrawer', next);
@@ -275,23 +279,24 @@ const Preferences = ({navigation}: any) => {
               <AppText
                 role="bodySmall"
                 className="mb-4 mt-1 text-m3-on-surface-variant">
-                Hide lower resolutions from stream results
+                Hide selected resolutions from stream results
               </AppText>
               <View className="flex-row flex-wrap gap-3">
-                {['360p', '480p', '720p'].map(quality => {
-                  const selected = ExcludedQualities.includes(quality);
+                {['360p', '480p', '720p', '1080p', '4K'].map(quality => {
+                  const selected = isExcludedQuality(quality, ExcludedQualities);
                   return (
                     <TVFocusable
                       key={quality}
                       borderRadius={16}
                       accessibilityRole="button"
                       accessibilityLabel={`Quality ${quality}`}
+                      accessibilityState={{selected}}
                       onPress={() => {
                         if (settingsStorage.isHapticFeedbackEnabled()) {
                           RNReactNativeHapticFeedback.trigger('effectTick');
                         }
-                        const newExcluded = ExcludedQualities.includes(quality)
-                          ? ExcludedQualities.filter(q => q !== quality)
+                        const newExcluded = selected
+                          ? ExcludedQualities.filter(q => !isExcludedQuality(q, [quality]))
                           : [...ExcludedQualities, quality];
                         setExcludedQualities(newExcluded);
                         settingsStorage.setExcludedQualities(newExcluded);
