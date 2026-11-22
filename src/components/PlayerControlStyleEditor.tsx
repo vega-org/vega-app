@@ -7,7 +7,7 @@ import {useM3HostTheme} from '../theme/M3PaletteContext';
 import {isTV} from '../lib/tv/constants';
 import {TVFocusable} from './tv';
 import {PlayerControlStyle} from '../lib/player/controlStyle';
-import PlayerControlBar, {PlayerControl} from './PlayerControlBar';
+import {PlayerBottomControlBar, PlayerControl} from './PlayerControlBar';
 
 export function StyleSlider({
   label,
@@ -138,7 +138,7 @@ export function getPlayerControlStyleRows({
   color: string;
   onChange: (style: PlayerControlStyle) => void;
 }) {
-  const choices = <K extends 'labels' | 'alignment'>(
+  const choices = <K extends 'labels' | 'rightLabels' | 'alignment'>(
     key: K,
     title: string,
     options: [PlayerControlStyle[K], string][],
@@ -183,8 +183,10 @@ export function getPlayerControlStyleRows({
           style={{color: '#ccc', fontSize: 18 * value.scale, marginBottom: 10}}>
           Title preview
         </Text>
-        <PlayerControlBar
-          ids={['audio', 'subtitle', 'speed']}
+        {/* Split like the player so both label styles show. */}
+        <PlayerBottomControlBar
+          left={['audio', 'subtitle']}
+          right={['speed']}
           controls={PREVIEW}
           appearance={value}
           onEdit={() => {}}
@@ -241,7 +243,12 @@ export function getPlayerControlStyleRows({
           </>}
         </View>
       )}
-      {choices('labels', 'Bottom labels', [
+      {choices('labels', 'Bottom left labels', [
+        ['full', 'Full'],
+        ['short', 'Short'],
+        ['hidden', 'Hidden'],
+      ])}
+      {choices('rightLabels', 'Bottom right labels', [
         ['full', 'Full'],
         ['short', 'Short'],
         ['hidden', 'Hidden'],

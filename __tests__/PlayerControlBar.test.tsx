@@ -258,3 +258,28 @@ it.each([
     act(() => tree.unmount());
   },
 );
+
+it('applies separate label styles to the bottom left and right groups', () => {
+  const {normalizePlayerControlStyle} = require('../src/lib/player/controlStyle');
+  // Older saves keep one label style for both groups.
+  expect(normalizePlayerControlStyle({labels: 'short'}).rightLabels).toBe('short');
+  expect(normalizePlayerControlStyle({labels: 'short', rightLabels: 'hidden'}).rightLabels).toBe('hidden');
+  expect(normalizePlayerControlStyle({labels: 'full', rightLabels: 'bad'}).rightLabels).toBe('full');
+});
+
+it('renders the bottom right group with its own label style', () => {
+  const appearance = {...defaultPlayerControlStyle(), labels: 'full' as const, rightLabels: 'hidden' as const};
+  const bottom = (left: PlayerControlId[], right: PlayerControlId[]) => (
+    <PlayerBottomControlBar left={left} right={right} controls={controls} appearance={appearance}
+      onEdit={jest.fn()} getTVFocusProps={() => ({})} />
+  );
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(bottom(['speed'], ['sleep']));});
+  const bars = () => tree.root.findAllByType(PlayerControlBar);
+  expect(bars().map(node => node.props.appearance.labels)).toEqual(['full', 'hidden']);
+  // A lone right group still uses the right label style.
+  act(() => tree.update(bottom([], ['sleep'])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.appearance.labels).toBe('hidden');
+  act(() => tree.unmount());
+});
