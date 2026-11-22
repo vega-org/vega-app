@@ -99,7 +99,11 @@ export default function PlayerSettings({navigation}: Props) {
       trapFocusRight={true}
       trapFocusDown={true}
       style={{flex: 1}}>
-      <SettingsPage>
+      <SettingsPage searchFallback={ambientVideo ? undefined : {
+        'Ambient intensity': 'Ambient lighting',
+        'Ambient spread': 'Ambient lighting',
+        'Ambient responsiveness': 'Ambient lighting',
+      }}>
           <View
             style={{
               flexDirection: 'row',

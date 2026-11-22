@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from './SettingsSearchTarget';
 import React, {useCallback, useRef, useState} from 'react';
 import {findNodeHandle, Platform, Pressable, Switch, View} from 'react-native';
 import {useM3Colors} from '../../theme/M3PaletteContext';
@@ -39,44 +40,46 @@ const SettingsSwitchRow = React.forwardRef<View, SettingsSwitchRowProps>(({
   }, []);
 
   const renderContent = (isFocused: boolean) => (
-    <View
-      className="min-h-16 flex-row items-center px-4 py-3"
-      style={{
-        backgroundColor: isFocused
-          ? colors.surfaceContainerHighest
-          : 'transparent',
-        borderRadius: isFocused ? 12 : 0,
-        borderBottomColor: divider ? colors.outlineVariant : 'transparent',
-        borderBottomWidth: divider ? 1 : 0,
-        width: '100%',
-      }}>
-      <View className="mr-4 flex-1">
-        <AppText role="bodyLarge" style={{color: colors.onSurface}}>
-          {title}
-        </AppText>
-        {description ? (
-          <AppText
-            role="bodySmall"
-            style={{color: colors.onSurfaceVariant, marginTop: 3}}>
-            {description}
+    <SettingsSearchAnchor label={title}>
+      <View
+        className="min-h-16 flex-row items-center px-4 py-3"
+        style={{
+          backgroundColor: isFocused
+            ? colors.surfaceContainerHighest
+            : 'transparent',
+          borderRadius: isFocused ? 12 : 0,
+          borderBottomColor: divider ? colors.outlineVariant : 'transparent',
+          borderBottomWidth: divider ? 1 : 0,
+          width: '100%',
+        }}>
+        <View className="mr-4 flex-1">
+          <AppText role="bodyLarge" style={{color: colors.onSurface}}>
+            {title}
           </AppText>
-        ) : null}
+          {description ? (
+            <AppText
+              role="bodySmall"
+              style={{color: colors.onSurfaceVariant, marginTop: 3}}>
+              {description}
+            </AppText>
+          ) : null}
+        </View>
+        <Switch
+          accessibilityLabel={title}
+          value={value}
+          disabled={isTV}
+          focusable={false}
+          pointerEvents={isTV ? 'none' : 'auto'}
+          importantForAccessibility={isTV ? 'no' : 'auto'}
+          onValueChange={isTV ? undefined : onValueChange}
+          thumbColor={value ? colors.onPrimary : colors.outline}
+          trackColor={{
+            false: colors.surfaceContainerHighest,
+            true: colors.primary,
+          }}
+        />
       </View>
-      <Switch
-        accessibilityLabel={title}
-        value={value}
-        disabled={isTV}
-        focusable={false}
-        pointerEvents={isTV ? 'none' : 'auto'}
-        importantForAccessibility={isTV ? 'no' : 'auto'}
-        onValueChange={isTV ? undefined : onValueChange}
-        thumbColor={value ? colors.onPrimary : colors.outline}
-        trackColor={{
-          false: colors.surfaceContainerHighest,
-          true: colors.primary,
-        }}
-      />
-    </View>
+    </SettingsSearchAnchor>
   );
 
   if (isTV) {

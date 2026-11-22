@@ -32,6 +32,7 @@ export enum SettingsKeys {
   AUTO_CHECK_UPDATE = 'autoCheckUpdate',
   AUTO_DOWNLOAD = 'autoDownload',
   UPDATE_CHANNEL = 'updateChannel',
+  SETTINGS_SEARCH_HISTORY = 'settingsSearchHistory',
   AUTO_UPDATE_PROVIDERS = 'autoUpdateProviders',
   VERIFICATION_WINDOWS = 'verificationWindows',
 
@@ -350,6 +351,14 @@ export class SettingsStorage {
 
   setNotificationsEnabled(enabled: boolean): void {
     mainStorage.setBool(SettingsKeys.NOTIFICATIONS_ENABLED, enabled);
+  }
+
+  getSettingsSearchHistory(): string[] {
+    return mainStorage.getArray<string>(SettingsKeys.SETTINGS_SEARCH_HISTORY) ?? [];
+  }
+
+  setSettingsSearchHistory(history: string[]): void {
+    mainStorage.setArray(SettingsKeys.SETTINGS_SEARCH_HISTORY, history);
   }
 
   // Update settings

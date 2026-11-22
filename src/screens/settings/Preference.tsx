@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from '../../components/ui/SettingsSearchTarget';
 import {isExcludedQuality} from '../../lib/streamQuality';
 import ExternalAppPreference from './components/ExternalAppPreference';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
@@ -273,9 +274,11 @@ const Preferences = ({navigation}: any) => {
               Quality
             </AppText>
             <Surface level="low" className="p-4">
-              <AppText role="bodyLarge" className="text-m3-on-surface">
-                Excluded Qualities
-              </AppText>
+              <SettingsSearchAnchor label="Excluded Qualities">
+                <AppText role="bodyLarge" className="text-m3-on-surface">
+                  Excluded Qualities
+                </AppText>
+              </SettingsSearchAnchor>
               <AppText
                 role="bodySmall"
                 className="mb-4 mt-1 text-m3-on-surface-variant">

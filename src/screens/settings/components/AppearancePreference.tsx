@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from '../../../components/ui/SettingsSearchTarget';
 import React, {useState} from 'react';
 import {Platform, Pressable, ToastAndroid, View} from 'react-native';
 import {isDynamicColorAvailable} from '@expo/ui/jetpack-compose';
@@ -90,9 +91,11 @@ const AppearancePreference = () => {
         <View className="h-px bg-m3-outline-variant" />
 
         <View className="p-4">
-          <AppText role="bodyLargeEmphasized" className="text-m3-on-surface">
-            Accent color
-          </AppText>
+          <SettingsSearchAnchor label="Accent color">
+            <AppText role="bodyLargeEmphasized" className="text-m3-on-surface">
+              Accent color
+            </AppText>
+          </SettingsSearchAnchor>
           <AppText role="bodySmall" className="mt-1 text-m3-on-surface-variant">
             Choose a curated seed for Vega's dark palette
           </AppText>
@@ -140,9 +143,11 @@ const AppearancePreference = () => {
 
         {Platform.OS === 'android' ? (
           <View className="p-4">
-            <AppText role="bodyLargeEmphasized" className="text-m3-on-surface">
-              Launcher icon
-            </AppText>
+            <SettingsSearchAnchor label="Launcher icon">
+              <AppText role="bodyLargeEmphasized" className="text-m3-on-surface">
+                Launcher icon
+              </AppText>
+            </SettingsSearchAnchor>
             <AppText
               role="bodySmall"
               className="mt-1 text-m3-on-surface-variant">

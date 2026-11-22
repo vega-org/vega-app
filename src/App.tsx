@@ -1,3 +1,4 @@
+import type {SettingsSearchParams} from './components/ui/SettingsSearchTarget';
 import {
   navigationWorkListeners,
   beginUIInteraction,
@@ -160,16 +161,16 @@ export type WatchListStackParamList = {
 
 export type SettingsStackParamList = {
   Settings: undefined;
-  Appearance: undefined;
+  Appearance: SettingsSearchParams;
   DisableProviders: undefined;
-  About: undefined;
-  Preferences: undefined;
-  PlayerSettings: undefined;
+  About: SettingsSearchParams;
+  Preferences: SettingsSearchParams;
+  PlayerSettings: SettingsSearchParams;
   PlayerControlSettings: undefined;
-  SubTitlesPreferences: undefined;
+  SubTitlesPreferences: SettingsSearchParams;
   Extensions: {addSource?: string; requestId?: number} | undefined;
   DownloadsStack: undefined;
-  DataManagement: undefined;
+  DataManagement: SettingsSearchParams;
 };
 
 export type DownloadsStackParamList = {
