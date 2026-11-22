@@ -401,10 +401,12 @@ export class ProviderManager {
     url,
     providerValue,
     signal,
+    silent = false,
   }: {
     url: string;
     providerValue: string;
     signal?: AbortSignal;
+    silent?: boolean;
   }): Promise<EpisodeLink[]> => {
     throwIfProviderAborted(signal);
     const getEpisodeLinksModule = this.getModule(providerValue, 'episodes');
@@ -435,7 +437,9 @@ export class ProviderManager {
         error,
         `Failed to get episodes from provider: ${providerValue}`,
       );
-      ToastAndroid.show(errorMessage, ToastAndroid.LONG);
+      if (!silent) {
+        ToastAndroid.show(errorMessage, ToastAndroid.LONG);
+      }
       throw new Error(errorMessage);
     }
   };

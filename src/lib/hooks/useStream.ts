@@ -185,16 +185,67 @@ export const getDownloadedSubtitlesForMedia = (
     const isSub =
       item.isSubtitle ||
       isSubtitleDownloadItem(item) ||
-      item.displayFileName?.endsWith('.vtt') ||
-      item.displayFileName?.endsWith('.srt') ||
-      item.filePath?.endsWith('.vtt') ||
-      item.filePath?.endsWith('.srt');
+      /\.(vtt|srt)$/i.test(item.displayFileName || '') ||
+      /\.(vtt|srt)$/i.test(item.filePath || '');
 
     if (!isSub) {
       return false;
     }
 
     const episodeSourceLink = activeEpisode?.sourceLink || activeEpisode?.link;
+    const isSingleEpisode =
+      !routeParams?.episodeList || routeParams.episodeList.length <= 1;
+    const initialEpisode =
+      typeof routeParams?.linkIndex === 'number'
+        ? routeParams.episodeList?.[routeParams.linkIndex]
+        : undefined;
+    const isInitialEpisode =
+      Boolean(initialEpisode) &&
+      ((initialEpisode.id &&
+        activeEpisode?.id &&
+        initialEpisode.id === activeEpisode.id) ||
+        (initialEpisode.link &&
+          activeEpisode?.link &&
+          initialEpisode.link === activeEpisode.link) ||
+        (initialEpisode.sourceLink &&
+          activeEpisode?.sourceLink &&
+          initialEpisode.sourceLink === activeEpisode.sourceLink) ||
+        initialEpisode.title === activeEpisode?.title);
+    const activeLocalPath = isLocalPath(activeEpisode?.link)
+      ? activeEpisode.link
+      : isLocalPath(activeEpisode?.filePath)
+        ? activeEpisode.filePath
+        : (isSingleEpisode || isInitialEpisode) &&
+            isLocalPath(routeParams?.directUrl)
+          ? routeParams.directUrl
+          : undefined;
+
+    if (
+      activeEpisode?.id &&
+      item.id.startsWith(`${activeEpisode.id}_subtitle_`)
+    ) {
+      return true;
+    }
+
+    const matchedVideoDownload = allDownloads.find(
+      candidate =>
+        candidate.status === 'completed' &&
+        Boolean(candidate.filePath) &&
+        !candidate.isSubtitle &&
+        !isSubtitleDownloadItem(candidate) &&
+        ((activeLocalPath && candidate.filePath === activeLocalPath) ||
+          (episodeSourceLink &&
+            (candidate.sourceLink === episodeSourceLink ||
+              candidate.url === episodeSourceLink ||
+              candidate.filePath === episodeSourceLink))),
+    );
+    if (
+      matchedVideoDownload?.id &&
+      item.id.startsWith(`${matchedVideoDownload.id}_subtitle_`)
+    ) {
+      return true;
+    }
+
     if (episodeSourceLink && item.sourceLink === episodeSourceLink) {
       return true;
     }
@@ -224,11 +275,9 @@ export const getDownloadedSubtitlesForMedia = (
       }
     }
 
-    if (routeParams?.directUrl) {
-      const videoBase = routeParams.directUrl.substring(
-        0,
-        routeParams.directUrl.lastIndexOf('.'),
-      );
+    if (activeLocalPath) {
+      const lastDot = activeLocalPath.lastIndexOf('.');
+      const videoBase = lastDot > 0 ? activeLocalPath.substring(0, lastDot) : '';
       if (videoBase && item.filePath.startsWith(videoBase)) {
         return true;
       }
@@ -239,23 +288,23 @@ export const getDownloadedSubtitlesForMedia = (
 
   return downloadedSubs.map(sub => {
     const isVtt =
-      sub.videoType === 'vtt' ||
-      sub.filePath?.endsWith('.vtt') ||
-      sub.displayFileName?.endsWith('.vtt');
+      sub.videoType?.toLowerCase().includes('vtt') ||
+      /\.vtt$/i.test(sub.filePath || '') ||
+      /\.vtt$/i.test(sub.displayFileName || '');
     const uri =
       sub.filePath.startsWith('file://') ||
-        sub.filePath.startsWith('content://')
+      sub.filePath.startsWith('content://')
         ? sub.filePath
         : `file://${sub.filePath}`;
 
     let title = sub.episodeName || sub.title;
     let language = 'en';
     const match =
-      sub.title.match(/subtitle\s+([a-zA-Z]+)/i) ||
-      sub.id.match(/_subtitle_(.+)$/);
-    if (match) {
-      title = match[1];
-      language = match[1];
+      sub.id.match(/_subtitle_(.+)$/) ||
+      sub.title.match(/subtitle\s+([a-zA-Z]+)/i);
+    if (match?.[1]?.trim()) {
+      title = match[1].trim();
+      language = match[1].trim();
     }
 
     return {
@@ -435,6 +484,8 @@ export const getStreamQueryKey = (
 // list stays fresh and retries exactly like one the player loaded itself.
 export const streamQueryOptions = {
   staleTime: 5 * 60 * 1000, // 5 minutes
+  // Local downloaded files must resolve even if onlineManager ever reports offline.
+  networkMode: 'always' as const,
   gcTime: 30 * 60 * 1000, // 30 minutes
   retry: (failureCount: number, streamFailure: Error) => {
     if (streamFailure.message?.includes('WAF')) return false;
