@@ -1,17 +1,22 @@
+import {fillMaxWidth, padding} from '@expo/ui/jetpack-compose/modifiers';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {
   AlertDialog,
+  Column,
+  LinearProgressIndicator,
   Host,
   RNHostView,
   Text,
   TextButton,
 } from '@expo/ui/jetpack-compose';
 import React from 'react';
-import {Modal, ScrollView, Text as ReactNativeText, View} from 'react-native';
-import Markdown from 'react-native-markdown-display';
+import {ActivityIndicator, Modal, ScrollView, Text as ReactNativeText, View} from 'react-native';
+import Markdown, {MarkdownIt} from 'react-native-markdown-display';
 import {useM3Colors, useM3HostTheme} from '../theme/M3PaletteContext';
 import {isTV} from '../lib/tv';
 import {TVFocusable} from './tv/TVFocusable';
+
+const dialogMarkdown = MarkdownIt({typographer: true, linkify: true});
 
 export type AppDialogVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -28,7 +33,7 @@ interface AppDialogProps {
   visible: boolean;
   title: string;
   message: string;
-  progress?: number;
+  progress?: number | null;
   messageFormat?: 'plain' | 'markdown';
   primary: string;
   variant?: AppDialogVariant;
@@ -77,7 +82,9 @@ const AppDialog = ({
     return null;
   }
 
-  const progressBar = progress === undefined ? null : (
+  const progressBar = progress === null ? (
+    <ActivityIndicator color={colors.primary} />
+  ) : progress === undefined ? null : (
     <View
       accessibilityRole="progressbar"
       accessibilityValue={{min: 0, max: 100, now: Math.floor(progress * 100)}}
@@ -151,9 +158,11 @@ const AppDialog = ({
               {messageFormat === 'markdown' ? (
                 <View testID="app-dialog-message">
                   <Markdown
+                    markdownit={dialogMarkdown}
                     style={{
                       body: {color: colors.onSurfaceVariant, fontSize: 15},
                       paragraph: {marginBottom: 8},
+                      link: {color: colors.primary, textDecorationLine: 'underline'},
                     }}>
                     {message}
                   </Markdown>
@@ -293,6 +302,7 @@ const AppDialog = ({
                   contentContainerStyle={{paddingRight: 8}}>
                   <View testID="app-dialog-message">
                     <Markdown
+                      markdownit={dialogMarkdown}
                       style={{
                         body: {color: colors.onSurfaceVariant, fontSize: 14},
                         bullet_list: {marginVertical: 4},
@@ -320,7 +330,7 @@ const AppDialog = ({
                           fontSize: 16,
                           marginVertical: 6,
                         },
-                        link: {color: colors.primary},
+                        link: {color: colors.primary, textDecorationLine: 'underline'},
                         ordered_list: {marginVertical: 4},
                         paragraph: {marginBottom: 8, marginTop: 0},
                       }}>
@@ -330,20 +340,21 @@ const AppDialog = ({
                 </ScrollView>
               </RNHostView>
             ) : (
-              <RNHostView matchContents>
-                <View style={{width: 280}}>
-                  <ReactNativeText
-                    testID="app-dialog-message"
-                    style={{
-                      color: colors.onSurfaceVariant,
-                      fontSize: 14,
-                      lineHeight: 20,
-                    }}>
-                    {message}
-                  </ReactNativeText>
-                  {progressBar}
-                </View>
-              </RNHostView>
+              <Column modifiers={[fillMaxWidth()]}>
+                <Text
+                  color={String(colors.onSurfaceVariant)}
+                  style={{typography: 'bodyMedium'}}>
+                  {message}
+                </Text>
+                {progress !== undefined && (
+                  <LinearProgressIndicator
+                    progress={progress}
+                    color={colors.primary}
+                    trackColor={colors.surfaceContainerHighest}
+                    modifiers={[fillMaxWidth(), padding(0, 12, 0, 0)]}
+                  />
+                )}
+              </Column>
             )}
           </AlertDialog.Text>
           {dismissAction ? (

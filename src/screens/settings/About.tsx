@@ -51,7 +51,8 @@ const downloadUpdate = async (url: string, name: string) => {
     showAppDialog(dialog);
   };
 
-  const filePath = `${RNFS.CachesDirectoryPath}/update-${Date.now()}-${name}`;
+  const updateId = `update-${Date.now()}`;
+  const filePath = `${RNFS.CachesDirectoryPath}/${updateId}-${name}`;
   const showInstall = (allowed: boolean, error?: string) => {
     let opening = false;
     show({
@@ -99,23 +100,49 @@ const downloadUpdate = async (url: string, name: string) => {
     });
   };
 
-  const showProgress = (written: number, total: number) => {
-    const progress = total > 0 ? Math.min(written / total, 1) : undefined;
-    show({
-      title: 'Downloading update',
-      message: progress === undefined
-        ? `${(written / 1048576).toFixed(1)} MB downloaded`
-        : `${Math.floor(progress * 100)}% downloaded`,
-      progress,
-      onDismiss: () => cancelDownload?.(),
-      actions: [{label: 'Cancel'}],
-    });
-  };
-
   let expectedSize = 0;
   let cancelled = false;
+  let notificationsAllowed = false;
+  let lastNotificationAt = 0;
+  let progressNotifications = Promise.resolve();
+
+  const showProgress = (written: number, total: number) => {
+    if (cancelled) return;
+
+    const progress = total > 0 ? Math.min(written / total, 1) : null;
+    const message = progress === null
+      ? written > 0 ? `${(written / 1048576).toFixed(1)} MB downloaded` : 'Preparing download…'
+      : `${Math.floor(progress * 100)}% downloaded`;
+    show({
+      title: 'Downloading update',
+      message,
+      progress,
+      onDismiss: () => {
+        cancelled = true;
+        cancelDownload?.();
+      },
+      actions: [{label: 'Cancel'}],
+    });
+
+    const now = Date.now();
+    if (!notificationsAllowed || now - lastNotificationAt < 1000) return;
+    lastNotificationAt = now;
+    progressNotifications = progressNotifications
+      .then(() => notificationService.displayUpdateNotification({
+        id: updateId,
+        title: 'Downloading update',
+        body: message,
+        onlyAlertOnce: true,
+        progress: {current: Math.floor((progress ?? 0) * 100), max: 100, indeterminate: progress === null},
+      }))
+      .catch(error => console.warn('[update] Progress notification failed:', error));
+  };
+
   showProgress(0, 0);
   try {
+    notificationsAllowed = await notificationService.ensureDownloadPermission().catch(() => false);
+    if (cancelled || useAppDialogStore.getState().dialog !== currentDialog) return;
+    showProgress(0, 0);
     const {jobId, promise} = RNFS.downloadFile({
       fromUrl: url,
       progressInterval: 250,
@@ -127,7 +154,6 @@ const downloadUpdate = async (url: string, name: string) => {
       progress: res => showProgress(res.bytesWritten, res.contentLength),
     });
     cancelDownload = () => {
-      cancelled = true;
       RNFS.stopDownload(jobId);
     };
 
@@ -161,6 +187,21 @@ const downloadUpdate = async (url: string, name: string) => {
       });
     }
     return;
+  } finally {
+    if (notificationsAllowed && lastNotificationAt > 0) {
+      void progressNotifications
+        .then(() => notificationService.cancelNotification(updateId))
+        .catch(error => console.warn('[update] Could not clear progress notification:', error));
+    }
+  }
+
+  if (notificationsAllowed) {
+    void notificationService.displayUpdateNotification({
+      id: 'downloadComplete',
+      title: 'Update downloaded',
+      body: 'Tap to install',
+      data: {filePath, action: 'install'},
+    }).catch(error => console.warn('[update] Completion notification failed:', error));
   }
 
   const allowed = await notificationService.hasUnknownAppSourcesPermission().catch(error => {
