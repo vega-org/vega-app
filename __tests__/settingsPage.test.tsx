@@ -115,10 +115,19 @@ it('mounts and highlights a search destination outside the initial list window',
       </NavigationRouteContext.Provider>,
     );
   });
-  const highlights = tree.root.findAllByType(View).filter(
-    node => node.props.style?.backgroundColor === '#354862',
-  );
-  expect(highlights).toHaveLength(1);
-  expect(highlights[0].findByProps({testID: 'target-setting'})).toBeDefined();
+  // The row flashes once through an overlay instead of keeping a background.
+  const flash = tree.root.findAllByProps({testID: 'settings-search-flash'});
+  expect(flash.length).toBeGreaterThan(0);
+  // No colored node wraps the row, so nothing stays highlighted after the flash.
+  const colored = tree.root.findAllByType(View).filter(node => {
+    const style = Array.isArray(node.props.style)
+      ? Object.assign({}, ...node.props.style)
+      : node.props.style;
+    return style?.backgroundColor === '#354862';
+  });
+  for (const node of colored) {
+    expect(node.findAllByProps({testID: 'target-setting'})).toHaveLength(0);
+  }
+  expect(tree.root.findByProps({testID: 'target-setting'})).toBeDefined();
   act(() => tree.unmount());
 });
