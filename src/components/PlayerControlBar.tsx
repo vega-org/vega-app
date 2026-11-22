@@ -227,8 +227,14 @@ export function PlayerBottomControlBar({left, right, ...props}: BottomBarProps) 
   const rightVisible = hasVisibleControls(right);
 
   if (!leftVisible && !rightVisible) return null;
+  const rightAppearance = props.appearance && {
+    ...props.appearance,
+    labels: props.appearance.rightLabels,
+  };
   if (!leftVisible || !rightVisible) {
-    return <PlayerControlBar {...props} ids={leftVisible ? left : right} />;
+    return leftVisible
+      ? <PlayerControlBar {...props} ids={left} />
+      : <PlayerControlBar {...props} ids={right} appearance={rightAppearance} />;
   }
 
   const alignment = props.appearance?.alignment ?? 'distributed';
@@ -246,7 +252,7 @@ export function PlayerBottomControlBar({left, right, ...props}: BottomBarProps) 
         <PlayerControlBar {...props} ids={left} compact />
       </View>
       <View style={{flexShrink: 1, minWidth: 0}}>
-        <PlayerControlBar {...props} ids={right} compact onEntryHandle={undefined} />
+        <PlayerControlBar {...props} ids={right} appearance={rightAppearance} compact onEntryHandle={undefined} />
       </View>
     </View>
   );
