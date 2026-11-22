@@ -36,6 +36,9 @@ jest.mock('../src/lib/tv/constants', () => ({
 }));
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('@expo/vector-icons/MaterialIcons', () => 'Icon');
+jest.mock('../src/lib/tv/useTVFocusBorderColor', () => ({
+  useTVFocusBorderColor: () => '#fff',
+}));
 jest.mock('../src/theme/M3PaletteContext', () => ({useM3HostTheme: () => ({})}));
 jest.mock('@expo/ui/jetpack-compose', () => ({Host: 'Host', Slider: 'Slider'}));
 jest.mock('@expo/ui/jetpack-compose/modifiers', () => ({fillMaxWidth: () => ({})}));
@@ -191,6 +194,23 @@ it('keeps drag gestures stable and saves only the completed drop', () => {
   act(() => tree.unmount());
 });
 
+it('supports dragging a control to the empty right side, then moving it back', () => {
+  const {tree, press, onSave} = makeEditor();
+  const token = () => tree.root.findAllByType(GestureDetector).find(node =>
+    node.findAllByProps({accessibilityLabel: 'Move audio'}).length > 0)!;
+  const width = Math.max(240, Math.min(600, RN.Dimensions.get('window').width - 32) - 28);
+
+  act(() => token().props.gesture.pan.start({x: 10, y: 10, absoluteX: 10, absoluteY: 106}));
+  act(() => token().props.gesture.pan.end({absoluteX: width * 0.75, absoluteY: 108}));
+  expect(onSave.mock.calls.at(-1)![0].bottomRight).toEqual(['audio']);
+  expect(onSave.mock.calls.at(-1)![0].bottom).not.toContain('audio');
+
+  press('To bottom left');
+  expect(onSave.mock.calls.at(-1)![0].bottomRight).toEqual([]);
+  expect(onSave.mock.calls.at(-1)![0].bottom).toContain('audio');
+  act(() => tree.unmount());
+});
+
 it('saves style choices immediately and sliders when interaction finishes', () => {
   const {tree, press, onSave} = makeEditor();
   press('Style'); press('Short'); press('Right');
@@ -259,7 +279,8 @@ it('routes TV selection into actions and Up back to the selected tile and header
     act(() => jest.advanceTimersByTime(50));
     expect(focus).toHaveBeenCalledWith(123, 'requestTVFocus', []);
     expect(button('Move left').props.nextFocusUp).toBe(123);
-    expect(button('To bottom').props.nextFocusUp).toBe(123);
+    expect(button('To bottom left').props.nextFocusUp).toBe(123);
+    expect(button('To bottom right').props.nextFocusUp).toBe(123);
   } finally {
     act(() => tree?.unmount());
     handle.mockRestore(); focus.mockRestore(); jest.useRealTimers();

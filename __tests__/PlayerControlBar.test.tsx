@@ -3,6 +3,7 @@ import renderer, {act} from 'react-test-renderer';
 import {ScrollView, StyleSheet, Text, TouchableOpacity} from 'react-native';
 import type {PlayerControlId} from '../src/lib/player/controlLayout';
 import PlayerControlBar, {
+  PlayerBottomControlBar,
   PlayerControl,
 } from '../src/components/PlayerControlBar';
 import {normalizePlayerControlStyle, defaultPlayerControlStyle} from '../src/lib/player/controlStyle';
@@ -184,3 +185,76 @@ it.each([false, true])('preserves the full top focus border for TV=%s without ch
   }
   act(() => tree.unmount());
 });
+
+
+it('shows both bottom groups only when both contain visible controls', () => {
+  const bottom = (left: PlayerControlId[], right: PlayerControlId[]) => (
+    <PlayerBottomControlBar
+      left={left}
+      right={right}
+      controls={controls}
+      onEdit={jest.fn()}
+      getTVFocusProps={() => ({})}
+    />
+  );
+  let tree!: renderer.ReactTestRenderer;
+
+  act(() => {tree = renderer.create(bottom(['speed'], ['sleep']));});
+  const bars = () => tree.root.findAllByType(PlayerControlBar);
+  expect(bars().map(node => node.props.ids)).toEqual([['speed'], ['sleep']]);
+  expect(bars().every(node => node.props.compact)).toBe(true);
+
+  act(() => tree.update(bottom(['cast'], ['sleep'])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.ids).toEqual(['sleep']);
+  expect(bars()[0].props.compact).toBeFalsy();
+
+  act(() => tree.update(bottom(['speed'], [])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.ids).toEqual(['speed']);
+
+  act(() => tree.update(bottom([], ['cast'])));
+  expect(tree.toJSON()).toBeNull();
+  act(() => tree.unmount());
+});
+
+it.each([
+  ['distributed', 'space-between'],
+  ['center', 'center'],
+  ['left', 'flex-start'],
+  ['right', 'flex-end'],
+] as const)(
+  'aligns split bottom groups together for %s alignment without forcing 50/50 widths',
+  (alignment, expectedJustify) => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <PlayerBottomControlBar
+          left={['speed']}
+          right={['sleep']}
+          controls={controls}
+          appearance={{...defaultPlayerControlStyle(), alignment}}
+          onEdit={jest.fn()}
+          getTVFocusProps={() => ({})}
+        />,
+      );
+    });
+    const container = tree.root.find(
+      node =>
+        node.type === 'View' &&
+        node.props.testID === 'player-split-bottom-controls',
+    );
+    expect(StyleSheet.flatten(container.props.style)).toMatchObject({
+      flexDirection: 'row',
+      justifyContent: expectedJustify,
+    });
+    const wrappers = container.children as renderer.ReactTestInstance[];
+    expect(wrappers).toHaveLength(2);
+    for (const wrapper of wrappers) {
+      const style = StyleSheet.flatten(wrapper.props.style);
+      expect(style.flexShrink).toBe(1);
+      expect(style.flex).toBeUndefined();
+    }
+    act(() => tree.unmount());
+  },
+);
