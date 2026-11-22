@@ -94,13 +94,11 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
-import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /**
  * Extracts decoded frames from {@link MediaItem}.
@@ -157,7 +155,6 @@ public final class ThumbnailFrameExtractor {
        * @param seekParameters The {@link SeekParameters}.
        * @return This builder.
        */
-      @CanIgnoreReturnValue
       public Builder setSeekParameters(SeekParameters seekParameters) {
         this.seekParameters = seekParameters;
         return this;
@@ -170,7 +167,6 @@ public final class ThumbnailFrameExtractor {
        * @param mediaCodecSelector The {@link MediaCodecSelector}.
        * @return This builder.
        */
-      @CanIgnoreReturnValue
       public Builder setMediaCodecSelector(MediaCodecSelector mediaCodecSelector) {
         this.mediaCodecSelector = mediaCodecSelector;
         return this;
@@ -193,7 +189,6 @@ public final class ThumbnailFrameExtractor {
        * @param extractHdrFrames Whether HDR frames should be returned.
        * @return This builder.
        */
-      @CanIgnoreReturnValue
       @RequiresApi(34)
       public Builder setExtractHdrFrames(boolean extractHdrFrames) {
         this.extractHdrFrames = extractHdrFrames;
@@ -520,8 +515,8 @@ public final class ThumbnailFrameExtractor {
             new float[] {1, 1, 0, 1},
             new float[] {1, -1, 0, 1});
 
-    private @MonotonicNonNull GlTextureInfo hlgTextureInfo;
-    private @MonotonicNonNull GlProgram glProgram;
+    private @Nullable GlTextureInfo hlgTextureInfo;
+    private @Nullable GlProgram glProgram;
 
     private ByteBuffer byteBuffer;
 
