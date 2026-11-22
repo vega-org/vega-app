@@ -1645,8 +1645,12 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     );
   }
 
-  // Show error state
-  if (episodeError) {
+  // Show error state only when no cached episodes or direct links are available
+  if (
+    episodeError &&
+    validEpisodes.length === 0 &&
+    validDirectLinks.length === 0
+  ) {
     return (
       <View className="p-4">
         <Text className="text-red-500 text-center">

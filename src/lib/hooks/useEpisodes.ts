@@ -36,7 +36,13 @@ export const useEpisodes = (
         return [];
       }
 
+      const hasCachedEpisodes = Boolean(
+        cacheKey &&
+          (cacheStorage.getString(cacheKey) ||
+            (episodesLink ? cacheStorage.getString(episodesLink) : undefined)),
+      );
       const episodes = await providerManager.getEpisodes({
+        silent: hasCachedEpisodes,
         url: episodesLink,
         providerValue: providerValue,
         signal,

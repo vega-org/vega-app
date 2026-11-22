@@ -17,7 +17,13 @@ import {
   findNodeHandle,
 } from 'react-native';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {HomeStackParamList, TabStackParamList} from '../../App';
+import {HomeStackParamList, RootStackParamList, TabStackParamList} from '../../App';
+import {downloadOutputExists} from '../../lib/downloadDestination';
+import {
+  buildOfflinePlayerParamsForDownload,
+  findCompletedDownloadForInfo,
+} from '../../lib/player/offlineContinueWatching';
+import useDownloadsStore from '../../lib/zustand/downloadsStore';
 import {isSafeExternalUrl} from '../../lib/sandbox/urlGuard';
 import Button from '../../components/ui/Button';
 import AppText from '../../components/ui/Text';
@@ -277,6 +283,38 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   }, [navigation, webUrl]);
 
   if (error && !info) {
+    const downloads = useDownloadsStore.getState().downloads;
+    const offlineDownload = findCompletedDownloadForInfo(
+      downloads,
+      route.params.link,
+      providerValue,
+    );
+    const handlePlayOfflineDownload = async () => {
+      if (!offlineDownload) return;
+      const exists = await downloadOutputExists(offlineDownload.filePath).catch(
+        () => false,
+      );
+      if (!exists) {
+        ToastAndroid.show(
+          'Downloaded file is no longer available on device',
+          ToastAndroid.SHORT,
+        );
+        return;
+      }
+      const rootNav =
+        navigation.getParent<NativeStackNavigationProp<RootStackParamList>>() ||
+        (navigation as unknown as NativeStackNavigationProp<RootStackParamList>);
+      rootNav.navigate(
+        'Player',
+        buildOfflinePlayerParamsForDownload(offlineDownload, downloads, {
+          alwaysCast: !isTV && settingsStorage.isAlwaysCastMode(),
+          fallbackPoster: route.params.poster,
+          fallbackProvider: providerValue,
+          fallbackInfoUrl: route.params.link,
+        }),
+      );
+    };
+
     return (
       <View
         style={{
@@ -301,7 +339,12 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
           }}>
           {error.message || 'An unexpected error occurred'}
         </AppText>
-        <View style={{flexDirection: 'row', gap: 10, marginTop: 22}}>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 22}}>
+          {offlineDownload ? (
+            <Button variant="filled" onPress={handlePlayOfflineDownload}>
+              Play downloaded
+            </Button>
+          ) : null}
           <Button variant="destructive" onPress={handleRefresh}>
             Try again
           </Button>
