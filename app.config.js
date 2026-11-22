@@ -154,8 +154,8 @@ module.exports = () => {
       plugins,
       slug: 'vega',
       version: process.env.VEGA_NIGHTLY_DATE
-        ? `5.5.0-nightly.${process.env.VEGA_NIGHTLY_DATE}`
-        : '5.5.0',
+        ? `5.4.1-nightly.${process.env.VEGA_NIGHTLY_DATE}`
+        : '5.4.1',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,
