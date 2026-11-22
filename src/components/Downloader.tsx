@@ -688,6 +688,7 @@ const DownloadComponent = ({
         downloadedSubtitles={downloadedSubsList}
         isSubDownloaded={isSubDownloaded}
         onDeleteSub={deleteSubtitleDownload}
+        subtitleSearchQuery={imdbId || showName || title}
         onPressVideo={(server: Stream) => {
           downloadSingleVideoStream(server);
         }}
