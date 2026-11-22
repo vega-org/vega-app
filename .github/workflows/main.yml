@@ -173,7 +173,10 @@ jobs:
       - name: Generate standalone native project
         env:
           APP_VARIANT: standalone
-        run: npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
+        run: |
+          export VEGA_NIGHTLY_DATE=$(date -u '+%Y%m%d')
+          echo "VEGA_NIGHTLY_DATE=$VEGA_NIGHTLY_DATE" >> "$GITHUB_ENV"
+          npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
 
       # Decode the keystore from your secret
       - name: Decode keystore
@@ -220,6 +223,7 @@ jobs:
         run: |
           # Get app version from build.gradle
           VERSION=$(grep -m 1 "versionName " android/app/build.gradle | sed 's/.*versionName "\(.*\)".*/\1/')
+          VERSION="${VERSION%-nightly.*}"
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
           # Create APKs directory
@@ -279,7 +283,7 @@ jobs:
           ls -la apks/
 
           # Create a tag name for the release
-          NIGHTLY_DATE=$(date -u '+%Y%m%d')
+          NIGHTLY_DATE=$VEGA_NIGHTLY_DATE
           RELEASE_TAG="nightly-${NIGHTLY_DATE}"
           echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
 

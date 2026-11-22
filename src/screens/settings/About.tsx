@@ -26,6 +26,7 @@ import {
   shareLogs,
   clearLogs,
 } from '../../lib/logging/vegaLog';
+import {selectUpdate, type AppRelease} from '../../lib/services/appUpdateReleases';
 import {useRemoteStore} from '../../lib/remote/remoteStore';
 
 const deletePartialFile = async (filePath: string) => {
@@ -175,9 +176,9 @@ export const checkForUpdate = async (
 ) => {
   setUpdateLoading(true);
   try {
-    const res = await fetch(
-      'https://api.github.com/repos/vega-org/vega-app/releases/latest',
-    );
+    const beta = settingsStorage.getUpdateChannel() === 'beta';
+    const endpoint = beta ? 'releases?per_page=100' : 'releases/latest';
+    const res = await fetch(`https://api.github.com/repos/vega-org/vega-app/${endpoint}`);
     if (res.status === 403 || res.status === 429) {
       ToastAndroid.show(
         'GitHub API rate limit exceeded. Please wait a few minutes before trying again.',
@@ -189,15 +190,14 @@ export const checkForUpdate = async (
     if (!res.ok) {
       throw new Error(`GitHub release check failed with status ${res.status}`);
     }
-    const data = await res.json();
-    if (!data?.tag_name) {
+    const response = await res.json();
+    const localVersion = Application.nativeApplicationVersion;
+    const releases: AppRelease[] = beta ? response : [response];
+    if (!Array.isArray(releases) || (!beta && !response?.tag_name)) {
       throw new Error('Invalid release data received from GitHub');
     }
-    const localVersion = Application.nativeApplicationVersion;
-    const remoteVersion = Number(
-      data.tag_name.replace('v', '')?.split('.').join(''),
-    );
-    if (compareVersions(localVersion || '', data.tag_name.replace('v', ''))) {
+    const data = selectUpdate(releases, localVersion ?? '', beta, isTV);
+    if (data) {
       ToastAndroid.show('New update available', ToastAndroid.SHORT);
       const targetKeyword = isTV ? 'tv' : 'mobile';
       const apkAssets = data.assets?.filter((asset: any) =>
@@ -217,7 +217,7 @@ export const checkForUpdate = async (
       };
       showAppDialog({
         title: `Update v${localVersion} -> ${data.tag_name}`,
-        message: data.body,
+        message: data.body ?? '',
         messageFormat: 'markdown',
         actions: autoDownload && apkAsset
           ? [
@@ -231,20 +231,8 @@ export const checkForUpdate = async (
             ]
           : [{label: 'Cancel'}, {...githubAction, variant: 'primary'}],
       });
-      console.log(
-        'local version',
-        localVersion,
-        'remote version',
-        remoteVersion,
-      );
     } else {
       showToast && ToastAndroid.show('App is up to date', ToastAndroid.SHORT);
-      console.log(
-        'local version',
-        localVersion,
-        'remote version',
-        remoteVersion,
-      );
     }
   } catch (error) {
     const isRateLimit =
@@ -260,6 +248,7 @@ export const checkForUpdate = async (
 };
 
 const About = ({navigation}: any) => {
+  const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
   const colors = useM3Colors();
   const backRef = useRef<View>(null);
   const autoDownloadRef = useRef<View>(null);
@@ -269,6 +258,7 @@ const About = ({navigation}: any) => {
   const [autoDownload, setAutoDownload] = useState(
     settingsStorage.isAutoDownloadEnabled(),
   );
+  const [updateChannel, setUpdateChannel] = useState(() => settingsStorage.getUpdateChannel());
   const [autoCheckUpdate, setAutoCheckUpdate] = useState<boolean>(
     settingsStorage.isAutoCheckUpdateEnabled(),
   );
@@ -364,11 +354,11 @@ const About = ({navigation}: any) => {
             <AppText
               role="headlineLargeEmphasized"
               className="text-m3-on-background">
-              About Vega
+              {isPlayStore ? 'About Vega' : 'About & updates'}
             </AppText>
           </View>
           <AppText role="bodyLarge" className="mt-1 text-m3-on-surface-variant">
-            App information and updates
+            {isPlayStore ? 'App information' : 'App information and updates'}
           </AppText>
         </View>
 
@@ -377,10 +367,10 @@ const About = ({navigation}: any) => {
             title="Version"
             description={`Vega ${Application.nativeApplicationVersion || ''}`}
             icon="information-outline"
-            divider={Constants.expoConfig?.extra?.isPlayStore}
+            divider={isPlayStore}
           />
 
-          {!Constants.expoConfig?.extra?.isPlayStore && (
+          {!isPlayStore && (
             <>
               <SettingsSwitchRow
                 ref={autoDownloadRef}
@@ -401,6 +391,23 @@ const About = ({navigation}: any) => {
                   setAutoCheckUpdate(next);
                   settingsStorage.setAutoCheckUpdateEnabled(next);
                 }}
+              />
+              <SettingsRow
+                title="Update channel"
+                description={updateChannel === 'beta' ? 'Beta' : 'Stable'}
+                icon="source-branch"
+                onPress={() => showAppDialog({
+                  title: 'Update channel',
+                  message: 'Stable receives public releases. Beta also receives prereleases.',
+                  actions: (['stable', 'beta'] as const).map(channel => ({
+                    label: channel === 'stable' ? 'Stable' : 'Beta',
+                    variant: channel === updateChannel ? 'primary' : 'default',
+                    onPress: () => {
+                      settingsStorage.setUpdateChannel(channel);
+                      setUpdateChannel(channel);
+                    },
+                  })),
+                })}
               />
               <SettingsRow
                 title="Check for updates"
@@ -456,37 +463,3 @@ const About = ({navigation}: any) => {
 };
 
 export default About;
-
-function compareVersions(localVersion: string, remoteVersion: string): boolean {
-  try {
-    // Split versions into arrays and convert to numbers
-    const local = localVersion.split('.').map(Number);
-    const remote = remoteVersion.split('.').map(Number);
-
-    // Compare major version
-    if (remote[0] > local[0]) {
-      return true;
-    }
-    if (remote[0] < local[0]) {
-      return false;
-    }
-
-    // Compare minor version
-    if (remote[1] > local[1]) {
-      return true;
-    }
-    if (remote[1] < local[1]) {
-      return false;
-    }
-
-    // Compare patch version
-    if (remote[2] > local[2]) {
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    console.error('Invalid version format');
-    return false;
-  }
-}

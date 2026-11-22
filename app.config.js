@@ -153,7 +153,9 @@ module.exports = () => {
       autolinking: {exclude: ['expo-splash-screen']},
       plugins,
       slug: 'vega',
-      version: '5.3.3',
+      version: process.env.VEGA_NIGHTLY_DATE
+        ? `5.3.3-nightly.${process.env.VEGA_NIGHTLY_DATE}`
+        : '5.3.3',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,

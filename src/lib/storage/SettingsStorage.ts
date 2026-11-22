@@ -31,6 +31,7 @@ export enum SettingsKeys {
   // Update settings
   AUTO_CHECK_UPDATE = 'autoCheckUpdate',
   AUTO_DOWNLOAD = 'autoDownload',
+  UPDATE_CHANNEL = 'updateChannel',
   AUTO_UPDATE_PROVIDERS = 'autoUpdateProviders',
   VERIFICATION_WINDOWS = 'verificationWindows',
 
@@ -352,6 +353,14 @@ export class SettingsStorage {
   }
 
   // Update settings
+  getUpdateChannel(): 'stable' | 'beta' {
+    return mainStorage.getString(SettingsKeys.UPDATE_CHANNEL) === 'beta' ? 'beta' : 'stable';
+  }
+
+  setUpdateChannel(channel: 'stable' | 'beta'): void {
+    mainStorage.setString(SettingsKeys.UPDATE_CHANNEL, channel);
+  }
+
   isAutoCheckUpdateEnabled(): boolean {
     return mainStorage.getBool(SettingsKeys.AUTO_CHECK_UPDATE, true);
   }
