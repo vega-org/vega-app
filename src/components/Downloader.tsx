@@ -688,6 +688,7 @@ const DownloadComponent = ({
         downloadedSubtitles={downloadedSubsList}
         isSubDownloaded={isSubDownloaded}
         onDeleteSub={deleteSubtitleDownload}
+        subtitleSearchQuery={imdbId || showName || title}
         onPressVideo={(server: Stream) => {
           downloadSingleVideoStream(server);
         }}
@@ -712,7 +713,7 @@ const DownloadComponent = ({
             sourceLink: link,
             url: sub.link,
             fileName: createSubtitleFileName(fileName, sub.title),
-            fileType: sub.type,
+            fileType: sub.type === 'text/vtt' ? 'vtt' : 'srt',
             deleteDownload: () => deleteSubtitleDownload(sub.title),
           });
         }}

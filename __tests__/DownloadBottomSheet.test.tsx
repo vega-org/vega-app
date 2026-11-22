@@ -1,7 +1,8 @@
 import {describe, expect, it, jest} from '@jest/globals';
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
-import {ScrollView} from 'react-native';
+import {ScrollView, SectionList, TouchableOpacity} from 'react-native';
+import type {TextTracks} from '../src/lib/providers/types';
 
 const mockBottomSheetProps = jest.fn();
 
@@ -21,11 +22,16 @@ jest.mock('@gorhom/bottom-sheet', () => {
     __esModule: true,
     default: BottomSheet,
     BottomSheetScrollView: ReactNative.ScrollView,
+    BottomSheetSectionList: ReactNative.SectionList,
     BottomSheetView: ReactNative.View,
     BottomSheetBackdrop: ReactNative.View,
   };
 });
 
+jest.mock('../src/components/SearchSubtitles', () => ({
+  __esModule: true,
+  default: ({renderTrigger}: any) => renderTrigger?.(() => {}) ?? null,
+}));
 jest.mock('../src/lib/tv', () => ({isTV: false}));
 jest.mock('../src/components/tv', () => {
   const {View} = require('react-native');
@@ -143,6 +149,67 @@ describe('DownloadBottomSheet', () => {
     expect(mockBottomSheetProps).toHaveBeenLastCalledWith(
       expect.not.objectContaining({animateOnMount: false}),
     );
+    act(() => tree!.unmount());
+  });
+
+  it('mounts only a window of a long subtitle list when switching tabs', () => {
+    const subtitles: TextTracks = Array.from({length: 300}, (_, index) => ({
+      title: `Subtitle ${index}`,
+      uri: `https://example.com/${index}.vtt`,
+      language: 'en',
+      type: 'text/vtt' as TextTracks[number]['type'],
+    }));
+    const onPressSubs = jest.fn();
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <DownloadBottomSheet
+          data={[{
+            server: 'Server',
+            link: 'https://example.com/video.mp4',
+            type: 'mp4',
+            subtitles: [
+              ...subtitles,
+              {...subtitles[0], title: 'Alias'},
+              {...subtitles[0], title: 'Alias', uri: 'https://example.com/alias.vtt'},
+            ],
+          }]}
+          loading={false}
+          showModal
+          setModal={jest.fn()}
+          onPressVideo={jest.fn()}
+          onPressSubs={onPressSubs}
+          downloadedSubtitles={[{id: 'saved', title: 'Saved subtitle'}]}
+        />,
+      );
+    });
+
+    const pressTab = (tab: string) => {
+      const button = tree!.root.findAllByType(TouchableOpacity).find(
+        node => node.props.accessibilityLabel === `${tab} download sources`,
+      );
+      act(() => button!.props.onPress());
+    };
+    pressTab('Subtitle');
+
+    expect(tree!.root.findByType(SectionList).props.sections).toEqual([
+      expect.objectContaining({title: 'Downloaded', data: [expect.objectContaining({id: 'saved'})]}),
+      expect.objectContaining({title: 'Available', data: subtitles}),
+    ]);
+    const downloadButtons = tree!.root.findAllByType(TouchableOpacity).filter(
+      node => node.props.accessibilityLabel?.startsWith('Download subtitle '),
+    );
+    expect(downloadButtons.length).toBeGreaterThan(0);
+    expect(downloadButtons.length).toBeLessThan(30);
+    act(() => downloadButtons[0].props.onPress());
+    expect(onPressSubs).toHaveBeenCalledWith({
+      link: subtitles[0].uri,
+      title: subtitles[0].title,
+      type: 'text/vtt',
+    });
+
+    pressTab('Video');
+    expect(tree!.root.findAllByType(SectionList)).toHaveLength(0);
     act(() => tree!.unmount());
   });
 
