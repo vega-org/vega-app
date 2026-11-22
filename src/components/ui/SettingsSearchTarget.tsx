@@ -1,6 +1,6 @@
 import {NavigationRouteContext} from '@react-navigation/native';
-import React, {createContext, useCallback, useContext, useRef} from 'react';
-import {ScrollView, View} from 'react-native';
+import React, {createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
+import {Animated, ScrollView, StyleSheet, View} from 'react-native';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 
 export type SettingsSearchParams = {setting?: string} | undefined;
@@ -52,12 +52,32 @@ export function SettingsSearchAnchor({label, children}: {
   return <HighlightedSetting key={target.setting} reveal={target.reveal}>{children}</HighlightedSetting>;
 }
 
+// Matches the scroll animation so the flash starts once the row is in view.
+const FLASH_DELAY_MS = 300;
+
 function HighlightedSetting({reveal, children}: {
   reveal: (row: View) => void;
   children: React.ReactNode;
 }) {
   const colors = useM3Colors();
   const row = useRef<View>(null);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const flashed = useRef(false);
+  const [flashing, setFlashing] = useState(true);
+  useEffect(() => () => opacity.stopAnimation(), [opacity]);
+
+  const flashOnce = () => {
+    if (flashed.current) return;
+    flashed.current = true;
+    Animated.sequence([
+      Animated.delay(FLASH_DELAY_MS),
+      Animated.timing(opacity, {toValue: 1, duration: 200, useNativeDriver: true}),
+      Animated.delay(250),
+      Animated.timing(opacity, {toValue: 0, duration: 550, useNativeDriver: true}),
+    ]).start(({finished}) => {
+      if (finished) setFlashing(false);
+    });
+  };
 
   return (
     <View
@@ -65,10 +85,21 @@ function HighlightedSetting({reveal, children}: {
       collapsable={false}
       onLayout={() => {
         requestAnimationFrame(() => {
-          if (row.current) reveal(row.current);
+          if (!row.current) return;
+          reveal(row.current);
+          flashOnce();
         });
-      }}
-      style={{backgroundColor: colors.secondaryContainer, borderRadius: 12}}>
+      }}>
+      {flashing && (
+        <Animated.View
+          pointerEvents="none"
+          testID="settings-search-flash"
+          style={[
+            StyleSheet.absoluteFill,
+            {backgroundColor: colors.secondaryContainer, borderRadius: 12, opacity},
+          ]}
+        />
+      )}
       {children}
     </View>
   );
