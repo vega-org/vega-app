@@ -131,7 +131,7 @@ const SearchSubtitles = ({
       ) : (
         <PlayerMenuRow
           title="Search subtitles online"
-          detail="Find a subtitle from OpenSubtitles"
+          detail="Find subtitles for this video"
           accentColor={primary}
           icon="travel-explore"
           onPress={() => setSearchModalVisible(true)}
@@ -334,7 +334,7 @@ const SearchSubtitles = ({
                         numberOfLines={1}>
                         {[result?.InfoReleaseGroup, result?.UserNickName]
                           .filter(Boolean)
-                          .join(' · ') || 'OpenSubtitles'}
+                          .join(' · ')}
                       </AppText>
                     </View>
                     {(Number(result?.SeriesSeason) > 0 ||

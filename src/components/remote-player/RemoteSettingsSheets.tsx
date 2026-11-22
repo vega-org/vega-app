@@ -554,7 +554,7 @@ export const RemoteSettingsSheets: React.FC<RemoteSettingsSheetsProps> = ({
                 <RemoteSheetOption
                   icon="earth"
                   title="Search subtitles online"
-                  supportingText="Find a subtitle from OpenSubtitles"
+                  supportingText="Find subtitles for this video"
                   onPress={open}
                 />
               )}

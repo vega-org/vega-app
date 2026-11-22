@@ -867,7 +867,7 @@ const DownloadBottomSheet = ({
             onPressSubs({
               link: track.uri,
               type: TextTrackType.SUBRIP,
-              title: track.title?.trim() || track.language || 'OpenSubtitles',
+              title: track.title?.trim() || track.language || 'Subtitle',
             });
             closeSheet();
           }}
@@ -878,8 +878,10 @@ const DownloadBottomSheet = ({
               onPress={open}
               style={{
                 alignItems: 'center',
-                backgroundColor: colors.secondaryContainer,
+                backgroundColor: colors.surfaceContainerHighest,
+                borderColor: colors.outlineVariant,
                 borderRadius: 16,
+                borderWidth: 1,
                 flexDirection: 'row',
                 gap: 12,
                 paddingHorizontal: 14,
@@ -888,12 +890,12 @@ const DownloadBottomSheet = ({
               <MaterialCommunityIcons
                 name="earth"
                 size={22}
-                color={colors.onSecondaryContainer}
+                color={colors.onSurfaceVariant}
               />
               <View style={{flex: 1}}>
                 <Text
                   style={{
-                    color: colors.onSecondaryContainer,
+                    color: colors.onSurface,
                     fontSize: 14,
                     fontWeight: '700',
                   }}>
@@ -901,11 +903,10 @@ const DownloadBottomSheet = ({
                 </Text>
                 <Text
                   style={{
-                    color: colors.onSecondaryContainer,
+                    color: colors.onSurfaceVariant,
                     fontSize: 12,
-                    opacity: 0.8,
                   }}>
-                  Download from OpenSubtitles for offline playback
+                  Download subtitles for offline playback
                 </Text>
               </View>
             </SheetButton>
