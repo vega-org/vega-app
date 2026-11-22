@@ -1,5 +1,6 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import React, {useState} from 'react';
+import {useFocusEffect} from '@react-navigation/native';
+import React, {useCallback, useState} from 'react';
 import {Image, ScrollView, View} from 'react-native';
 import {
   externalAppKey,
@@ -19,6 +20,28 @@ export default function ExternalAppPreference({kind}: {kind: ExternalAppKind}) {
   const [apps, setApps] = useState<ExternalApp[]>([]);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState('');
+  useFocusEffect(
+    useCallback(() => {
+      const saved = getExternalApp(kind);
+      setSelected(saved);
+      if (saved === 'ask') return;
+
+      let active = true;
+      // Preferences can remount while the chosen package is still saved.
+      void listExternalApps(kind)
+        .then(installedApps => {
+          if (active) setApps(installedApps);
+        })
+        .catch(() => {
+          // Keep the last known app details if Android's lookup fails.
+        });
+
+      return () => {
+        active = false;
+      };
+    }, [kind]),
+  );
+
   const label = kind === 'player' ? 'External player' : 'External downloader';
   const choices = [
     {packageName: 'ask', name: 'Ask every time'},

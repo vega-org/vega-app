@@ -1,3 +1,4 @@
+import {isExcludedQuality} from '../../lib/streamQuality';
 import {useFocusEffect, useIsFocused, useNavigation} from '@react-navigation/native';
 import {
   NativeStackNavigationProp,
@@ -184,8 +185,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     }
     const excludedQualities = settingsStorage.getExcludedQualities();
     const filtered = linkList.filter(
-      (item: Link) =>
-        !item.quality || !excludedQualities.includes(item.quality),
+      (item: Link) => !isExcludedQuality(item.quality, excludedQualities),
     );
     return filtered.length > 0 ? filtered : linkList;
   }, [linkList]);
