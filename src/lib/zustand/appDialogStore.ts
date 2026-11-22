@@ -7,6 +7,8 @@ import type {
 export interface GlobalAppDialog {
   title: string;
   message: string;
+  progress?: number;
+  onDismiss?: () => void;
   messageFormat?: 'plain' | 'markdown';
   variant?: AppDialogVariant;
   actions?: AppDialogAction[];
