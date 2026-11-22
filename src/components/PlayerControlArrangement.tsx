@@ -12,6 +12,12 @@ import {MAX_TOP_CONTROLS, movePlayerControl, normalizePlayerControlLayout,
 const TOP_Y = 24;
 const BOTTOM_Y = 96;
 const CELL_HEIGHT = 50;
+const BOTTOM_GAP = 12;
+const BOTTOM_BARS = [
+  {id: 'bottom', label: 'Bottom left'},
+  {id: 'bottomRight', label: 'Bottom right'},
+] as const;
+const CONTROL_BARS = ['top', 'bottom', 'bottomRight', 'more'] as const;
 const MENU_PADDING = 8;
 const noop = () => {};
 const EDITOR_LABELS: Record<PlayerControlId, string> = {
@@ -206,7 +212,7 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
   const draftRef = useRef(draft);
   draftRef.current = draft;
   useEffect(() => {
-    const first = draft.top[0] ?? draft.bottom[0] ?? draft.more[0];
+    const first = draft.top[0] ?? draft.bottom[0] ?? draft.bottomRight[0] ?? draft.more[0];
     const handle = first ? tokenHandles[first] : undefined;
     if (handle) onEntryHandle?.(handle);
   }, [draft, tokenHandles, onEntryHandle]);
@@ -230,12 +236,15 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
     isTV ? 'Select a control to open its move actions. Press Up to return to the selected control.' : 'Hold and drag to rearrange. Tap a control for more options.',
   );
   const columns = Math.max(2, Math.floor(canvasWidth / 96));
-  const cellWidth = canvasWidth / columns;
   const menuCellWidth = (canvasWidth - MENU_PADDING * 2) / columns;
-  const moreY =
-    BOTTOM_Y +
-    Math.max(1, Math.ceil(draft.bottom.length / columns)) * CELL_HEIGHT +
-    34;
+  const bottomWidth = Math.max(1, (canvasWidth - BOTTOM_GAP) / 2);
+  const bottomColumns = Math.max(1, Math.floor(bottomWidth / 68));
+  const bottomCellWidth = bottomWidth / bottomColumns;
+  const bottomRows = Math.max(
+    1,
+    Math.ceil(Math.max(draft.bottom.length, draft.bottomRight.length) / bottomColumns),
+  );
+  const moreY = BOTTOM_Y + bottomRows * CELL_HEIGHT + 34;
   const canvasHeight =
     moreY + Math.max(1, Math.ceil(draft.more.length / columns)) * CELL_HEIGHT + MENU_PADDING * 2;
   const startDrag = useCallback(
@@ -250,9 +259,7 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
       const current = draftRef.current;
       const next = movePlayerControl(current, id, bar, index, limit);
       if (
-        current.top.indexOf(id) !== next.top.indexOf(id) ||
-        current.bottom.indexOf(id) !== next.bottom.indexOf(id) ||
-        current.more.indexOf(id) !== next.more.indexOf(id)
+        CONTROL_BARS.some(lane => current[lane].indexOf(id) !== next[lane].indexOf(id))
       ) {
         onHaptic();
       }
@@ -261,7 +268,7 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
       setMessage(
         next === current
           ? id === 'settings' && bar === 'more'
-            ? 'Settings stays last in the top or bottom row'
+            ? 'Settings stays last in its row'
             : `Top bar is full (${limit} controls maximum)`
           : isTV ? 'Select a control to open its move actions. Press Up to return to the selected control.' : 'Hold and drag to rearrange. Tap a control for more options.',
       );
@@ -275,26 +282,26 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
         setEpoch(value => value + 1);
         return;
       }
-      const lane =
-        y < BOTTOM_Y - 18 ? 'top' : y < moreY - 18 ? 'bottom' : 'more';
-      const index =
-        lane === 'top'
-          ? Math.floor(x / 48)
-          : Math.floor(
-              (y - (lane === 'more' ? moreY + MENU_PADDING : BOTTOM_Y)) / CELL_HEIGHT,
-            ) *
-              columns +
-            Math.max(0, Math.min(columns - 1, Math.floor((x - (lane === 'more' ? MENU_PADDING : 0)) / (lane === 'more' ? menuCellWidth : cellWidth))));
-      move(id, lane, Math.max(0, index));
+      if (y < BOTTOM_Y - 18) {
+        move(id, 'top', Math.floor(x / 48));
+        return;
+      }
+      if (y >= moreY - 18) {
+        const row = Math.max(0, Math.floor((y - moreY - MENU_PADDING) / CELL_HEIGHT));
+        const column = Math.max(0, Math.min(columns - 1, Math.floor((x - MENU_PADDING) / menuCellWidth)));
+        move(id, 'more', row * columns + column);
+        return;
+      }
+      const right = x >= canvasWidth / 2;
+      const leftEdge = right ? bottomWidth + BOTTOM_GAP : 0;
+      const row = Math.max(0, Math.floor((y - BOTTOM_Y) / CELL_HEIGHT));
+      const column = Math.max(0, Math.min(bottomColumns - 1, Math.floor((x - leftEdge) / bottomCellWidth)));
+      move(id, right ? 'bottomRight' : 'bottom', row * bottomColumns + column);
     },
-    [canvasWidth, canvasHeight, columns, cellWidth, menuCellWidth, moreY, move],
+    [canvasWidth, canvasHeight, columns, menuCellWidth, moreY, bottomWidth, bottomColumns, bottomCellWidth, move],
   );
   const activeId = selected ?? 'sleep';
-  const bar: PlayerControlBar = draft.top.includes(activeId)
-    ? 'top'
-    : draft.more.includes(activeId)
-      ? 'more'
-      : 'bottom';
+  const bar = CONTROL_BARS.find(lane => draft[lane].includes(activeId)) ?? 'bottom';
   const index = draft[bar].indexOf(activeId);
   const selectedTitle =
     controls.find(control => control.id === activeId)?.title || activeId;
@@ -384,15 +391,28 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
                       }}
                     />
                   ))}
-                  <Text
-                    style={{
-                      position: 'absolute',
-                      top: BOTTOM_Y - 18,
-                      color: '#aaa',
-                      fontSize: 11,
-                    }}>
-                    Bottom row
-                  </Text>
+                  {BOTTOM_BARS.map(({id, label}, index) => {
+                    const left = index * (bottomWidth + BOTTOM_GAP);
+                    return (
+                      <React.Fragment key={id}>
+                        <Text style={{
+                          position: 'absolute', top: BOTTOM_Y - 18, left,
+                          color: '#aaa', fontSize: 11,
+                        }}>
+                          {label}
+                        </Text>
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute', top: BOTTOM_Y - 2, left,
+                            width: bottomWidth, height: bottomRows * CELL_HEIGHT,
+                            borderRadius: 12, borderWidth: 1, borderStyle: 'dashed',
+                            borderColor: '#3b3b3b',
+                          }}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
                   <Text
                     style={{
                       position: 'absolute',
@@ -421,25 +441,31 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
                       borderColor: '#3b3b3b',
                     }}
                   />
-                  {(['top', 'bottom', 'more'] as const).flatMap(lane =>
+                  {CONTROL_BARS.flatMap(lane =>
                     draft[lane].map((id, slot) => {
                       const control = controls.find(item => item.id === id);
                       if (!control) return null;
                       const top = lane === 'top';
+                      const menu = lane === 'more';
+                      const laneColumns = menu ? columns : bottomColumns;
+                      const laneCellWidth = menu ? menuCellWidth : bottomCellWidth;
+                      const start = menu ? MENU_PADDING : lane === 'bottomRight' ? bottomWidth + BOTTOM_GAP : 0;
+                      const x = top ? slot * 48 + 4 : start + (slot % laneColumns) * laneCellWidth;
+                      const y = top ? TOP_Y : (menu ? moreY + MENU_PADDING : BOTTOM_Y) +
+                        Math.floor(slot / laneColumns) * CELL_HEIGHT;
+                      const previousRow = draft[lane][slot - laneColumns];
+                      const topAbove = draft.top[Math.min(Math.floor(x / 48), draft.top.length - 1)];
+                      const bottomAbove = x < canvasWidth / 2
+                        ? draft.bottom.at(-1) ?? draft.bottomRight.at(-1)
+                        : draft.bottomRight.at(-1) ?? draft.bottom.at(-1);
+                      const above = previousRow ?? (menu ? bottomAbove ?? topAbove : topAbove);
                       return (
                         <ControlToken
                           key={id}
                           control={control}
-                          x={top ? slot * 48 + 4 : lane === 'more'
-                            ? MENU_PADDING + (slot % columns) * menuCellWidth
-                            : (slot % columns) * cellWidth}
-                          y={
-                            top
-                              ? TOP_Y
-                              : (lane === 'more' ? moreY + MENU_PADDING : BOTTOM_Y) +
-                                Math.floor(slot / columns) * CELL_HEIGHT
-                          }
-                          width={top ? 42 : (lane === 'more' ? menuCellWidth : cellWidth) - 6}
+                          x={x}
+                          y={y}
+                          width={top ? 42 : laneCellWidth - 6}
                           top={top}
                           selected={selected === id}
                           hidden={hidden.includes(id)}
@@ -447,9 +473,7 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
                           color={color}
                           onSelect={selectControl}
                           onHandle={registerToken}
-                          nextFocusUp={isTV ? (top ? exitUpHandle : lane === 'bottom'
-                            ? (slot < columns ? tokenHandles[draft.top[Math.min(slot, draft.top.length - 1)]] ?? exitUpHandle : tokenHandles[draft.bottom[slot - columns]])
-                            : (slot < columns ? tokenHandles[draft.bottom[Math.min(slot, draft.bottom.length - 1)]] ?? exitUpHandle : tokenHandles[draft.more[slot - columns]])) : undefined}
+                          nextFocusUp={isTV ? (top || !above ? exitUpHandle : tokenHandles[above] ?? exitUpHandle) : undefined}
                           onDragStart={startDrag}
                           onDrop={drop}
                         />
@@ -494,11 +518,11 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
                   () => move(activeId, 'top', draft.top.length),
                   'arrow-up',
                 )}
-                {action(
-                  'To bottom',
-                  () => move(activeId, 'bottom', draft.bottom.length),
-                  'arrow-down',
-                )}
+                {BOTTOM_BARS.map(({id, label}) => (
+                  <React.Fragment key={id}>
+                    {action(`To ${label.toLowerCase()}`, () => move(activeId, id, draft[id].length))}
+                  </React.Fragment>
+                ))}
                 {activeId !== 'settings' &&
                   action(
                     'To menu',
@@ -509,7 +533,7 @@ export default function PlayerControlArrangement({layout, hiddenControls, contro
               </>
             ) : (
               <Text style={{color: '#777777', fontSize: 11}}>
-                Top controls use icons. Bottom controls include labels.
+                Fill both bottom sides to split the bar.
               </Text>
             )}
           </View>

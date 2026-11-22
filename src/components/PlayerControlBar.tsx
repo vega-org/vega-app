@@ -72,6 +72,7 @@ type Props = {
   ids: PlayerControlId[];
   controls: PlayerControl[];
   top?: boolean;
+  compact?: boolean;
   appearance?: PlayerControlStyle;
   onEdit: () => void;
   getTVFocusProps: (id: string) => {style?: StyleProp<ViewStyle>};
@@ -84,6 +85,7 @@ export default function PlayerControlBar({
   ids,
   controls,
   top,
+  compact,
   appearance = defaultPlayerControlStyle(),
   onEdit,
   getTVFocusProps,
@@ -162,25 +164,25 @@ export default function PlayerControlBar({
   return (
     <View
       testID="player-control-row-background"
-      style={[backgroundStyle, {width: '100%', overflow: 'hidden'}]}>
+      style={[backgroundStyle, compact ? {maxWidth: '100%'} : {width: '100%'}]}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
         bounces={false}
-        style={{width: '100%'}}
+        style={compact ? {flexGrow: 0} : {width: '100%'}}
         contentContainerStyle={{
           alignItems: 'center',
           justifyContent:
-            appearance.alignment === 'left'
+            compact || appearance.alignment === 'left'
               ? 'flex-start'
               : appearance.alignment === 'right'
                 ? 'flex-end'
                 : appearance.alignment === 'center' || visible.length === 1
                   ? 'center'
                   : 'space-between',
-          flexGrow: 1,
-          minWidth: '100%',
+          flexGrow: compact ? undefined : 1,
+          minWidth: compact ? undefined : '100%',
         }}>
         <View
           testID="player-control-row"
@@ -189,7 +191,7 @@ export default function PlayerControlBar({
               flexDirection: 'row',
               alignItems: 'center',
               flexShrink: 0,
-              flexGrow: appearance.alignment === 'distributed' ? 1 : 0,
+              flexGrow: !compact && appearance.alignment === 'distributed' ? 1 : 0,
               justifyContent: visible.length === 1 ? 'center' : 'space-between',
               columnGap: 20 * appearance.scale,
               paddingHorizontal: BOTTOM_EDGE_PADDING,
@@ -198,6 +200,54 @@ export default function PlayerControlBar({
           {children}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+
+type BottomBarProps = Omit<Props, 'ids' | 'top' | 'compact'> & {
+  left: PlayerControlId[];
+  right: PlayerControlId[];
+};
+
+const SPLIT_ALIGNMENT: Record<
+  PlayerControlStyle['alignment'],
+  ViewStyle['justifyContent']
+> = {
+  distributed: 'space-between',
+  center: 'center',
+  left: 'flex-start',
+  right: 'flex-end',
+};
+
+export function PlayerBottomControlBar({left, right, ...props}: BottomBarProps) {
+  const hasVisibleControls = (ids: PlayerControlId[]) =>
+    props.controls.some(control => control.visible && ids.includes(control.id));
+  const leftVisible = hasVisibleControls(left);
+  const rightVisible = hasVisibleControls(right);
+
+  if (!leftVisible && !rightVisible) return null;
+  if (!leftVisible || !rightVisible) {
+    return <PlayerControlBar {...props} ids={leftVisible ? left : right} />;
+  }
+
+  const alignment = props.appearance?.alignment ?? 'distributed';
+  return (
+    <View
+      testID="player-split-bottom-controls"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: SPLIT_ALIGNMENT[alignment],
+        gap: 12,
+        width: '100%',
+      }}>
+      <View style={{flexShrink: 1, minWidth: 0}}>
+        <PlayerControlBar {...props} ids={left} compact />
+      </View>
+      <View style={{flexShrink: 1, minWidth: 0}}>
+        <PlayerControlBar {...props} ids={right} compact onEntryHandle={undefined} />
+      </View>
     </View>
   );
 }

@@ -131,7 +131,7 @@ import PlayerDelayControl from '../../components/PlayerDelayControl';
 import PlayerSpeedControl from '../../components/PlayerSpeedControl';
 import PlayerSleepControl from '../../components/PlayerSleepControl';
 import PlayerSourceMenu from '../../components/PlayerSourceMenu';
-import PlayerControlBar, {PlayerControl} from '../../components/PlayerControlBar';
+import PlayerControlBar, {PlayerBottomControlBar, PlayerControl} from '../../components/PlayerControlBar';
 import HdrBadge from '../../components/media-console/components/HdrBadge';
 import PlayerControlEditor from '../../components/PlayerControlEditor';
 import {SubtitleQuickStyle} from '../../components/PlayerSubtitleStyleEditor';
@@ -4012,7 +4012,7 @@ const Player = ({route}: Props): React.JSX.Element => {
         <NativeAnimated.View pointerEvents={showControls ? 'auto' : 'none'}
           onLayout={event => setBottomControlHeight(event.nativeEvent.layout.height)}
           style={[controlsStyle, {left: '10%', right: '10%', bottom: 10}]} className="absolute">
-          <PlayerControlBar ids={fittedControlLayout.bottom} controls={toolbarControls}
+          <PlayerBottomControlBar left={fittedControlLayout.bottom} right={fittedControlLayout.bottomRight} controls={toolbarControls}
             nextFocusUp={timelineFocusHandle ?? undefined}
             onEntryHandle={setBottomControlTVHandle}
             onEdit={openControlEditor} appearance={controlStyle} getTVFocusProps={getTVFocusProps} />
