@@ -32,7 +32,7 @@ it('uses the shared Arrange component as a page, saves immediately, and does not
   act(() => {tree = renderer.create(<PlayerControlSettings navigation={{goBack} as any} route={{} as any} />);});
   const arrangement = tree.root.findByType(PlayerControlArrangement);
   expect(arrangement.props.page).toBe(true);
-  expect(arrangement.props.controls).toHaveLength(13);
+  expect(arrangement.props.controls).toEqual(expect.arrayContaining([expect.objectContaining({id: 'rotate'})]));
   expect(settingsStorage.setPlayerControlLayout).not.toHaveBeenCalled();
   const layout = {top: ['lock'], bottom: ['audio'], more: ['settings']};
   act(() => arrangement.props.onChange(layout, ['next']));

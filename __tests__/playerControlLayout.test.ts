@@ -105,3 +105,19 @@ it('keeps legacy layouts single and remembers the Settings control on the right'
   expect(fitted.bottomRight).toContain('decoder');
   expect(fitted.bottomRight.at(-1)).toBe('settings');
 });
+
+
+it('adds Rotate to the existing bottom group for right-only saved layouts', () => {
+  const defaults = defaultPlayerControlLayout();
+  const old = {
+    top: defaults.top,
+    bottom: [],
+    bottomRight: defaults.bottom.filter(id => id !== 'rotate'),
+    more: [],
+  };
+
+  expect(normalizePlayerControlLayout(old)).toEqual({
+    ...old,
+    bottomRight: defaults.bottom,
+  });
+});

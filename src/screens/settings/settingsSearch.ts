@@ -31,6 +31,7 @@ const entries: SearchEntry[] = [
     'Forward buffer', 'Back buffer', 'Faster playback on slow servers'].map(
     (label): SearchEntry => ({label, page: 'Player settings', route: 'PlayerSettings'}),
   ),
+  {label: 'Auto-rotate', page: 'Player settings', route: 'PlayerSettings', keywords: 'auto rotate orientation portrait landscape', phoneOnly: true},
   ...['Ask for local file first', 'Always cast mode'].map(
     (label): SearchEntry => ({label, page: 'Player settings', route: 'PlayerSettings', phoneOnly: true}),
   ),

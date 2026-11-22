@@ -71,6 +71,7 @@ const AnimatedVideoPlayer = (
     ambientVideoSize,
     ambientDisabled = false,
     headerRightInset = 0,
+    onHeaderLayout,
     controlScale = 1,
     seekbarScale = 1,
     playbackSuspended = false,
@@ -1099,6 +1100,7 @@ const AnimatedVideoPlayer = (
                   title={title}
                   headerStatus={headerStatus}
                   headerRightInset={headerRightInset}
+                  onLayout={onHeaderLayout}
                   controlAppearance={props.controlAppearance}
                   controlScale={controlScale}
                   panHandlers={volumePanResponder.panHandlers}

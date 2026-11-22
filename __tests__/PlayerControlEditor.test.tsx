@@ -171,10 +171,20 @@ it('automatically saves visibility and keeps hidden controls available to restor
   const {tree, press, onSave} = makeEditor();
   act(() => tree.root.findAllByProps({accessibilityLabel: 'Move audio'})[0].props.onAccessibilityTap());
   press('Hide control');
-  expect(onSave.mock.calls.at(-1)![1]).toEqual(['audio']);
+  expect(onSave.mock.calls.at(-1)![1]).toEqual(['rotate', 'audio']);
   expect(onSave.mock.calls.at(-1)![0].bottom).toContain('audio');
   press('Show control');
-  expect(onSave.mock.calls.at(-1)![1]).toEqual([]);
+  expect(onSave.mock.calls.at(-1)![1]).toEqual(['rotate']);
+  act(() => tree.unmount());
+});
+
+it('can show Rotate and resets it to hidden', () => {
+  const {tree, press, onSave} = makeEditor();
+  act(() => tree.root.findAllByProps({accessibilityLabel: 'Move rotate'})[0].props.onAccessibilityTap());
+  press('Show control');
+  expect(onSave.mock.calls.at(-1)![1]).not.toContain('rotate');
+  press('Reset');
+  expect(onSave.mock.calls.at(-1)![1]).toContain('rotate');
   act(() => tree.unmount());
 });
 

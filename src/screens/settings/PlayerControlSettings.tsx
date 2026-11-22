@@ -24,6 +24,7 @@ const descriptors: Record<typeof PLAYER_CONTROL_IDS[number], [string, string]> =
   pip: ['Picture in picture', 'picture-in-picture-bottom-right'],
   server: ['Server', 'server'],
   resize: ['Resize', 'aspect-ratio'],
+  rotate: ['Rotate screen', 'screen-rotation'],
   episodes: ['Episodes', 'playlist-play'],
   next: ['Next episode', 'skip-next'],
   settings: ['Settings', 'cog-outline'],

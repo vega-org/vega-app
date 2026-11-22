@@ -33,6 +33,7 @@ import {
   Modal,
   UIManager,
   useWindowDimensions,
+  type LayoutChangeEvent,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -51,11 +52,8 @@ import {
   settingsStorage,
   watchProgressStorage,
 } from '../../lib/storage';
-import Orientation, {
-  OrientationLocker,
-  PORTRAIT,
-  LANDSCAPE,
-} from 'react-native-orientation-locker';
+import Orientation from 'react-native-orientation-locker';
+import {getDeviceOrientationGroup, getPlayerOrientation, type ManualPlayerOrientation} from '../../lib/player/playerOrientation';
 import {SystemBars} from 'react-native-edge-to-edge';
 import VideoPlayer from '../../components/media-console';
 import {playPauseRef} from '../../components/media-console/components/PlayPause/PlayPause';
@@ -362,6 +360,19 @@ const isCastableStreamUrl = (streamUrl: string, streamType?: string) => {
     return false;
   }
 };
+
+function PlayerViewport({portrait, children}: {
+  portrait: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <SafeAreaView
+      edges={portrait ? ['top', 'right', 'bottom', 'left'] : []}
+      className="bg-black flex-1">
+      <View className="flex-1 relative">{children}</View>
+    </SafeAreaView>
+  );
+}
 
 const goFullScreen = () => {
   SystemBars.setHidden(true);
@@ -909,6 +920,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     resetVideoTracks,
   } = useVideoSettings();
   const isFullScreenRef = useRef(isFullScreen);
+  const playerFocusedRef = useRef(false);
   const syncedContinueWatching = useContinueWatchingStore(state =>
     state.items.find(item => item.id === continueWatchingId),
   );
@@ -1095,7 +1107,22 @@ const Player = ({route}: Props): React.JSX.Element => {
   useFocusEffect(useCallback(() => {
     setHiddenControls(settingsStorage.getHiddenPlayerControls());
   }, []));
-  const {width: playerWidth} = useWindowDimensions();
+  const {width: playerWidth, height: playerHeight} = useWindowDimensions();
+  const playerIsPortrait = !isTV && playerHeight > playerWidth;
+  const [autoRotate, setAutoRotate] = useState(() => settingsStorage.isPlayerAutoRotateEnabled());
+  const [manualOrientation, setManualOrientation] = useState<ManualPlayerOrientation | null>(() =>
+    autoRotate ? null : settingsStorage.getPlayerManualOrientation(),
+  );
+  const [portraitToolbarTop, setPortraitToolbarTop] = useState(80);
+  const measurePortraitHeader = useCallback((event: LayoutChangeEvent) => {
+    const {y, height} = event.nativeEvent.layout;
+    setPortraitToolbarTop(Math.ceil(y + height + 8));
+  }, []);
+  useFocusEffect(useCallback(() => {
+    const enabled = settingsStorage.isPlayerAutoRotateEnabled();
+    setAutoRotate(enabled);
+    setManualOrientation(enabled ? null : settingsStorage.getPlayerManualOrientation());
+  }, []));
   const fittedControlLayout = useMemo(
     () => normalizePlayerControlLayout(
       controlLayout,
@@ -1623,22 +1650,43 @@ const Player = ({route}: Props): React.JSX.Element => {
   const isRemoteActiveRef = useRef(isRemoteActive);
   isRemoteActiveRef.current = isRemoteActive;
 
-  useEffect(() => {
-    if (Platform.isTV) return;
-    (navigation as any).setOptions({
-      orientation: isRemoteActive ? 'portrait' : 'landscape',
+  const screenOrientation = getPlayerOrientation({
+    isTV,
+    remote: isRemoteActive,
+    autoRotate,
+    manual: manualOrientation,
+  });
+  useFocusEffect(useCallback(() => {
+    navigation.setOptions({
+      orientation: screenOrientation,
       statusBarHidden: !isRemoteActive,
       navigationBarHidden: !isRemoteActive,
       autoHideHomeIndicator: !isRemoteActive,
     });
-    if (isRemoteActive) {
-      Orientation.lockToPortrait();
-      exitFullScreen();
-    } else {
-      Orientation.lockToLandscape();
-      goFullScreen();
-    }
-  }, [isRemoteActive, navigation]);
+  }, [isRemoteActive, navigation, screenOrientation]));
+
+  useFocusEffect(useCallback(() => {
+    if (isTV || isRemoteActive || !autoRotate) return;
+
+    let active = true;
+    let previous: ManualPlayerOrientation | null = null;
+    const onDeviceOrientation = (orientation: string) => {
+      const next = getDeviceOrientationGroup(orientation);
+      if (!next) return;
+      // Auto-rotate resumes when the device is physically turned after a manual rotation.
+      if (previous && previous !== next) setManualOrientation(null);
+      previous = next;
+    };
+    Orientation.addDeviceOrientationListener(onDeviceOrientation);
+    Orientation.getDeviceOrientation(orientation => {
+      if (active && previous === null) onDeviceOrientation(orientation);
+    });
+    return () => {
+      active = false;
+      Orientation.removeDeviceOrientationListener(onDeviceOrientation);
+    };
+  }, [autoRotate, isRemoteActive]));
+
   const [isResolvingStream, setIsResolvingStream] = useState(false);
   const progressIntervalRef = useRef<any>(null);
   const [torrentState, setTorrentState] = useState<string>('');
@@ -2649,63 +2697,27 @@ const Player = ({route}: Props): React.JSX.Element => {
     setToast,
   ]);
 
-  // Enter landscape or portrait (when remote active) and fullscreen on mount & focus
-  useFocusEffect(
-    useCallback(() => {
-      if (isRemoteActive) {
-        Orientation.lockToPortrait();
-        exitFullScreen();
-        return () => {
-          if (!Platform.isTV) {
-            Orientation.lockToPortrait();
-          } else {
-            Orientation.unlockAllOrientations();
-          }
-        };
-      }
-
-      Orientation.lockToLandscape();
-      goFullScreen();
+  useFocusEffect(useCallback(() => {
+    playerFocusedRef.current = true;
+    if (isRemoteActive) {
+      exitFullScreen();
+    } else {
       reapplyFullscreenMode(
         isFullScreenRef.current,
-        () => !isRemoteActiveRef.current && isFullScreenRef.current,
+        () => playerFocusedRef.current && !isRemoteActiveRef.current && isFullScreenRef.current,
       );
-
-      return () => {
-        if (!Platform.isTV) {
-          Orientation.lockToPortrait();
-        } else {
-          Orientation.unlockAllOrientations();
-        }
-        exitFullScreen();
-      };
-    }, [isRemoteActive]),
-  );
-
-  useEffect(() => {
-    if (isRemoteActive) {
-      Orientation.lockToPortrait();
-      exitFullScreen();
-      return () => {
-        if (!Platform.isTV) {
-          Orientation.lockToPortrait();
-        } else {
-          Orientation.unlockAllOrientations();
-        }
-      };
     }
 
-    Orientation.lockToLandscape();
-    goFullScreen();
     return () => {
-      if (!Platform.isTV) {
-        Orientation.lockToPortrait();
-      } else {
+      playerFocusedRef.current = false;
+      if (isTV) {
         Orientation.unlockAllOrientations();
+      } else {
+        Orientation.lockToPortrait();
       }
       exitFullScreen();
     };
-  }, [isRemoteActive]);
+  }, [isRemoteActive]));
 
   useEffect(() => {
     isFullScreenRef.current = isFullScreen;
@@ -2713,13 +2725,14 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   // The portrait remote screen keeps the system bars; only local playback is immersive.
   const applyPlayerSystemBars = useCallback(() => {
+    if (!playerFocusedRef.current) return;
     if (isRemoteActiveRef.current) {
       exitFullScreen();
       return;
     }
     reapplyFullscreenMode(
       isFullScreenRef.current,
-      () => !isRemoteActiveRef.current && isFullScreenRef.current,
+      () => playerFocusedRef.current && !isRemoteActiveRef.current && isFullScreenRef.current,
     );
   }, []);
 
@@ -3151,8 +3164,6 @@ const Player = ({route}: Props): React.JSX.Element => {
       seekColor: primary,
       showDuration: true,
       toggleResizeModeOnFullscreen: false,
-      fullscreenOrientation: 'landscape' as const,
-      fullscreenAutorotate: true,
       onShowControls: handleShowControls,
       onHideControls: handleHideControls,
       rewindTime: settingsStorage.getSeekInterval(),
@@ -3456,6 +3467,19 @@ const Player = ({route}: Props): React.JSX.Element => {
       onPress: handleResizeMode,
     },
     {
+      id: 'rotate',
+      title: playerIsPortrait ? 'Rotate to landscape' : 'Rotate to portrait',
+      label: 'Rotate',
+      icon: 'screen-rotation',
+      visible: !isTV,
+      onPress: () => {
+        const next = playerIsPortrait ? 'landscape' : 'portrait_up';
+        settingsStorage.setPlayerManualOrientation(next);
+        setManualOrientation(next);
+        setShowControls(true);
+      },
+    },
+    {
       id: 'episodes',
       title: 'Episodes',
       label: 'Episodes',
@@ -3512,7 +3536,6 @@ const Player = ({route}: Props): React.JSX.Element => {
         className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         {/* Same back arrow as the main player's top-left control */}
         <SafeAreaView
           style={{position: 'absolute', top: 0, left: 0, padding: 8}}>
@@ -3584,7 +3607,6 @@ const Player = ({route}: Props): React.JSX.Element => {
         className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         {/* create ripple effect */}
         <TouchableNativeFeedback
           background={TouchableNativeFeedback.Ripple(
@@ -3617,7 +3639,6 @@ const Player = ({route}: Props): React.JSX.Element => {
       <SafeAreaView className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         <Text className="text-red-500 text-lg text-center mb-4">
           Failed to load stream. Please try again.
         </Text>
@@ -3644,22 +3665,15 @@ const Player = ({route}: Props): React.JSX.Element => {
     );
   }
 
+  const portraitPlayback = playerIsPortrait && !isRemoteActive;
+  const actionBottom = portraitPlayback
+    ? Math.max(95, Math.ceil(10 + bottomControlHeight + 40 * controlStyle.scale))
+    : 95;
+  const compactSettingsTab = activeTab === 'speed' || activeTab === 'sleep';
   return (
-    <SafeAreaView
-      edges={{
-        right: 'off',
-        top: 'off',
-        left: 'off',
-        bottom: 'off',
-      }}
-      className="bg-black flex-1 relative">
+    <PlayerViewport portrait={portraitPlayback}>
       <SystemBars hidden={!isRemoteActive && isFullScreen} />
       <StatusBar translucent={true} hidden={!isRemoteActive} />
-      {isRemoteActive ? (
-        <OrientationLocker orientation={PORTRAIT} />
-      ) : (
-        <OrientationLocker orientation={LANDSCAPE} />
-      )}
 
       {/* Local or Remote player */}
       {isRemoteActive ? (
@@ -3772,7 +3786,7 @@ const Player = ({route}: Props): React.JSX.Element => {
           onSkipPress={handleRemoteSkip}
         />
       ) : processedStreamUrl ? (
-        <VideoPlayer {...videoPlayerProps} controlAppearance={controlStyle} subtitleStyle={playbackSubtitleStyle} nativeVideoViewRef={nativeVideoViewRef} headerStatus={torrentHeaderStatus} headerRightInset={toolbarHeaderInset} playbackSuspended={editingControls} controlScale={controlStyle.scale} seekbarScale={controlStyle.seekbarScale} ambientVideoSize={loadedVideoSize} ambientDisabled={isCasting} />
+        <VideoPlayer {...videoPlayerProps} controlAppearance={controlStyle} subtitleStyle={playbackSubtitleStyle} nativeVideoViewRef={nativeVideoViewRef} headerStatus={torrentHeaderStatus} headerRightInset={portraitPlayback ? 0 : toolbarHeaderInset} onHeaderLayout={portraitPlayback ? measurePortraitHeader : undefined} playbackSuspended={editingControls} controlScale={controlStyle.scale} seekbarScale={controlStyle.seekbarScale} ambientVideoSize={loadedVideoSize} ambientDisabled={isCasting} />
       ) : (
         <View className="flex-1 justify-center items-center">
           <Animated.View style={[loadingContainerStyle]}>
@@ -3958,6 +3972,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       {!isCasting && (
         <LockAnimatedView
           style={[isPlayerLocked ? lockButtonStyle : [controlsTopStyle, controlsOpacityStyle],
+            portraitPlayback && !isPlayerLocked && {top: portraitToolbarTop, right: 12},
             (streamLoading || editingControls) && {display: 'none'}]}
           className="absolute top-3 right-5 z-50"
           pointerEvents={!streamLoading && !editingControls && (isPlayerLocked ? showUnlockButton : showControls) && !showSettings && !showEpisodeSidebar ? 'box-none' : 'none'}>
@@ -4011,7 +4026,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       {!isCasting && !isPlayerLocked && !showSettings && !showEpisodeSidebar && !editingControls && (
         <NativeAnimated.View pointerEvents={showControls ? 'auto' : 'none'}
           onLayout={event => setBottomControlHeight(event.nativeEvent.layout.height)}
-          style={[controlsStyle, {left: '10%', right: '10%', bottom: 10}]} className="absolute">
+          style={[controlsStyle, {left: portraitPlayback ? 8 : '10%', right: portraitPlayback ? 8 : '10%', bottom: 10}]} className="absolute">
           <PlayerBottomControlBar left={fittedControlLayout.bottom} right={fittedControlLayout.bottomRight} controls={toolbarControls}
             nextFocusUp={timelineFocusHandle ?? undefined}
             onEntryHandle={setBottomControlTVHandle}
@@ -4035,7 +4050,7 @@ const Player = ({route}: Props): React.JSX.Element => {
             controlsOpacityStyle,
             {
               position: 'absolute',
-              bottom: 95,
+              bottom: actionBottom,
               right: 28,
               zIndex: 65,
             },
@@ -4058,7 +4073,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       )}
 
       {autoNextVisible && !isCasting && !streamLoading && (
-        <View style={{position: 'absolute', bottom: 95, right: 28, zIndex: 70}}>
+        <View style={{position: 'absolute', bottom: actionBottom, right: 28, zIndex: 70}}>
           <AutoNextOverlay
             seconds={AUTO_NEXT_COUNTDOWN_SECONDS}
             focusColor={primary}
@@ -4107,9 +4122,10 @@ const Player = ({route}: Props): React.JSX.Element => {
                 isTVSelectable={false}
                 style={{
                   padding: 12,
-                  width: activeTab === 'speed' || activeTab === 'sleep' ? 520 : 640,
-                  maxWidth: '92%',
-                  height: activeTab === 'speed' || activeTab === 'sleep' ? 240 : 330,
+                  width: compactSettingsTab ? 520 : 640,
+                  maxWidth: portraitPlayback ? '96%' : '92%',
+                  maxHeight: '90%',
+                  height: compactSettingsTab ? 240 : portraitPlayback ? Math.min(520, playerHeight * 0.65) : 330,
                   borderTopLeftRadius: 24,
                   borderTopRightRadius: 24,
                   flexDirection: 'row',
@@ -4472,7 +4488,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                   right: 0,
                   bottom: 0,
                   width: 360,
-                  maxWidth: '80%',
+                  maxWidth: portraitPlayback ? '94%' : '80%',
                   backgroundColor: 'rgba(14, 14, 14, 0.96)',
                   borderLeftWidth: 1,
                   borderColor: 'rgba(255, 255, 255, 0.12)',
@@ -4633,7 +4649,7 @@ const Player = ({route}: Props): React.JSX.Element => {
             </Animated.View>
           </>
         )}
-    </SafeAreaView>
+    </PlayerViewport>
   );
 };
 

@@ -34,6 +34,7 @@ export default function PlayerSettings({navigation}: Props) {
   const [defaultResizeMode, setDefaultResizeMode] = useState(() =>
     settingsStorage.getDefaultResizeMode(),
   );
+  const [autoRotate, setAutoRotate] = useState(() => settingsStorage.isPlayerAutoRotateEnabled());
   const [playbackSpeed, setPlaybackSpeed] = useState(() => settingsStorage.getPlaybackSpeed());
   const [showMediaControls, setShowMediaControls] = useState<boolean>(() =>
     settingsStorage.showMediaControls(),
@@ -198,6 +199,17 @@ export default function PlayerSettings({navigation}: Props) {
             )}
           </SettingsSection>
           <SettingsSection title="Playback">
+            {!isTV && (
+              <SettingsSwitchRow
+                title="Auto-rotate"
+                description="Rotate the player when you turn your device"
+                value={autoRotate}
+                onValueChange={enabled => {
+                  settingsStorage.setPlayerAutoRotateEnabled(enabled);
+                  setAutoRotate(enabled);
+                }}
+              />
+            )}
             <View
               className="px-4 py-3"
               style={{

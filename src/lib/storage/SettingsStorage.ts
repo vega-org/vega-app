@@ -58,6 +58,9 @@ export enum SettingsKeys {
   PLAYBACK_SPEED = 'playbackSpeed',
   DEFAULT_RESIZE_MODE = 'defaultResizeMode',
   PLAYER_CONTROL_LAYOUT = 'playerControlLayout',
+  SHOW_PLAYER_ROTATE = 'showPlayerRotate',
+  PLAYER_AUTO_ROTATE = 'playerAutoRotate',
+  PLAYER_MANUAL_ORIENTATION = 'playerManualOrientation',
   PLAYER_CONTROL_STYLE = 'playerControlStyle',
   HIDDEN_PLAYER_CONTROLS = 'hiddenPlayerControls',
 
@@ -622,14 +625,33 @@ export class SettingsStorage {
     }
   }
 
+  getPlayerManualOrientation(): 'portrait_up' | 'landscape' {
+    return mainStorage.getString(SettingsKeys.PLAYER_MANUAL_ORIENTATION) === 'portrait_up'
+      ? 'portrait_up'
+      : 'landscape';
+  }
+
+  setPlayerManualOrientation(orientation: 'portrait_up' | 'landscape'): void {
+    mainStorage.setString(SettingsKeys.PLAYER_MANUAL_ORIENTATION, orientation);
+  }
+
+  isPlayerAutoRotateEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.PLAYER_AUTO_ROTATE, false);
+  }
+
+  setPlayerAutoRotateEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.PLAYER_AUTO_ROTATE, enabled);
+  }
+
   getHiddenPlayerControls(): PlayerControlId[] {
     const saved = mainStorage.getArray<string>(SettingsKeys.HIDDEN_PLAYER_CONTROLS) || [];
     const hidden = new Set<PlayerControlId>((Array.isArray(saved) ? saved : []).filter(id =>
-      PLAYER_CONTROL_IDS.includes(id as PlayerControlId) && id !== 'sleep' && id !== 'episodes',
+      PLAYER_CONTROL_IDS.includes(id as PlayerControlId) && id !== 'sleep' && id !== 'episodes' && id !== 'rotate',
     ) as PlayerControlId[]);
     // Preserve the legacy visibility keys used by existing backups and Arrange.
     if (!this.showSleepTimer()) hidden.add('sleep');
     if (!this.showPlayerEpisodeSidebar()) hidden.add('episodes');
+    if (!mainStorage.getBool(SettingsKeys.SHOW_PLAYER_ROTATE, false)) hidden.add('rotate');
     return [...hidden];
   }
 
@@ -637,7 +659,10 @@ export class SettingsStorage {
     const ids = new Set(hidden.filter(id => PLAYER_CONTROL_IDS.includes(id)));
     this.setShowSleepTimer(!ids.has('sleep'));
     this.setShowPlayerEpisodeSidebar(!ids.has('episodes'));
-    mainStorage.setArray(SettingsKeys.HIDDEN_PLAYER_CONTROLS, [...ids].filter(id => id !== 'sleep' && id !== 'episodes'));
+    mainStorage.setBool(SettingsKeys.SHOW_PLAYER_ROTATE, !ids.has('rotate'));
+    mainStorage.setArray(SettingsKeys.HIDDEN_PLAYER_CONTROLS, [...ids].filter(id =>
+      id !== 'sleep' && id !== 'episodes' && id !== 'rotate',
+    ));
   }
 
   setPlayerControlLayout(layout: PlayerControlLayout): void {
