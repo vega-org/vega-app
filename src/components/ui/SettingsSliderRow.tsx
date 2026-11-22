@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from './SettingsSearchTarget';
 import {registerInteractionCommit} from '../../lib/performance/idleWork';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {Host, Slider} from '@expo/ui/jetpack-compose';
@@ -111,172 +112,174 @@ const SettingsSliderRow = ({
   const display = valueDisplay !== undefined ? valueDisplay : value;
 
   return (
-    <View
-      className="px-4 py-3"
-      style={{
-        borderBottomColor: colors.outlineVariant,
-        borderBottomWidth: divider ? 1 : 0,
-      }}>
-      <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center flex-1 mr-2">
-          {icon ? (
-            <View
-              className="mr-4 h-10 w-10 items-center justify-center rounded-full"
-              style={{backgroundColor: colors.secondaryContainer}}>
-              <MaterialCommunityIcons
-                name={icon}
-                size={21}
-                color={colors.onSecondaryContainer}
-                pointerEvents="none"
-              />
-            </View>
-          ) : null}
-          <View className="flex-1">
-            <AppText role="bodyLarge" className="text-m3-on-surface">
-              {title}
-            </AppText>
-            {description ? (
-              <AppText
-                role="bodySmall"
-                className="mt-0.5 text-m3-on-surface-variant">
-                {description}
-              </AppText>
+    <SettingsSearchAnchor label={title}>
+      <View
+        className="px-4 py-3"
+        style={{
+          borderBottomColor: colors.outlineVariant,
+          borderBottomWidth: divider ? 1 : 0,
+        }}>
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center flex-1 mr-2">
+            {icon ? (
+              <View
+                className="mr-4 h-10 w-10 items-center justify-center rounded-full"
+                style={{backgroundColor: colors.secondaryContainer}}>
+                <MaterialCommunityIcons
+                  name={icon}
+                  size={21}
+                  color={colors.onSecondaryContainer}
+                  pointerEvents="none"
+                />
+              </View>
             ) : null}
+            <View className="flex-1">
+              <AppText role="bodyLarge" className="text-m3-on-surface">
+                {title}
+              </AppText>
+              {description ? (
+                <AppText
+                  role="bodySmall"
+                  className="mt-0.5 text-m3-on-surface-variant">
+                  {description}
+                </AppText>
+              ) : null}
+            </View>
+          </View>
+          <View
+            className="items-center rounded-full px-2.5 py-1"
+            style={{backgroundColor: colors.surfaceContainerHighest}}>
+            <AppText
+              role="titleSmall"
+              style={{color: colors.primary, fontWeight: '700'}}>
+              {display}
+            </AppText>
+            {/* Zero-height copy of the widest value: keeps the chip at least that
+                wide without adding height. */}
+            <AppText
+              role="titleSmall"
+              aria-hidden
+              style={{fontWeight: '700', height: 0, opacity: 0}}>
+              {widestValue ?? String(max)}
+            </AppText>
           </View>
         </View>
-        <View
-          className="items-center rounded-full px-2.5 py-1"
-          style={{backgroundColor: colors.surfaceContainerHighest}}>
-          <AppText
-            role="titleSmall"
-            style={{color: colors.primary, fontWeight: '700'}}>
-            {display}
-          </AppText>
-          {/* Zero-height copy of the widest value: keeps the chip at least that
-              wide without adding height. */}
-          <AppText
-            role="titleSmall"
-            aria-hidden
-            style={{fontWeight: '700', height: 0, opacity: 0}}>
-            {widestValue ?? String(max)}
-          </AppText>
-        </View>
-      </View>
-      <View className="mt-2 w-full">
-        {isTV ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingVertical: 6,
-            }}>
-            <TVFocusable
-              ref={decreaseRef}
-              onLayout={() =>
-                setDecreaseHandle(findNodeHandle(decreaseRef.current))
-              }
-              nextFocusRight={increaseHandle}
-              onPress={() => {
-                const s = step && step > 0 ? step : 1;
-                const next = Math.max(min, Math.round((value - s) * 100) / 100);
-                handleValueChange(next);
-                handleValueChangeFinished();
-              }}
-              borderRadius={20}
-              focusScale={1.1}
-              accessibilityRole="button"
-              accessibilityLabel={`Decrease ${title}`}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: colors.surfaceContainerHigh,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-              <MaterialCommunityIcons
-                name="minus"
-                size={24}
-                color={colors.onSurface}
-              />
-            </TVFocusable>
-
+        <View className="mt-2 w-full">
+          {isTV ? (
             <View
               style={{
-                flex: 1,
-                marginHorizontal: 16,
-                height: 8,
-                backgroundColor: colors.surfaceContainerHighest,
-                borderRadius: 4,
-                overflow: 'hidden',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingVertical: 6,
               }}>
+              <TVFocusable
+                ref={decreaseRef}
+                onLayout={() =>
+                  setDecreaseHandle(findNodeHandle(decreaseRef.current))
+                }
+                nextFocusRight={increaseHandle}
+                onPress={() => {
+                  const s = step && step > 0 ? step : 1;
+                  const next = Math.max(min, Math.round((value - s) * 100) / 100);
+                  handleValueChange(next);
+                  handleValueChangeFinished();
+                }}
+                borderRadius={20}
+                focusScale={1.1}
+                accessibilityRole="button"
+                accessibilityLabel={`Decrease ${title}`}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: colors.surfaceContainerHigh,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                <MaterialCommunityIcons
+                  name="minus"
+                  size={24}
+                  color={colors.onSurface}
+                />
+              </TVFocusable>
+
               <View
                 style={{
-                  height: '100%',
-                  width: `${Math.min(100, Math.max(0, ((value - min) / Math.max(max - min, 1)) * 100))}%`,
-                  backgroundColor: colors.primary,
+                  flex: 1,
+                  marginHorizontal: 16,
+                  height: 8,
+                  backgroundColor: colors.surfaceContainerHighest,
                   borderRadius: 4,
-                }}
-              />
-            </View>
+                  overflow: 'hidden',
+                }}>
+                <View
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, ((value - min) / Math.max(max - min, 1)) * 100))}%`,
+                    backgroundColor: colors.primary,
+                    borderRadius: 4,
+                  }}
+                />
+              </View>
 
-            <TVFocusable
-              ref={increaseRef}
-              onLayout={() =>
-                setIncreaseHandle(findNodeHandle(increaseRef.current))
-              }
-              nextFocusLeft={decreaseHandle}
-              onPress={() => {
-                const s = step && step > 0 ? step : 1;
-                const next = Math.min(max, Math.round((value + s) * 100) / 100);
-                handleValueChange(next);
-                handleValueChangeFinished();
-              }}
-              borderRadius={20}
-              focusScale={1.1}
-              accessibilityRole="button"
-              accessibilityLabel={`Increase ${title}`}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: colors.surfaceContainerHigh,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-              <MaterialCommunityIcons
-                name="plus"
-                size={24}
-                color={colors.onSurface}
+              <TVFocusable
+                ref={increaseRef}
+                onLayout={() =>
+                  setIncreaseHandle(findNodeHandle(increaseRef.current))
+                }
+                nextFocusLeft={decreaseHandle}
+                onPress={() => {
+                  const s = step && step > 0 ? step : 1;
+                  const next = Math.min(max, Math.round((value + s) * 100) / 100);
+                  handleValueChange(next);
+                  handleValueChangeFinished();
+                }}
+                borderRadius={20}
+                focusScale={1.1}
+                accessibilityRole="button"
+                accessibilityLabel={`Increase ${title}`}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: colors.surfaceContainerHigh,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                <MaterialCommunityIcons
+                  name="plus"
+                  size={24}
+                  color={colors.onSurface}
+                />
+              </TVFocusable>
+            </View>
+          ) : (
+            <Host
+              matchContents={{vertical: true}}
+              style={{width: '100%'}}
+              {...hostTheme}>
+              <Slider
+                value={value}
+                min={min}
+                max={max}
+                steps={steps}
+                colors={{
+                  thumbColor: colors.primary,
+                  activeTrackColor: colors.primary,
+                  inactiveTrackColor: colors.surfaceContainerHighest,
+                  activeTickColor: colors.onPrimary,
+                  inactiveTickColor: colors.outlineVariant,
+                }}
+                onValueChange={handleValueChange}
+                onValueChangeFinished={handleValueChangeFinished}
+                modifiers={[fillMaxWidth()]}
               />
-            </TVFocusable>
-          </View>
-        ) : (
-          <Host
-            matchContents={{vertical: true}}
-            style={{width: '100%'}}
-            {...hostTheme}>
-            <Slider
-              value={value}
-              min={min}
-              max={max}
-              steps={steps}
-              colors={{
-                thumbColor: colors.primary,
-                activeTrackColor: colors.primary,
-                inactiveTrackColor: colors.surfaceContainerHighest,
-                activeTickColor: colors.onPrimary,
-                inactiveTickColor: colors.outlineVariant,
-              }}
-              onValueChange={handleValueChange}
-              onValueChangeFinished={handleValueChangeFinished}
-              modifiers={[fillMaxWidth()]}
-            />
-          </Host>
-        )}
+            </Host>
+          )}
+        </View>
       </View>
-    </View>
+    </SettingsSearchAnchor>
   );
 };
 

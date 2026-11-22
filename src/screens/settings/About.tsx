@@ -1,5 +1,6 @@
+import {SettingsSearchScrollView} from '../../components/ui/SettingsSearchTarget';
 import {useFocusEffect} from '@react-navigation/native';
-import {View, ScrollView, ToastAndroid, Linking, BackHandler, findNodeHandle} from 'react-native';
+import {View, ToastAndroid, Linking, BackHandler, findNodeHandle} from 'react-native';
 // import pkg from '../../../package.json';
 import React, {useState, useEffect, useRef, useCallback} from 'react';
 import {settingsStorage} from '../../lib/storage';
@@ -328,7 +329,7 @@ const About = ({navigation}: any) => {
 
   return (
     <TVFocusGuide autoFocus={true} trapFocusRight={true} trapFocusDown={true} style={{flex: 1}}>
-      <ScrollView
+      <SettingsSearchScrollView
         focusable={false}
         accessible={false}
         style={{flex: 1, backgroundColor: colors.background}}
@@ -453,7 +454,7 @@ const About = ({navigation}: any) => {
             />
           </SettingsSection>
         )}
-      </ScrollView>
+      </SettingsSearchScrollView>
       {!isPlayStore && channelChooserOpen && (
         <SettingsChoiceDialog
           title="Update channel"

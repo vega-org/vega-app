@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from './SettingsSearchTarget';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import React, {ReactNode} from 'react';
 import {findNodeHandle, Platform, Pressable, View} from 'react-native';
@@ -58,50 +59,52 @@ const SettingsRow = React.forwardRef<View, SettingsRowProps>(({
   }, [onFocus, rowRef]);
 
   const renderContent = (isFocused: boolean) => (
-    <View
-      className="min-h-16 flex-row items-center px-4 py-3"
-      style={{
-        backgroundColor: isFocused
-          ? colors.surfaceContainerHighest
-          : 'transparent',
-        borderRadius: isFocused ? 12 : 0,
-        borderBottomColor: divider ? colors.outlineVariant : 'transparent',
-        borderBottomWidth: divider ? 1 : 0,
-      }}>
-      {icon ? (
-        <View
-          className="mr-4 h-10 w-10 items-center justify-center rounded-full"
-          style={{backgroundColor: colors.secondaryContainer}}>
-          <MaterialCommunityIcons
-            name={icon}
-            size={21}
-            color={colors.onSecondaryContainer}
-            pointerEvents="none"
-          />
-        </View>
-      ) : null}
-      <View className="mr-3 flex-1">
-        <AppText role="bodyLarge" className="text-m3-on-surface">
-          {title}
-        </AppText>
-        {description ? (
-          <AppText
-            role="bodySmall"
-            className="mt-1 text-m3-on-surface-variant">
-            {description}
-          </AppText>
+    <SettingsSearchAnchor label={title}>
+      <View
+        className="min-h-16 flex-row items-center px-4 py-3"
+        style={{
+          backgroundColor: isFocused
+            ? colors.surfaceContainerHighest
+            : 'transparent',
+          borderRadius: isFocused ? 12 : 0,
+          borderBottomColor: divider ? colors.outlineVariant : 'transparent',
+          borderBottomWidth: divider ? 1 : 0,
+        }}>
+        {icon ? (
+          <View
+            className="mr-4 h-10 w-10 items-center justify-center rounded-full"
+            style={{backgroundColor: colors.secondaryContainer}}>
+            <MaterialCommunityIcons
+              name={icon}
+              size={21}
+              color={colors.onSecondaryContainer}
+              pointerEvents="none"
+            />
+          </View>
         ) : null}
+        <View className="mr-3 flex-1">
+          <AppText role="bodyLarge" className="text-m3-on-surface">
+            {title}
+          </AppText>
+          {description ? (
+            <AppText
+              role="bodySmall"
+              className="mt-1 text-m3-on-surface-variant">
+              {description}
+            </AppText>
+          ) : null}
+        </View>
+        {trailing ??
+          (onPress ? (
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={22}
+              color={colors.onSurfaceVariant}
+              pointerEvents="none"
+            />
+          ) : null)}
       </View>
-      {trailing ??
-        (onPress ? (
-          <MaterialCommunityIcons
-            name="chevron-right"
-            size={22}
-            color={colors.onSurfaceVariant}
-            pointerEvents="none"
-          />
-        ) : null)}
-    </View>
+    </SettingsSearchAnchor>
   );
 
   if (isTV && onPress) {

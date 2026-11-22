@@ -123,6 +123,7 @@ import RenderProviderFlagIcon from '../../components/RenderProviderFLagIcon';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
 import GitHubStarButton from './components/GitHubStarButton';
 import DnsPreference from './components/DnsPreference';
+import Button from '../../components/ui/Button';
 import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import AppText from '../../components/ui/Text';
@@ -142,6 +143,22 @@ const AnimatedSection = ({
 
 const Settings = ({navigation}: Props) => {
   const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchFocused, setSearchFocused] = React.useState(false);
+  const [searchHistory, setSearchHistory] = React.useState(
+    () => settingsStorage.getSettingsSearchHistory(),
+  );
+  const searchInputRef = React.useRef<TextInput>(null);
+  const saveSearch = () => {
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    const next = [
+      query,
+      ...searchHistory.filter(item => item.toLowerCase() !== query.toLowerCase()),
+    ].slice(0, 10);
+    settingsStorage.setSettingsSearchHistory(next);
+    setSearchHistory(next);
+  };
   const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
   const results = searchSettings(searchQuery, {isTV, isPlayStore});
   const searching = searchQuery.trim().length > 0;
@@ -174,7 +191,8 @@ const Settings = ({navigation}: Props) => {
 
   useFocusEffect(
     useCallback(() => {
-      if (!isTV) return;
+      if (!isTV) return () => setSearchFocused(false);
+
       const backAction = () => {
         const currentlyFocused =
           (TextInput as any).currentlyFocusedInput?.() ||
@@ -195,7 +213,10 @@ const Settings = ({navigation}: Props) => {
         'hardwareBackPress',
         backAction,
       );
-      return () => backHandler.remove();
+      return () => {
+        backHandler.remove();
+        setSearchFocused(false);
+      };
     }, [navigation, tabNavigation]),
   );
 
@@ -269,7 +290,13 @@ const Settings = ({navigation}: Props) => {
               }}>
               <MaterialIcons name="search" size={22} color={colors.onSurfaceVariant} />
               <TextInput
+                ref={searchInputRef}
                 accessibilityLabel="Search settings"
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => {
+                  if (!isTV) setSearchFocused(false);
+                }}
+                onSubmitEditing={saveSearch}
                 autoCorrect={false}
                 onChangeText={setSearchQuery}
                 placeholder="Search settings"
@@ -282,7 +309,10 @@ const Settings = ({navigation}: Props) => {
                 <TVFocusable
                   accessibilityLabel="Clear settings search"
                   accessibilityRole="button"
-                  onPress={() => setSearchQuery('')}
+                  onPress={() => {
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
                   style={{alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44}}>
                   <MaterialIcons name="close" size={22} color={colors.onSurfaceVariant} />
                 </TVFocusable>
@@ -300,8 +330,18 @@ const Settings = ({navigation}: Props) => {
                       description={result.page}
                       divider={index < results.length - 1}
                       onPress={() => {
+                        saveSearch();
                         Keyboard.dismiss();
-                        navigation.navigate(result.route);
+                        switch (result.route) {
+                          case 'Settings':
+                          case 'Extensions':
+                          case 'DownloadsStack':
+                          case 'PlayerControlSettings':
+                            navigation.navigate(result.route);
+                            break;
+                          default:
+                            navigation.navigate(result.route, {setting: result.target ?? (result.label === result.page || result.page === 'Vega' ? undefined : result.label)});
+                        }
                       }}
                     />
                   ))}
@@ -311,6 +351,34 @@ const Settings = ({navigation}: Props) => {
                   No matching settings
                 </AppText>
               )
+            ) : searchFocused && searchHistory.length > 0 ? (
+              <>
+                <SettingsSection title="Recent searches">
+                  {searchHistory.map((query, index) => (
+                    <SettingsRow
+                      key={query}
+                      title={query}
+                      icon="history"
+                      divider={index < searchHistory.length - 1}
+                      onPress={() => {
+                        setSearchQuery(query);
+                        Keyboard.dismiss();
+                      }}
+                    />
+                  ))}
+                </SettingsSection>
+                <View style={{alignItems: 'center'}}>
+                  <Button
+                    variant="text"
+                    onPress={() => {
+                      settingsStorage.setSettingsSearchHistory([]);
+                      setSearchHistory([]);
+                      if (isTV) searchInputRef.current?.focus();
+                    }}>
+                    Clear search history
+                  </Button>
+                </View>
+              </>
             ) : (
               <>
                 {/* Content provider section */}

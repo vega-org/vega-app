@@ -4,6 +4,7 @@ type SearchEntry = {
   label: string;
   page: string;
   route: Exclude<keyof SettingsStackParamList, 'DisableProviders'>;
+  target?: string;
   keywords?: string;
   standalone?: boolean;
   phoneOnly?: boolean;
@@ -21,7 +22,7 @@ const entries: SearchEntry[] = [
     'Disable drawer', 'External downloader', 'Skip in-app webview', 'Excluded qualities',
     'TMDB API key', 'Download location', 'Reset download location', 'Connections per download',
     'Automatically try next server'].map(
-    (label): SearchEntry => ({label, page: 'Preferences', route: 'Preferences'}),
+    (label): SearchEntry => ({label, page: 'Preferences', route: 'Preferences', target: label === 'TMDB API key' ? 'Custom TMDB API key' : undefined}),
   ),
   ...['Player settings', 'Open videos from other apps', 'Playback speed', 'Ambient lighting',
     'Ambient intensity', 'Ambient spread', 'Ambient responsiveness', 'External player',

@@ -1,6 +1,7 @@
 import React from 'react';
-import {FlatList, ScrollView, View} from 'react-native';
+import {FlatList, View} from 'react-native';
 import {isTV} from '../../lib/tv';
+import {SettingsSearchScrollView, useSettingsSearchTarget} from './SettingsSearchTarget';
 import SettingsSection from './SettingsSection';
 import Surface from './Surface';
 import AppText from './Text';
@@ -17,22 +18,26 @@ export const flattenSettingsChildren = (children: React.ReactNode): React.ReactN
 
 // Row and section windowing keeps native controls outside the initial viewport
 // out of the cold mount. TV retains a continuous tree for directional focus.
-const SettingsPage = ({children}: {children: React.ReactNode}) => {
+const SettingsPage = ({children, searchFallback}: {
+  children: React.ReactNode;
+  searchFallback?: Readonly<Record<string, string>>;
+}) => {
+  const searchTarget = useSettingsSearchTarget();
   const [ready, setReady] = React.useState(isTV);
   React.useEffect(() => {
-    if (isTV) return;
+    if (isTV || searchTarget) return;
     // Keep native control mounts out of the navigation animation.
     return scheduleWhenIdle(() => setReady(true), 0, true);
-  }, []);
+  }, [searchTarget]);
   const items = flattenSettingsChildren(children);
-  if (isTV) {
+  if (isTV || searchTarget) {
     return (
-      <ScrollView focusable={false} accessible={false}
+      <SettingsSearchScrollView searchFallback={searchFallback} focusable={false} accessible={false}
         className="h-full w-full bg-m3-background"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{paddingBottom: 40, paddingTop: 20}}>
         <View style={{paddingHorizontal: 20}}>{items}</View>
-      </ScrollView>
+      </SettingsSearchScrollView>
     );
   }
   const rows = items.flatMap<React.ReactNode>(item => {

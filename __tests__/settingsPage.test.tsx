@@ -1,6 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import renderer, {act} from 'react-test-renderer';
 import {FlatList, TextInput, View} from 'react-native';
+import {NavigationRouteContext} from '@react-navigation/native';
+import {SettingsSearchAnchor} from '../src/components/ui/SettingsSearchTarget';
 import SettingsPage, {flattenSettingsChildren} from '../src/components/ui/SettingsPage';
 import SettingsSection from '../src/components/ui/SettingsSection';
 import TmdbApiKeyPreference from '../src/screens/settings/components/TmdbApiKeyPreference';
@@ -12,9 +14,12 @@ jest.mock('../src/lib/performance/idleWork', () => ({
 }));
 
 jest.mock('../src/lib/tv', () => ({isTV: false}));
-jest.mock('@react-navigation/native', () => ({useFocusEffect: (effect: any) => require('react').useEffect(effect, [effect])}));
+jest.mock('@react-navigation/native', () => ({
+  NavigationRouteContext: require('react').createContext(undefined),
+  useFocusEffect: (effect: any) => require('react').useEffect(effect, [effect]),
+}));
 jest.mock('../src/lib/storage', () => ({settingsStorage: {getTmdbApiKey: () => '', setTmdbApiKey: jest.fn()}}));
-jest.mock('../src/theme/M3PaletteContext', () => ({useM3Colors: () => ({})}));
+jest.mock('../src/theme/M3PaletteContext', () => ({useM3Colors: () => ({secondaryContainer: '#354862'})}));
 jest.mock('../src/components/ui/Text', () => require('react-native').Text);
 jest.mock('../src/components/ui/SettingsSection', () => ({children}: any) => children);
 jest.mock('../src/components/tv', () => ({TVFocusable: require('react-native').View}));
@@ -94,4 +99,26 @@ it('mounts only the initial rows during navigation and expands after idle work i
   expect(list().props.data).toHaveLength(11);
   act(() => tree.unmount());
   expect(mockCancel).toHaveBeenCalled();
+});
+
+it('mounts and highlights a search destination outside the initial list window', () => {
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {
+    tree = renderer.create(
+      <NavigationRouteContext.Provider value={{key: 'preferences', name: 'Preferences', params: {setting: 'Target'}}}>
+        <SettingsPage>
+          {Array.from({length: 10}, (_, index) => <View key={index} />)}
+          <SettingsSearchAnchor label="Target">
+            <View testID="target-setting" />
+          </SettingsSearchAnchor>
+        </SettingsPage>
+      </NavigationRouteContext.Provider>,
+    );
+  });
+  const highlights = tree.root.findAllByType(View).filter(
+    node => node.props.style?.backgroundColor === '#354862',
+  );
+  expect(highlights).toHaveLength(1);
+  expect(highlights[0].findByProps({testID: 'target-setting'})).toBeDefined();
+  act(() => tree.unmount());
 });
