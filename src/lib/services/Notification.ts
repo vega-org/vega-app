@@ -462,7 +462,7 @@ class NotificationService {
     });
   }
 
-  private async hasUnknownAppSourcesPermission(): Promise<boolean> {
+  async hasUnknownAppSourcesPermission(): Promise<boolean> {
     const permission =
       (await RNApkInstaller.haveUnknownAppSourcesPermission()) as unknown;
     if (typeof permission === 'boolean') {
@@ -471,7 +471,7 @@ class NotificationService {
     return typeof permission === 'number' && permission < 26;
   }
 
-  private async requestUnknownAppSourcesPermission(): Promise<boolean> {
+  async requestUnknownAppSourcesPermission(): Promise<boolean> {
     const packageName = RNApkInstaller.packageName;
     if (!packageName) {
       throw new Error('Unable to determine the Vega Android package name');
@@ -484,7 +484,7 @@ class NotificationService {
     return this.hasUnknownAppSourcesPermission();
   }
 
-  private async launchApkInstaller(apkPath: string): Promise<void> {
+  async launchApkInstaller(apkPath: string): Promise<void> {
     const fileUri = apkPath.startsWith('file://')
       ? apkPath
       : `file://${apkPath}`;

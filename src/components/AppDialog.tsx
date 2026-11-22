@@ -28,6 +28,7 @@ interface AppDialogProps {
   visible: boolean;
   title: string;
   message: string;
+  progress?: number;
   messageFormat?: 'plain' | 'markdown';
   primary: string;
   variant?: AppDialogVariant;
@@ -52,6 +53,7 @@ const AppDialog = ({
   visible,
   title,
   message,
+  progress,
   messageFormat = 'plain',
   variant = 'info',
   actions = [{label: 'OK', variant: 'primary'}],
@@ -74,6 +76,27 @@ const AppDialog = ({
   if (!visible) {
     return null;
   }
+
+  const progressBar = progress === undefined ? null : (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{min: 0, max: 100, now: Math.floor(progress * 100)}}
+      style={{
+        backgroundColor: colors.surfaceContainerHighest,
+        borderRadius: 4,
+        height: 6,
+        marginTop: 12,
+        overflow: 'hidden',
+      }}>
+      <View
+        style={{
+          backgroundColor: colors.primary,
+          height: '100%',
+          width: `${progress * 100}%`,
+        }}
+      />
+    </View>
+  );
 
   if (isTV) {
     return (
@@ -146,6 +169,7 @@ const AppDialog = ({
                   {message}
                 </ReactNativeText>
               )}
+              {progressBar}
             </ScrollView>
 
             <View
@@ -307,19 +331,18 @@ const AppDialog = ({
               </RNHostView>
             ) : (
               <RNHostView matchContents>
-                {/* matchContents measures with no width limit, so unbounded
-                    text is laid out as one long line and Compose clips both
-                    ends. A fixed width (same as the title) makes it wrap. */}
-                <ReactNativeText
-                  testID="app-dialog-message"
-                  style={{
-                    color: colors.onSurfaceVariant,
-                    fontSize: 14,
-                    lineHeight: 20,
-                    width: 280,
-                  }}>
-                  {message}
-                </ReactNativeText>
+                <View style={{width: 280}}>
+                  <ReactNativeText
+                    testID="app-dialog-message"
+                    style={{
+                      color: colors.onSurfaceVariant,
+                      fontSize: 14,
+                      lineHeight: 20,
+                    }}>
+                    {message}
+                  </ReactNativeText>
+                  {progressBar}
+                </View>
               </RNHostView>
             )}
           </AlertDialog.Text>
