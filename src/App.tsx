@@ -1,3 +1,4 @@
+import {getPlayerOrientation} from './lib/player/playerOrientation';
 import type {SettingsSearchParams} from './components/ui/SettingsSearchTarget';
 import {
   navigationWorkListeners,
@@ -301,12 +302,14 @@ const playerScreenOptions = ({route}: {route: {params?: object}}) => {
     !isTV &&
     (Boolean((route.params as any)?.alwaysCast) ||
       settingsStorage.isAlwaysCastMode());
+  const autoRotate = !isTV && settingsStorage.isPlayerAutoRotateEnabled();
   return {
-    orientation: isTV
-      ? ('landscape' as const)
-      : isRemotePortrait
-        ? ('portrait' as const)
-        : ('default' as const),
+    orientation: getPlayerOrientation({
+      isTV,
+      remote: isRemotePortrait,
+      autoRotate,
+      manual: autoRotate ? null : settingsStorage.getPlayerManualOrientation(),
+    }),
     statusBarHidden: isTV || !isRemotePortrait,
     navigationBarHidden: isTV || !isRemotePortrait,
     autoHideHomeIndicator: isTV || !isRemotePortrait,

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   View,
   GestureResponderHandlers,
+  type LayoutChangeEvent,
 } from 'react-native';
 import {Volume} from './Volume';
 import {Back} from './Back';
@@ -18,6 +19,7 @@ interface TopControlProps {
   title: {primary: string; secondary?: string};
   headerStatus?: string;
   headerRightInset?: number;
+  onLayout?: (event: LayoutChangeEvent) => void;
   controlScale?: number;
   controlAppearance?: PlayerControlStyle;
   showControls: boolean;
@@ -37,6 +39,7 @@ export const TopControls = memo(
     title,
     headerStatus,
     headerRightInset = 0,
+    onLayout,
     controlScale = 1,
     controlAppearance,
     showControls,
@@ -77,7 +80,7 @@ export const TopControls = memo(
       <AnimatedView
         pointerEvents={showControls ? 'box-none' : 'none'}
         style={[_styles.top, controlsOpacity, topControl]}>
-        <SafeAreaView style={_styles.topControlGroup}>
+        <SafeAreaView onLayout={onLayout} style={_styles.topControlGroup}>
           <View style={[_styles.sideControl, {marginRight: Math.max(0, headerRightInset - 48)}]}>
             <View collapsable={false} testID="player-title-background" style={[
               {flexDirection: 'row', alignItems: 'flex-start', flexShrink: 1, maxWidth: '100%'},

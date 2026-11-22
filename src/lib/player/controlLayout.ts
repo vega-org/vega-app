@@ -8,6 +8,7 @@ export const PLAYER_CONTROL_IDS = [
   'pip',
   'server',
   'resize',
+  'rotate',
   'episodes',
   'next',
   'settings',
@@ -17,6 +18,7 @@ export type PlayerControlId = (typeof PLAYER_CONTROL_IDS)[number];
 const PLAYER_CONTROL_BARS = ['top', 'bottom', 'bottomRight', 'more'] as const;
 export type PlayerControlBar = (typeof PLAYER_CONTROL_BARS)[number];
 export type PlayerControlLayout = Record<PlayerControlBar, PlayerControlId[]>;
+export const DEFAULT_HIDDEN_PLAYER_CONTROLS: readonly PlayerControlId[] = ['rotate'];
 export const MAX_TOP_CONTROLS = 5;
 
 export const defaultPlayerControlLayout = (): PlayerControlLayout => ({
@@ -30,6 +32,7 @@ export const defaultPlayerControlLayout = (): PlayerControlLayout => ({
     'resize',
     'episodes',
     'next',
+    'rotate',
     'settings',
   ],
   bottomRight: [],
@@ -71,7 +74,7 @@ export function normalizePlayerControlLayout(
       append(id, bar);
   }
   for (const bar of PLAYER_CONTROL_BARS)
-    for (const id of defaults[bar]) append(id, bar);
+    for (const id of defaults[bar]) append(id, bar === 'bottom' ? overflowBar : bar);
   return pinSettingsControl(result);
 }
 

@@ -30,6 +30,7 @@ const EDITOR_LABELS: Record<PlayerControlId, string> = {
   pip: 'PiP',
   server: 'Quality',
   resize: 'Fit',
+  rotate: 'Rotate',
   episodes: 'Episodes',
   next: 'Next',
   settings: 'Settings',

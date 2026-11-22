@@ -7,7 +7,7 @@ import PlayerControlArrangement from './PlayerControlArrangement';
 import PlayerControlStyleEditor from './PlayerControlStyleEditor';
 import PlayerSubtitleStyleEditor, {readSubtitleQuickStyle, SubtitleQuickStyle} from './PlayerSubtitleStyleEditor';
 import {defaultPlayerControlStyle, PlayerControlStyle} from '../lib/player/controlStyle';
-import {defaultPlayerControlLayout, getTopControlLimit, PlayerControlId, PlayerControlLayout} from '../lib/player/controlLayout';
+import {DEFAULT_HIDDEN_PLAYER_CONTROLS, defaultPlayerControlLayout, getTopControlLimit, PlayerControlId, PlayerControlLayout} from '../lib/player/controlLayout';
 import type {PlayerControl} from './PlayerControlBar';
 
 type Ambient = {enabled: boolean; intensity: number; spread: number; responseMs: number};
@@ -30,7 +30,7 @@ function PlayerControlEditor({layout, controls, color, hiddenControls, appearanc
   const [entryHandle, setEntryHandle] = useState<number>();
   const [tab, setTab] = useState<'arrange' | 'style' | 'subtitles'>('arrange');
   const [draft, setDraft] = useState(layout);
-  const [hidden, setHidden] = useState(hiddenControls || []);
+  const [hidden, setHidden] = useState(() => hiddenControls ?? [...DEFAULT_HIDDEN_PLAYER_CONTROLS]);
   const [style, setStyle] = useState(appearance || defaultPlayerControlStyle());
   const [subtitle, setSubtitle] = useState(readSubtitleQuickStyle);
   const [ambient, setAmbient] = useState<Ambient>(() => ({
@@ -57,7 +57,7 @@ function PlayerControlEditor({layout, controls, color, hiddenControls, appearanc
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10}}>
             <Text style={{flex: 1, color: '#eee', fontSize: 16}}>Player controls</Text>
             <TVFocusable accessibilityLabel="Reset" onPress={() => {
-              if (tab === 'arrange') {setDraft(defaultPlayerControlLayout()); setHidden([]);}
+              if (tab === 'arrange') {setDraft(defaultPlayerControlLayout()); setHidden([...DEFAULT_HIDDEN_PLAYER_CONTROLS]);}
               else if (tab === 'style') {
                 setStyle(defaultPlayerControlStyle());
                 setAmbient({enabled: false, intensity: 0.35, spread: 1, responseMs: 220});

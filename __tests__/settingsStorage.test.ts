@@ -54,7 +54,7 @@ describe('settings defaults', () => {
 
   it('keeps intentional default-off preferences disabled', () => {
     expect(settingsStorage.hideDownloadsTab()).toBe(false);
-    expect(settingsStorage.isAutoDownloadEnabled()).toBe(false);
+    expect(settingsStorage.isAutoDownloadEnabled()).toBe(true); // Auto update defaults to on.
     expect(settingsStorage.hideSeekButtons()).toBe(false);
     expect(settingsStorage.isEnable2xGestureEnabled()).toBe(false);
     expect(settingsStorage.isSkipInAppWebview()).toBe(false);
@@ -132,17 +132,31 @@ describe('settings defaults', () => {
   });
 
   it('reuses the existing sleep and episode visibility keys while persisting other hidden controls', () => {
-    expect(settingsStorage.getHiddenPlayerControls()).toEqual([]);
-    settingsStorage.setHiddenPlayerControls(['speed', 'sleep', 'episodes']);
+    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['rotate']);
+    settingsStorage.setHiddenPlayerControls(['speed', 'sleep', 'episodes', 'rotate']);
     expect(settingsStorage.showSleepTimer()).toBe(false);
     expect(settingsStorage.showPlayerEpisodeSidebar()).toBe(false);
     expect(mockArrayValues.get(SettingsKeys.HIDDEN_PLAYER_CONTROLS)).toEqual(['speed']);
-    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['speed', 'sleep', 'episodes']);
+    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['speed', 'sleep', 'episodes', 'rotate']);
     settingsStorage.setShowSleepTimer(true);
-    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['speed', 'episodes']);
-    settingsStorage.setHiddenPlayerControls(['audio']);
+    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['speed', 'episodes', 'rotate']);
+    settingsStorage.setHiddenPlayerControls(['audio', 'rotate']);
     expect(settingsStorage.showPlayerEpisodeSidebar()).toBe(true);
+    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['audio', 'rotate']);
+  });
+
+  it('keeps Rotate hidden for older layouts and persists the explicit visibility and auto-rotate settings', () => {
+    mockArrayValues.set(SettingsKeys.HIDDEN_PLAYER_CONTROLS, ['audio']);
+    expect(settingsStorage.getHiddenPlayerControls()).toEqual(['audio', 'rotate']);
+    expect(settingsStorage.isPlayerAutoRotateEnabled()).toBe(false);
+    expect(settingsStorage.getPlayerManualOrientation()).toBe('landscape');
+    settingsStorage.setPlayerManualOrientation('portrait_up');
+    expect(settingsStorage.getPlayerManualOrientation()).toBe('portrait_up');
+
+    settingsStorage.setHiddenPlayerControls(['audio']);
+    settingsStorage.setPlayerAutoRotateEnabled(true);
     expect(settingsStorage.getHiddenPlayerControls()).toEqual(['audio']);
+    expect(settingsStorage.isPlayerAutoRotateEnabled()).toBe(true);
   });
 
   it('defaults ambient lighting off and persists a bounded intensity', () => {
