@@ -1,3 +1,4 @@
+import {useSeekThumbnail} from '../../lib/hooks/useSeekThumbnail';
 import {playbackTimeline, clampTimelineSeek, type LiveTimelineEvent} from '../../lib/player/liveTimeline';
 import AmbientBackground from './components/AmbientBackground';
 import {getAmbientBars} from '../../lib/player/ambient';
@@ -202,10 +203,6 @@ const AnimatedVideoPlayer = (
   const [buffering, setBuffering] = useState(false);
   const [cachedDuration, setCachedDuration] = useState(0);
   const [cachedPosition, setCachedPosition] = useState(0);
-  const [seekThumbnailUri, setSeekThumbnailUri] = useState<string | null>(null);
-  const [seekThumbnailLoading, setSeekThumbnailLoading] = useState(false);
-  const seekThumbnailRequestId = useRef(0);
-  const seekThumbnailMemoryCache = useRef(new Map<string, string>());
   const [skipFeedbackLeft, setSkipFeedbackLeft] = useState(0);
   const [skipFeedbackRight, setSkipFeedbackRight] = useState(0);
   const skipFeedbackResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -908,15 +905,6 @@ const AnimatedVideoPlayer = (
     return {};
   }, [source]);
 
-  const thumbnailHeadersKey = useMemo(
-    () =>
-      Object.entries(thumbnailHeaders)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, value]) => `${name}:${value}`)
-        .join('|'),
-    [thumbnailHeaders],
-  );
-
   const seekPreviewTime = useMemo(() => {
     if (!seeking || seekerWidth <= 0 || duration <= 0) return currentTime;
     return duration * Math.max(0, Math.min(1, seekerPosition / seekerWidth));
@@ -932,7 +920,7 @@ const AnimatedVideoPlayer = (
     const bucketStart =
       Math.floor(Math.max(0, seekPreviewTime) / bucketSeconds) * bucketSeconds;
     const representativeTime = Math.min(
-      duration,
+      Math.max(0, duration - 0.1),
       bucketStart + bucketSeconds / 2,
     );
     return Math.round(representativeTime * 1000);
@@ -946,89 +934,13 @@ const AnimatedVideoPlayer = (
     }
   }, [clearControlTimeout, seeking]);
 
-  useEffect(() => {
-    const requestId = ++seekThumbnailRequestId.current;
-    const thumbnailModule = NativeModules.VideoThumbnailModule as
-      | {
-          getThumbnail: (
-            uri: string,
-            timestampMs: number,
-            headers: Record<string, string>,
-            options: Record<string, number | boolean>,
-          ) => Promise<{uri: string}>;
-        }
-      | undefined;
-
-    if (!seeking || timeline.isLive) {
-      setSeekThumbnailUri(null);
-      setSeekThumbnailLoading(false);
-      return;
-    }
-
-    if (!thumbnailSource || !thumbnailModule) {
-      setSeekThumbnailUri(null);
-      setSeekThumbnailLoading(false);
-      return;
-    }
-
-    const memoryCacheKey = `${thumbnailSource}|${thumbnailHeadersKey}|${seekThumbnailTimestampMs}`;
-    const memoryCachedUri = seekThumbnailMemoryCache.current.get(memoryCacheKey);
-    if (memoryCachedUri) {
-      // Refresh insertion order so the bounded map behaves as an LRU cache.
-      seekThumbnailMemoryCache.current.delete(memoryCacheKey);
-      seekThumbnailMemoryCache.current.set(memoryCacheKey, memoryCachedUri);
-      setSeekThumbnailUri(memoryCachedUri);
-      setSeekThumbnailLoading(false);
-      return;
-    }
-
-    // Never leave the previous timestamp's frame visible while the debounced
-    // request for the new position is pending.
-    setSeekThumbnailUri(null);
-    setSeekThumbnailLoading(true);
-    const debounce = setTimeout(() => {
-      thumbnailModule
-        .getThumbnail(
-          thumbnailSource,
-          seekThumbnailTimestampMs,
-          thumbnailHeaders,
-          {
-          maxWidth: 320,
-          maxHeight: 180,
-          quality: 78,
-          cache: true,
-          },
-        )
-        .then(result => {
-          seekThumbnailMemoryCache.current.set(memoryCacheKey, result.uri);
-          if (seekThumbnailMemoryCache.current.size > 48) {
-            const oldestKey = seekThumbnailMemoryCache.current.keys().next().value;
-            if (oldestKey) {
-              seekThumbnailMemoryCache.current.delete(oldestKey);
-            }
-          }
-          if (seekThumbnailRequestId.current === requestId) {
-            setSeekThumbnailUri(result.uri);
-            setSeekThumbnailLoading(false);
-          }
-        })
-        .catch(() => {
-          if (seekThumbnailRequestId.current === requestId) {
-            setSeekThumbnailUri(null);
-            setSeekThumbnailLoading(false);
-          }
-        });
-    }, 180);
-
-    return () => clearTimeout(debounce);
-  }, [
-    seeking,
-    timeline.isLive,
-    seekThumbnailTimestampMs,
-    thumbnailHeaders,
-    thumbnailHeadersKey,
+  const sourceHasDrm = Boolean(source && typeof source === 'object' && 'drm' in source && source.drm);
+  const {uri: seekThumbnailUri, loading: seekThumbnailLoading} = useSeekThumbnail(
     thumbnailSource,
-  ]);
+    thumbnailHeaders,
+    seekThumbnailTimestampMs,
+    seeking && !timeline.isLive && !sourceHasDrm,
+  );
 
   // Keep track of previous source to prevent unnecessary resets
   const prevSourceUri = useRef(sourceUri);

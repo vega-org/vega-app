@@ -211,6 +211,14 @@ allprojects {
       );
     }
 
+    // The authenticated preview extractor uses Media3's callback future adapter.
+    if (!contents.includes('androidx.concurrent:concurrent-futures')) {
+      contents = contents.replace(
+        /dependencies\s*\{/,
+        match => `${match}\n    implementation 'androidx.concurrent:concurrent-futures:1.2.0'\n`,
+      );
+    }
+
     // Read the active player and rendering surface for confirmed HDR status.
     if (!contents.includes('androidx.media3:media3-ui')) {
       contents = contents.replace(
