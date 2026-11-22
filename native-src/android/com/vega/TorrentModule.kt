@@ -6,6 +6,7 @@ import org.libtorrent4j.*
 import org.libtorrent4j.alerts.*
 import org.libtorrent4j.swig.settings_pack
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -33,11 +34,36 @@ class TorrentModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         private var sessionManager: SessionManager? = null
         private var streamServer: TorrentStreamServer? = null
         private val torrentHandles = mutableMapOf<String, TorrentHandle>()
-        private val torrentSavePaths = mutableMapOf<String, String>()
+        private val torrentSavePaths = ConcurrentHashMap<String, String>()
         private val torrentOutputPaths = mutableMapOf<String, String>()
     }
 
     override fun getName(): String = "TorrentModule"
+
+    private fun streamCacheDir(): File = File(reactApplicationContext.cacheDir, "torrents")
+
+    private fun legacyStreamDir(): File = File(reactApplicationContext.filesDir, "torrents")
+
+    private fun hasActiveTorrentIn(dir: File): Boolean {
+        val dirPath = try { dir.canonicalPath } catch (_: Exception) { dir.absolutePath }
+        val prefix = dirPath + File.separator
+        return torrentSavePaths.values.any { saved ->
+            val savedPath = try { File(saved).canonicalPath } catch (_: Exception) { saved }
+            savedPath == dirPath || savedPath.startsWith(prefix)
+        }
+    }
+
+    private fun cleanupStaleStreamDirs() {
+        for (dir in listOf(legacyStreamDir(), streamCacheDir())) {
+            if (dir.exists() && !hasActiveTorrentIn(dir)) {
+                try {
+                    dir.deleteRecursively()
+                } catch (e: Exception) {
+                    VegaLog.w(TAG, "Failed to clean stale torrent dir ${dir.absolutePath}", e)
+                }
+            }
+        }
+    }
 
     private fun ensureSession(): SessionManager {
         sessionManager?.let { if (it.isRunning) return it }
@@ -62,6 +88,7 @@ class TorrentModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         
         sm.start(SessionParams(sp))
         sessionManager = sm
+        cleanupStaleStreamDirs()
         VegaLog.d(TAG, "SessionManager started, running=${sm.isRunning}")
         return sm
     }
@@ -114,8 +141,7 @@ class TorrentModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
 
                 val sm = ensureSession()
                 val server = ensureServer()
-                val downloadDir = outputFolder
-                    ?: (reactApplicationContext.filesDir.absolutePath + "/torrents")
+                val downloadDir = outputFolder ?: streamCacheDir().absolutePath
                 File(downloadDir).mkdirs()
 
                 // Check both our Map and the actual C++ session manager
@@ -580,14 +606,20 @@ class TorrentModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
             torrentSavePaths.remove(infoHash)
             torrentOutputPaths.remove(infoHash)
 
+            val saveRoot = savePath?.let { path ->
+                try { File(path).canonicalFile } catch (_: Exception) { File(path) }
+            }
             for (path in pathsToDelete) {
                 try { 
                     val f = File(path)
                     f.delete()
-                    // Delete parent dir if it's empty and not the root savePath
-                    val parent = f.parentFile
-                    if (parent != null && parent.absolutePath != savePath && parent.list()?.isEmpty() == true) {
-                        parent.delete()
+                    var parent = f.parentFile
+                    while (parent != null) {
+                        val canonicalParent = try { parent.canonicalFile } catch (_: Exception) { parent }
+                        if (saveRoot != null && canonicalParent == saveRoot) break
+                        if (parent.list()?.isEmpty() != true) break
+                        if (!parent.delete()) break
+                        parent = parent.parentFile
                     }
                 } catch (_: Exception) {}
             }
@@ -596,6 +628,18 @@ class TorrentModule(reactContext: ReactApplicationContext) : ReactContextBaseJav
         } catch (e: Exception) {
             promise.reject("DELETE_ERROR", e.message, e)
         }
+    }
+
+    @ReactMethod
+    fun clearStreamCache(promise: Promise) {
+        Thread {
+            try {
+                cleanupStaleStreamDirs()
+                promise.resolve(true)
+            } catch (e: Exception) {
+                promise.reject("CLEANUP_ERROR", e.message, e)
+            }
+        }.start()
     }
 
     private fun buildTorrentInfo(th: TorrentHandle): WritableMap {

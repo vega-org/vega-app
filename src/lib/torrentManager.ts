@@ -172,6 +172,17 @@ class TorrentManager {
     await this.init();
     await TorrentModule.deleteTorrent(infoHash, deleteFiles);
   }
+
+  async clearStreamCache(): Promise<boolean> {
+    if (Platform?.OS !== 'android' || !TorrentModule?.clearStreamCache) {
+      return false;
+    }
+    try {
+      return Boolean(await TorrentModule.clearStreamCache());
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const torrentManager = new TorrentManager();

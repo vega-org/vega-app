@@ -5,18 +5,29 @@ const mockClearImageColors = jest.fn();
 const mockClearImageAccents = jest.fn();
 const mockClearHero = jest.fn();
 const mockUnlink = jest.fn(() => Promise.resolve());
+const mockExists = jest.fn(() => Promise.resolve(true));
+const mockClearStreamCache = jest.fn(() => Promise.resolve(true));
 
 jest.mock('@dr.pogodin/react-native-fs', () => ({
   CachesDirectoryPath: '/cache',
+  DocumentDirectoryPath: '/files',
   readDir: jest.fn(() =>
     Promise.resolve([
       {name: 'downloads', path: '/cache/downloads'},
       {name: 'hls_segments', path: '/cache/hls_segments'},
+      {name: 'torrents', path: '/cache/torrents'},
       {name: 'temporary-update.apk', path: '/cache/temporary-update.apk'},
       {name: 'images', path: '/cache/images'},
     ]),
   ),
+  exists: (path: string) => mockExists(path),
   unlink: (path: string) => mockUnlink(path),
+}));
+
+jest.mock('../src/lib/torrentManager', () => ({
+  torrentManager: {
+    clearStreamCache: () => mockClearStreamCache(),
+  },
 }));
 
 jest.mock('react-native-image-colors', () => ({
@@ -54,9 +65,11 @@ describe('clearAppCache', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCacheValues.clear();
+    mockExists.mockResolvedValue(true);
+    mockClearStreamCache.mockResolvedValue(true);
   });
 
-  it('clears cache layers while preserving download staging', async () => {
+  it('clears cache layers while preserving download staging and delegating torrent cleanup', async () => {
     await clearAppCache();
 
     expect(mockClearMMKVCache).toHaveBeenCalledTimes(1);
@@ -64,11 +77,22 @@ describe('clearAppCache', () => {
     expect(mockClearImageColors).toHaveBeenCalledTimes(1);
     expect(mockClearImageAccents).toHaveBeenCalledTimes(1);
     expect(mockClearHero).toHaveBeenCalledTimes(1);
+    expect(mockClearStreamCache).toHaveBeenCalledTimes(1);
     expect(mockUnlink).toHaveBeenCalledTimes(2);
     expect(mockUnlink).toHaveBeenCalledWith('/cache/temporary-update.apk');
     expect(mockUnlink).toHaveBeenCalledWith('/cache/images');
     expect(mockUnlink).not.toHaveBeenCalledWith('/cache/downloads');
     expect(mockUnlink).not.toHaveBeenCalledWith('/cache/hls_segments');
+    expect(mockUnlink).not.toHaveBeenCalledWith('/cache/torrents');
+  });
+
+  it('falls back to removing legacy and cached torrent dirs when native cleanup is unavailable', async () => {
+    mockClearStreamCache.mockResolvedValueOnce(false);
+
+    await clearAppCache();
+
+    expect(mockUnlink).toHaveBeenCalledWith('/files/torrents');
+    expect(mockUnlink).toHaveBeenCalledWith('/cache/torrents');
   });
 
   it('keeps player choices while clearing cache and episode progress', async () => {

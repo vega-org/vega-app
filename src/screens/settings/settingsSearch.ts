@@ -40,8 +40,8 @@ const entries: SearchEntry[] = [
     'Bottom elevation', 'Reset to defaults'].map(
     (label): SearchEntry => ({label, page: 'Subtitle style', route: 'SubTitlesPreferences', keywords: 'captions'}),
   ),
-  ...['Data management', 'Sync', 'Clear watch progress', 'Clear cache', 'Export backup',
-    'Import backup', 'Erase all local data'].map(
+  ...['Data management', 'Sync', 'Clear watch progress', 'Clear cache', 'Clear WebView data',
+    'Export backup', 'Import backup', 'Erase all local data'].map(
     (label): SearchEntry => ({label, page: 'Data management', route: 'DataManagement'}),
   ),
   {label: 'About & updates', page: 'Vega', route: 'About', keywords: 'app information version'},

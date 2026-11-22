@@ -20,6 +20,7 @@ import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
 import {exportBackup, pickBackup, restoreBackup, type BackupSelection} from '../../lib/backup';
 import {clearAppCache} from '../../lib/clearAppCache';
+import {clearWebViewData} from '../../lib/clearWebViewData';
 import {
   clearAllMMKVStorage,
   settingsStorage,
@@ -91,6 +92,33 @@ export default function DataManagement({navigation}: Props) {
     }
     await clearAppCache();
     ToastAndroid.show('App cache cleared', ToastAndroid.SHORT);
+  }, []);
+
+  const confirmClearWebViewData = useCallback(() => {
+    showAppDialog({
+      title: 'Clear WebView data?',
+      message:
+        'This clears cached pages, cookies, and site storage from the built-in WebView. You may need to re-verify or sign in to some providers again.',
+      actions: [
+        {label: 'Cancel'},
+        {
+          label: 'Clear',
+          variant: 'destructive',
+          onPress: async () => {
+            try {
+              await clearWebViewData();
+              ToastAndroid.show('WebView data cleared', ToastAndroid.SHORT);
+            } catch (error) {
+              console.error('Failed to clear WebView data:', error);
+              ToastAndroid.show(
+                'Failed to clear WebView data',
+                ToastAndroid.SHORT,
+              );
+            }
+          },
+        },
+      ],
+    });
   }, []);
 
   const reloadApp = useCallback(async (reason: string) => {
@@ -244,6 +272,12 @@ export default function DataManagement({navigation}: Props) {
             description="Clear temporary cache and images"
             icon="delete-outline"
             onPress={clearCacheHandler}
+          />
+          <SettingsRow
+            title="Clear WebView data"
+            description="Clear WebView cache, cookies, and site storage"
+            icon="web-remove"
+            onPress={confirmClearWebViewData}
           />
           <SettingsRow
             title="Export backup"
