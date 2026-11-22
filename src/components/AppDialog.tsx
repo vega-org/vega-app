@@ -1,4 +1,4 @@
-import {fillMaxWidth, padding} from '@expo/ui/jetpack-compose/modifiers';
+import {fillMaxWidth, padding, testID, weight} from '@expo/ui/jetpack-compose/modifiers';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {
   AlertDialog,
@@ -6,6 +6,7 @@ import {
   LinearProgressIndicator,
   Host,
   RNHostView,
+  Row,
   Text,
   TextButton,
 } from '@expo/ui/jetpack-compose';
@@ -138,7 +139,7 @@ const AppDialog = ({
               }}>
               <MaterialCommunityIcons
                 name={appearance.icon}
-                size={32}
+                size={24}
                 color={iconColor}
               />
               <ReactNativeText
@@ -146,9 +147,9 @@ const AppDialog = ({
                 style={{
                   color: colors.onSurface,
                   flex: 1,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: '700',
-                  marginLeft: 14,
+                  marginLeft: 10,
                 }}>
                 {title}
               </ReactNativeText>
@@ -265,33 +266,24 @@ const AppDialog = ({
           }}
           onDismissRequest={onDismiss}>
           <AlertDialog.Title>
-            <RNHostView matchContents>
-              <View
-                style={{
-                  alignItems: 'center',
-                  flexDirection: 'row',
-                  justifyContent: 'flex-start',
-                  width: 280,
-                }}>
+            <Row
+              modifiers={[fillMaxWidth()]}
+              verticalAlignment="center"
+              horizontalArrangement={{spacedBy: 10}}>
+              <RNHostView matchContents>
                 <MaterialCommunityIcons
                   name={appearance.icon}
-                  size={28}
+                  size={22}
                   color={iconColor}
                 />
-                <ReactNativeText
-                  testID="app-dialog-title"
-                  style={{
-                    color: colors.onSurface,
-                    flex: 1,
-                    fontSize: 24,
-                    fontWeight: '700',
-                    marginLeft: 16,
-                    textAlign: 'left',
-                  }}>
-                  {title}
-                </ReactNativeText>
-              </View>
-            </RNHostView>
+              </RNHostView>
+              <Text
+                modifiers={[weight(1), testID('app-dialog-title')]}
+                color={String(colors.onSurface)}
+                style={{fontSize: 20, fontWeight: '700'}}>
+                {title}
+              </Text>
+            </Row>
           </AlertDialog.Title>
           <AlertDialog.Text>
             {messageFormat === 'markdown' ? (
