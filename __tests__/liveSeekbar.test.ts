@@ -3,6 +3,9 @@ import renderer, {act} from 'react-test-renderer';
 import {Seekbar} from '../src/components/media-console/components/Seekbar/Seekbar';
 import {playbackTimeline} from '../src/lib/player/liveTimeline';
 
+// Render the mocked primitives directly without initializing NativeWind's native observers.
+jest.mock('nativewind/jsx-runtime', () => require('react/jsx-runtime'));
+
 jest.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator', View: 'View', Image: 'Image',
   Pressable: 'Pressable', Text: 'Text', Platform: {isTV: false},

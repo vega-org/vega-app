@@ -5,11 +5,16 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Build
+import android.os.SystemClock
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
-import androidx.media3.transformer.ExperimentalFrameExtractor
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.effect.Presentation
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.Promise
@@ -22,7 +27,9 @@ import com.facebook.react.uimanager.ViewManager
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
@@ -32,12 +39,13 @@ import kotlin.math.roundToLong
 class VideoThumbnailModule(
     reactContext: ReactApplicationContext,
 ) : ReactContextBaseJavaModule(reactContext) {
-    // MediaMetadataRetriever is not thread-safe. A single serialized worker
-    // also prevents rapid scrubbing from opening multiple remote decoders and
-    // competing with video playback for bandwidth.
     private val executor = Executors.newSingleThreadExecutor()
-    private var activeRetriever: MediaMetadataRetriever? = null
-    private var activeSourceKey: String? = null
+    private val previewExecutor = Executors.newSingleThreadExecutor()
+    private val backgroundDecoder = DecoderSession()
+    private val previewDecoder = DecoderSession()
+    private val previewOwner = AtomicReference<String?>(null)
+    @Volatile private var invalidated = false
+    private var lastCacheTrimMs = 0L
 
     override fun getName(): String = "VideoThumbnailModule"
 
@@ -69,10 +77,21 @@ class VideoThumbnailModule(
         val useCache = options.booleanOr("cache", true)
         val requestedTimestampMs = timestampMs.roundToLong()
 
-        executor.execute {
+        if (invalidated) {
+            promise.reject("VIDEO_THUMBNAIL_CLOSED", "The thumbnail module is closed")
+            return
+        }
+        val owner = options.stringOrNull("previewSession")
+        val worker = if (owner != null) previewExecutor else executor
+        val decoder = if (owner != null) previewDecoder else backgroundDecoder
+        if (owner != null) previewOwner.set(owner)
+        val isCurrent = { !invalidated && (owner == null || previewOwner.get() == owner) }
+
+        worker.execute {
             var frame: Bitmap? = null
             var outputBitmap: Bitmap? = null
             try {
+                if (!isCurrent()) throw CancellationException("Preview is no longer needed")
                 val outputDirectory = File(reactApplicationContext.cacheDir, "video-thumbnails")
                 if (!outputDirectory.exists() && !outputDirectory.mkdirs()) {
                     throw IllegalStateException("Unable to create the video thumbnail cache")
@@ -93,41 +112,52 @@ class VideoThumbnailModule(
                         inJustDecodeBounds = true
                     }
                     android.graphics.BitmapFactory.decodeFile(outputFile.absolutePath, cachedBounds)
-                    promise.resolve(
-                        createResult(
-                            outputFile,
-                            cachedBounds.outWidth,
-                            cachedBounds.outHeight,
-                            requestedTimestampMs,
-                            true,
-                        ),
-                    )
-                    return@execute
+                    if (cachedBounds.outWidth > 0 && cachedBounds.outHeight > 0) {
+                        outputFile.setLastModified(System.currentTimeMillis())
+                        promise.resolve(
+                            createResult(
+                                outputFile,
+                                cachedBounds.outWidth,
+                                cachedBounds.outHeight,
+                                requestedTimestampMs,
+                                true,
+                            ),
+                        )
+                        return@execute
+                    }
+                    outputFile.delete()
                 }
 
                 val extractedFrame = if (isRemoteSource(source)) {
-                    try {
-                        extractRemoteFrame(source, requestedTimestampMs)
-                    } catch (_: Throwable) {
-                        // Some authenticated servers cannot be opened without the supplied
-                        // request headers. Keep the platform retriever as a compatibility
-                        // fallback for those sources.
-                        extractWithMetadataRetriever(source, requestedTimestampMs, headers)
-                    }
+                    decoder.releaseRetriever()
+                    // A remote metadata retriever can return the opening frame for every seek.
+                    // Fail this preview promptly instead of falling back to an incorrect frame.
+                    decoder.extractRemoteFrame(source, requestedTimestampMs, headers, maxWidth, maxHeight, owner, isCurrent)
                 } else {
-                    extractWithMetadataRetriever(source, requestedTimestampMs, headers)
+                    decoder.extractWithMetadataRetriever(source, requestedTimestampMs, headers, maxWidth, maxHeight, owner != null)
                 }
                 frame = extractedFrame
+                if (!isCurrent()) throw CancellationException("Preview is no longer needed")
 
                 val scaledFrame = scaleBitmap(extractedFrame, maxWidth, maxHeight)
                 val bitmapToWrite = if (cropBlackBars) trimLetterbox(scaledFrame) else scaledFrame
                 if (scaledFrame !== extractedFrame && scaledFrame !== bitmapToWrite) scaledFrame.recycle()
                 outputBitmap = bitmapToWrite
-                FileOutputStream(outputFile).use { output ->
-                    if (!bitmapToWrite.compress(Bitmap.CompressFormat.JPEG, quality, output)) {
-                        throw IllegalStateException("Unable to encode the video thumbnail")
+                val temporaryFile = File.createTempFile(cacheKey, ".tmp", outputDirectory)
+                try {
+                    FileOutputStream(temporaryFile).use { output ->
+                        if (!bitmapToWrite.compress(Bitmap.CompressFormat.JPEG, quality, output)) {
+                            throw IllegalStateException("Unable to encode the video thumbnail")
+                        }
                     }
+                    if (!isCurrent()) throw CancellationException("Preview is no longer needed")
+                    if (!temporaryFile.renameTo(outputFile)) {
+                        throw IllegalStateException("Unable to save the video thumbnail")
+                    }
+                } finally {
+                    temporaryFile.delete()
                 }
+                trimCache(outputDirectory)
 
                 promise.resolve(
                     createResult(
@@ -139,9 +169,9 @@ class VideoThumbnailModule(
                     ),
                 )
             } catch (error: Throwable) {
-                releaseActiveRetriever()
+                decoder.releaseRetriever()
                 promise.reject(
-                    "VIDEO_THUMBNAIL_ERROR",
+                    if (error is CancellationException) "VIDEO_THUMBNAIL_CANCELLED" else "VIDEO_THUMBNAIL_ERROR",
                     error.message ?: "Unable to generate the video thumbnail",
                     error,
                 )
@@ -174,59 +204,261 @@ class VideoThumbnailModule(
         }
     }
 
+    @ReactMethod
+    fun cancelPreview(owner: String) {
+        if (previewOwner.compareAndSet(owner, null)) previewDecoder.cancel(owner)
+    }
+
     override fun invalidate() {
-        executor.execute { releaseActiveRetriever() }
+        invalidated = true
+        previewOwner.set(null)
+        previewDecoder.close()
+        backgroundDecoder.close()
+        executor.execute { backgroundDecoder.releaseRetriever() }
+        previewExecutor.execute { previewDecoder.releaseRetriever() }
         executor.shutdown()
+        previewExecutor.shutdown()
         super.invalidate()
     }
 
-    private fun getRetriever(
-        source: String,
-        headers: Map<String, String>,
-    ): MediaMetadataRetriever {
-        val sourceKey = buildString {
-            append(source)
-            headers.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, value) ->
-                append('|').append(name.lowercase()).append(':').append(value)
+    /** Each worker owns its retriever and one reusable Media3 application thread. */
+    private inner class DecoderSession {
+        private var activeRetriever: MediaMetadataRetriever? = null
+        private var activeSourceKey: String? = null
+        private var thread: HandlerThread? = null
+        private var handler: Handler? = null
+        // The following fields are accessed only on the Media3 application thread.
+        private var extractor: ThumbnailFrameExtractor? = null
+        private var remoteKey: String? = null
+        private var remoteOwner: String? = null
+        private var activeResult: CompletableFuture<Bitmap>? = null
+        private val idleRelease = Runnable { releaseRemote() }
+
+        @Synchronized
+        private fun frameHandler(): Handler {
+            check(!invalidated) { "Thumbnail module is closed" }
+            return handler ?: HandlerThread("vega-thumbnail-extractor").let {
+                it.start()
+                thread = it
+                Handler(it.looper).also { created -> handler = created }
             }
-        }
-        activeRetriever?.let { retriever ->
-            if (activeSourceKey == sourceKey) return retriever
         }
 
-        releaseActiveRetriever()
-        val retriever = MediaMetadataRetriever()
-        try {
-            setDataSource(retriever, source, headers)
-        } catch (error: Throwable) {
-            try {
-                retriever.release()
-            } catch (_: Throwable) {
-                // Preserve the original data-source error.
+        private fun getRetriever(
+            source: String,
+            headers: Map<String, String>,
+        ): MediaMetadataRetriever {
+            val sourceKey = buildString {
+                append(source)
+                headers.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (name, value) ->
+                    append('|').append(name.lowercase()).append(':').append(value)
+                }
             }
-            throw error
+            activeRetriever?.let { retriever ->
+                if (activeSourceKey == sourceKey) return retriever
+            }
+
+            releaseRetriever()
+            handler?.post {
+                if (activeResult == null) releaseRemote()
+            }
+            val retriever = MediaMetadataRetriever()
+            try {
+                setDataSource(retriever, source, headers)
+            } catch (error: Throwable) {
+                try {
+                    retriever.release()
+                } catch (_: Throwable) {
+                    // Preserve the original data-source error.
+                }
+                throw error
+            }
+            activeRetriever = retriever
+            activeSourceKey = sourceKey
+            return retriever
         }
-        activeRetriever = retriever
-        activeSourceKey = sourceKey
-        return retriever
+
+        fun extractWithMetadataRetriever(
+            source: String,
+            timestampMs: Long,
+            headers: Map<String, String>,
+            maxWidth: Int,
+            maxHeight: Int,
+            preview: Boolean,
+        ): Bitmap {
+            val retriever = getRetriever(source, headers)
+            val timestampUs = timestampMs * 1_000L
+            if (preview && Build.VERSION.SDK_INT >= 27 && maxWidth > 0 && maxHeight > 0) {
+                retriever.getScaledFrameAtTime(
+                    timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxWidth, maxHeight,
+                )?.let { return it }
+            }
+            return retriever.getFrameAtTime(
+                timestampUs,
+                if (preview) MediaMetadataRetriever.OPTION_CLOSEST_SYNC else MediaMetadataRetriever.OPTION_CLOSEST,
+            ) ?: retriever.getFrameAtTime(
+                timestampUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: throw IllegalStateException(
+                "The video decoder did not return a frame at ${timestampMs}ms",
+            )
+        }
+
+
+        @UnstableApi
+        fun extractRemoteFrame(
+            source: String,
+            timestampMs: Long,
+            headers: Map<String, String>,
+            maxWidth: Int,
+            maxHeight: Int,
+            owner: String?,
+            isCurrent: () -> Boolean,
+        ): Bitmap {
+            val handler = frameHandler()
+            val result = CompletableFuture<Bitmap>()
+            handler.post {
+                if (result.isDone) return@post
+                if (!isCurrent()) {
+                    result.completeExceptionally(CancellationException("Preview is no longer needed"))
+                    return@post
+                }
+                handler.removeCallbacks(idleRelease)
+                try {
+                    val key = buildCacheKey(source, 0, headers, 0, maxWidth, maxHeight, false)
+                    if (remoteKey != key) {
+                        releaseRemote()
+                        val http = DefaultHttpDataSource.Factory()
+                            .setDefaultRequestProperties(headers)
+                            .setAllowCrossProtocolRedirects(true)
+                            .setConnectTimeoutMs(4_000)
+                            .setReadTimeoutMs(4_000)
+                        val mediaSource = DefaultMediaSourceFactory(
+                            DefaultDataSource.Factory(reactApplicationContext, http),
+                        )
+                        val config = ThumbnailFrameExtractor.Configuration.Builder()
+                            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                            .setMediaCodecSelector(MediaCodecSelector.DEFAULT)
+                            .build()
+                        extractor = ThumbnailFrameExtractor(
+                            reactApplicationContext, config, mediaSource,
+                            if (maxWidth > 0) maxWidth else Int.MAX_VALUE,
+                            if (maxHeight > 0) maxHeight else Int.MAX_VALUE,
+                        )
+                        val effects = if (maxWidth > 0 && maxHeight > 0) listOf(
+                            Presentation.createForWidthAndHeight(maxWidth, maxHeight, Presentation.LAYOUT_SCALE_TO_FIT),
+                        ) else emptyList()
+                        extractor!!.setMediaItem(MediaItem.fromUri(source), effects)
+                        remoteKey = key
+                    }
+                    remoteOwner = owner
+                    activeResult = result
+                    val future = extractor!!.getFrame(timestampMs)
+                    future.addListener({
+                        // A released or timed-out request must never publish a late bitmap.
+                        if (activeResult === result && !result.isDone) {
+                            try {
+                                // Media3 may return its last frame again. Its bitmap stays owned
+                                // by the extractor, so cache encoding must use a separate copy.
+                                val bitmap = future.get().bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                if (!result.complete(bitmap)) bitmap.recycle()
+                            } catch (error: Throwable) {
+                                releaseRemote()
+                                result.completeExceptionally(error.cause ?: error)
+                            } finally {
+                                activeResult = null
+                                handler.postDelayed(idleRelease, 15_000)
+                            }
+                        }
+                    }, { task -> handler.post(task) })
+                } catch (error: Throwable) {
+                    releaseRemote()
+                    result.completeExceptionally(error)
+                }
+            }
+
+            return try {
+                result.get(if (owner == null) 10L else 5L, TimeUnit.SECONDS)
+            } catch (error: Throwable) {
+                result.completeExceptionally(error.cause ?: error)
+                handler.post {
+                    if (activeResult === result) {
+                        activeResult = null
+                        releaseRemote()
+                    }
+                }
+                throw (error.cause ?: error)
+            }
+        }
+
+        fun cancel(owner: String) {
+            synchronized(this) {
+                handler?.post {
+                    if (remoteOwner == owner) {
+                        val pending = activeResult
+                        activeResult = null
+                        // Idle extractors stay warm briefly between scrubs. In-flight requests
+                        // are released so switching sources or leaving cannot waste bandwidth.
+                        if (pending != null) releaseRemote()
+                        else handler?.postDelayed(idleRelease, 15_000)
+                        pending?.completeExceptionally(CancellationException("Preview cancelled"))
+                    }
+                }
+            }
+        }
+
+        @Synchronized
+        fun close() {
+            handler?.post {
+                val pending = activeResult
+                activeResult = null
+                releaseRemote()
+                pending?.completeExceptionally(CancellationException("Thumbnail module closed"))
+                thread?.quitSafely()
+            }
+        }
+
+        private fun releaseRemote() {
+            handler?.removeCallbacks(idleRelease)
+            try {
+                extractor?.release()
+            } catch (_: Exception) {
+                // Device codecs may already be torn down after an extraction error.
+            } finally {
+                extractor = null
+                remoteKey = null
+                remoteOwner = null
+            }
+        }
+
+        fun releaseRetriever() {
+            val retriever = activeRetriever
+            activeRetriever = null
+            activeSourceKey = null
+            try {
+                retriever?.release()
+            } catch (_: Throwable) {
+                // Some device codecs throw after a decode failure.
+            }
+        }
     }
 
-    private fun extractWithMetadataRetriever(
-        source: String,
-        timestampMs: Long,
-        headers: Map<String, String>,
-    ): Bitmap {
-        val retriever = getRetriever(source, headers)
-        val timestampUs = timestampMs * 1_000L
-        return retriever.getFrameAtTime(
-            timestampUs,
-            MediaMetadataRetriever.OPTION_CLOSEST,
-        ) ?: retriever.getFrameAtTime(
-            timestampUs,
-            MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-        ) ?: throw IllegalStateException(
-            "The video decoder did not return a frame at ${timestampMs}ms",
-        )
+    @Synchronized
+    private fun trimCache(directory: File) {
+        val now = SystemClock.elapsedRealtime()
+        if (lastCacheTrimMs != 0L && now - lastCacheTrimMs < 60_000) return
+        lastCacheTrimMs = now
+        val files = directory.listFiles()?.filter { it.extension == "jpg" }?.sortedBy { it.lastModified() } ?: return
+        var bytes = files.sumOf { it.length() }
+        var count = files.size
+        for (file in files) {
+            if (bytes <= 32L * 1024 * 1024 && count <= 256) break
+            val size = file.length()
+            if (file.delete()) {
+                bytes -= size
+                count--
+            }
+        }
     }
 
     private fun isRemoteSource(source: String): Boolean =
@@ -234,73 +466,6 @@ class VideoThumbnailModule(
             "http", "https" -> true
             else -> false
         }
-
-    /**
-     * MediaMetadataRetriever commonly returns the opening frame for every seek
-     * on HTTP sources. Media3 prepares the stream, decodes the initial frame it
-     * requires internally, and then performs a real seek to the requested time.
-     */
-    @UnstableApi
-    private fun extractRemoteFrame(source: String, timestampMs: Long): Bitmap {
-        val thread = HandlerThread("vega-thumbnail-frame-extractor").apply { start() }
-        val handler = Handler(thread.looper)
-        val result = CompletableFuture<Bitmap>()
-
-        handler.post {
-            var extractor: ExperimentalFrameExtractor? = null
-            try {
-                val configuration = ExperimentalFrameExtractor.Configuration.Builder()
-                    .setSeekParameters(SeekParameters.CLOSEST_SYNC)
-                    .setMediaCodecSelector(MediaCodecSelector.DEFAULT)
-                    .build()
-                extractor = ExperimentalFrameExtractor(reactApplicationContext, configuration)
-                extractor.setMediaItem(MediaItem.fromUri(source), emptyList())
-
-                val frameFuture = extractor.getFrame(timestampMs)
-                frameFuture.addListener(
-                    {
-                        try {
-                            result.complete(frameFuture.get().bitmap)
-                        } catch (error: Throwable) {
-                            result.completeExceptionally(error)
-                        } finally {
-                            extractor?.release()
-                            thread.quitSafely()
-                        }
-                    },
-                    { task -> handler.post(task) },
-                )
-            } catch (error: Throwable) {
-                try {
-                    extractor?.release()
-                } catch (_: Throwable) {
-                    // Preserve the extraction error.
-                }
-                thread.quitSafely()
-                result.completeExceptionally(error)
-            }
-        }
-
-        return try {
-            result.get(20, TimeUnit.SECONDS)
-        } catch (error: Throwable) {
-            handler.post {
-                thread.quitSafely()
-            }
-            throw (error.cause ?: error)
-        }
-    }
-
-    private fun releaseActiveRetriever() {
-        val retriever = activeRetriever
-        activeRetriever = null
-        activeSourceKey = null
-        try {
-            retriever?.release()
-        } catch (_: Throwable) {
-            // Some device codecs throw while releasing after a decode failure.
-        }
-    }
 
     private fun setDataSource(
         retriever: MediaMetadataRetriever,
@@ -383,7 +548,7 @@ class VideoThumbnailModule(
         cropBlackBars: Boolean,
     ): String {
         val value = buildString {
-            append("media3-frame-extractor-v1|")
+            append("media3-frame-extractor-v2|")
             append("crop-bars=").append(cropBlackBars).append('|')
             append(source)
             append('|').append(timestampMs)
@@ -415,6 +580,9 @@ private fun ReadableMap?.toStringMap(): Map<String, String> {
     }
     return result
 }
+
+private fun ReadableMap?.stringOrNull(key: String): String? =
+    if (this != null && hasKey(key) && !isNull(key) && getType(key) == ReadableType.String) getString(key) else null
 
 private fun ReadableMap?.intOr(key: String, fallback: Int): Int {
     if (this == null || !hasKey(key) || isNull(key)) return fallback
