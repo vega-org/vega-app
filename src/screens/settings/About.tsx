@@ -7,6 +7,7 @@ import * as RNFS from '@dr.pogodin/react-native-fs';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import {notificationService} from '../../lib/services/Notification';
+import SettingsChoiceDialog from '../../components/ui/SettingsChoiceDialog';
 import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
@@ -247,6 +248,11 @@ export const checkForUpdate = async (
   setUpdateLoading(false);
 };
 
+const updateChannels = [
+  {value: 'stable', label: 'Stable', description: 'Receive stable releases only.'},
+  {value: 'beta', label: 'Beta', description: 'Receive stable releases and prereleases.'},
+] as const;
+
 const About = ({navigation}: any) => {
   const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
   const colors = useM3Colors();
@@ -258,6 +264,7 @@ const About = ({navigation}: any) => {
   const [autoDownload, setAutoDownload] = useState(
     settingsStorage.isAutoDownloadEnabled(),
   );
+  const [channelChooserOpen, setChannelChooserOpen] = useState(false);
   const [updateChannel, setUpdateChannel] = useState(() => settingsStorage.getUpdateChannel());
   const [autoCheckUpdate, setAutoCheckUpdate] = useState<boolean>(
     settingsStorage.isAutoCheckUpdateEnabled(),
@@ -396,18 +403,7 @@ const About = ({navigation}: any) => {
                 title="Update channel"
                 description={updateChannel === 'beta' ? 'Beta' : 'Stable'}
                 icon="source-branch"
-                onPress={() => showAppDialog({
-                  title: 'Update channel',
-                  message: 'Stable receives public releases. Beta also receives prereleases.',
-                  actions: (['stable', 'beta'] as const).map(channel => ({
-                    label: channel === 'stable' ? 'Stable' : 'Beta',
-                    variant: channel === updateChannel ? 'primary' : 'default',
-                    onPress: () => {
-                      settingsStorage.setUpdateChannel(channel);
-                      setUpdateChannel(channel);
-                    },
-                  })),
-                })}
+                onPress={() => setChannelChooserOpen(true)}
               />
               <SettingsRow
                 title="Check for updates"
@@ -458,6 +454,19 @@ const About = ({navigation}: any) => {
           </SettingsSection>
         )}
       </ScrollView>
+      {!isPlayStore && channelChooserOpen && (
+        <SettingsChoiceDialog
+          title="Update channel"
+          choices={updateChannels}
+          selected={updateChannel}
+          onDismiss={() => setChannelChooserOpen(false)}
+          onSelect={channel => {
+            settingsStorage.setUpdateChannel(channel);
+            setUpdateChannel(channel);
+            setChannelChooserOpen(false);
+          }}
+        />
+      )}
     </TVFocusGuide>
   );
 };
