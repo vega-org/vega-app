@@ -713,7 +713,7 @@ const DownloadComponent = ({
             sourceLink: link,
             url: sub.link,
             fileName: createSubtitleFileName(fileName, sub.title),
-            fileType: sub.type,
+            fileType: sub.type === 'text/vtt' ? 'vtt' : 'srt',
             deleteDownload: () => deleteSubtitleDownload(sub.title),
           });
         }}
