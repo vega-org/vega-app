@@ -34,6 +34,22 @@ export const PLAYER_CONTROL_COLOR = 'rgba(255,255,255,0.6)';
 const Button = isTV ? TVFocusPressable : TouchableOpacity;
 const BOTTOM_EDGE_PADDING = 12;
 
+// Match the visible glyphs to the usual 20dp artwork inside a 24dp slot.
+// These fonts have different built-in margins; keep the slot and touch target fixed.
+const COMMUNITY_ICON_SCALE: Record<string, number> = {
+  'screen-rotation': 20 / 24,
+  'playlist-play': 20 / 19,
+  'picture-in-picture-bottom-right-outline': 20 / 22.2,
+};
+const MATERIAL_ICON_SCALE: Record<string, number> = {
+  hd: 20 / 18,
+  sd: 20 / 18,
+  '2k': 20 / 18,
+  '4k': 20 / 18,
+  '8k': 20 / 18,
+  'high-quality': 20 / 18,
+};
+
 export function PlayerControlIcon({
   control,
   size = 24,
@@ -44,7 +60,7 @@ export function PlayerControlIcon({
   if (control.iconText)
     return (
       <View style={{width: size, height: size, alignItems: 'center', justifyContent: 'center'}}>
-        <View style={{width: size * 0.75, height: size * 0.75, borderRadius: size / 12,
+        <View style={{width: size * (20 / 24), height: size * (20 / 24), borderRadius: size / 12,
           backgroundColor: PLAYER_CONTROL_COLOR, alignItems: 'center', justifyContent: 'center'}}>
           <Text allowFontScaling={false} style={{color: '#000', fontSize: size * 0.32,
             fontWeight: '800', includeFontPadding: false, textAlign: 'center'}}>
@@ -53,18 +69,25 @@ export function PlayerControlIcon({
         </View>
       </View>
     );
-  return control.materialIcon ? (
-    <MaterialIcons
-      name={control.icon as any}
-      size={size}
-      color={PLAYER_CONTROL_COLOR}
-    />
-  ) : (
-    <MaterialCommunityIcons
-      name={control.icon as any}
-      size={size}
-      color={PLAYER_CONTROL_COLOR}
-    />
+  const glyphScale = (control.materialIcon ? MATERIAL_ICON_SCALE : COMMUNITY_ICON_SCALE)[control.icon] ?? 1;
+  return (
+    <View style={{width: size, height: size, flexShrink: 0, alignItems: 'center', justifyContent: 'center'}}>
+      {control.materialIcon ? (
+        <MaterialIcons
+          name={control.icon as any}
+          size={size}
+          style={{transform: [{scale: glyphScale}]}}
+          color={PLAYER_CONTROL_COLOR}
+        />
+      ) : (
+        <MaterialCommunityIcons
+          name={control.icon as any}
+          size={size}
+          style={{transform: [{scale: glyphScale}]}}
+          color={PLAYER_CONTROL_COLOR}
+        />
+      )}
+    </View>
   );
 }
 
