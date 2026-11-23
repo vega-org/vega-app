@@ -241,7 +241,10 @@ export function GlassTabBar({
                   accessibilityLabel={item.accessibilityLabel || item.label}
                   accessibilityActions={[{name: 'activate'}]}
                   onAccessibilityAction={() => onSelect(index)}
-                  style={styles.tabItem}>
+                  style={[
+                    styles.tabItem,
+                    showLabels && styles.tabItemWithLabel,
+                  ]}>
                   <AnimatedTabIcon
                     name={item.icon}
                     active={isFocused}
@@ -266,7 +269,7 @@ export function GlassTabBar({
                         fontWeight: highlighted ? '600' : '500',
                         marginTop: 2,
                         textAlign: 'center',
-                        width: '100%',
+                        alignSelf: 'stretch',
                       }}>
                       {item.label}
                     </AppText>
@@ -319,5 +322,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
+  },
+  tabItemWithLabel: {
+    paddingHorizontal: 6,
+    paddingBottom: 6,
   },
 });
