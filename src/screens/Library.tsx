@@ -22,6 +22,7 @@ import type {WatchListStackParamList} from '../App';
 import MediaPosterCard from '../components/MediaPosterCard';
 import LibraryCollectionDialog from '../components/library/LibraryCollectionDialog';
 import LibraryIcon from '../components/library/LibraryIcon';
+import SettingsChoiceDialog from '../components/ui/SettingsChoiceDialog';
 import AppText from '../components/ui/Text';
 import {
   getItemCollectionIds,
@@ -45,6 +46,17 @@ import useTVNavigationStore from '../lib/zustand/tvNavigationStore';
 const ALL_FILTER = '__all__';
 /** Last selected chip, kept on this device only (not synced). */
 const SELECTED_FILTER_KEY = 'library-selected-filter';
+const LIBRARY_SORT_KEY = 'library-sort-order';
+const librarySortChoices = [
+  {value: 'recent', label: 'Recently saved', description: 'Keep the default Library order'},
+  {value: 'title-asc', label: 'Title A–Z', description: 'Sort alphabetically by title'},
+  {value: 'title-desc', label: 'Title Z–A', description: 'Sort in reverse alphabetical order'},
+] as const;
+type LibrarySort = (typeof librarySortChoices)[number]['value'];
+const titleCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base',
+});
 
 type EditorState =
   | {visible: false}
@@ -69,6 +81,11 @@ const Library = () => {
   const [filter, setFilter] = useState<string>(
     () => mainStorage.getString(SELECTED_FILTER_KEY) || ALL_FILTER,
   );
+  const [sort, setSort] = useState<LibrarySort>(() => {
+    const saved = mainStorage.getString(LIBRARY_SORT_KEY);
+    return librarySortChoices.find(choice => choice.value === saved)?.value ?? 'recent';
+  });
+  const [sortPickerVisible, setSortPickerVisible] = useState(false);
   const [editor, setEditor] = useState<EditorState>({visible: false});
   const [selectedLinks, setSelectedLinks] = useState<Set<string>>(new Set());
   const [isSelectionModeActive, setIsSelectionModeActive] = useState(false);
@@ -132,15 +149,20 @@ const Library = () => {
     }
     return result;
   }, [watchList, existingIds]);
-  // Newest first, like other streaming apps' "My List".
   const visibleItems = useMemo(() => {
     const items = activeCollection
       ? watchList.filter(item =>
           getItemCollectionIds(item, existingIds).includes(activeCollection.id),
         )
       : watchList;
-    return [...items].reverse();
-  }, [watchList, activeCollection, existingIds]);
+    const sorted = [...items].reverse();
+    if (sort === 'recent') return sorted;
+
+    const direction = sort === 'title-asc' ? 1 : -1;
+    return sorted.sort(
+      (a, b) => direction * titleCollator.compare(a.title, b.title),
+    );
+  }, [watchList, activeCollection, existingIds, sort]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -151,6 +173,7 @@ const Library = () => {
     return () => clearTimeout(t);
   }, [
     visibleItems.length,
+    sort,
     filter,
     collections.length,
     isSelectionModeActive,
@@ -618,6 +641,22 @@ const Library = () => {
                 style={{alignItems: 'center', flexDirection: 'row', gap: 8}}>
                 <TVFocusable
                   accessibilityRole="button"
+                  accessibilityLabel={
+                    'Sort titles, ' +
+                    librarySortChoices.find(choice => choice.value === sort)?.label
+                  }
+                  onPress={() => setSortPickerVisible(true)}
+                  borderRadius={18}
+                  focusBorderColor={focusBorderColor}
+                  style={{
+                    padding: 8,
+                    borderRadius: 18,
+                    backgroundColor: colors.surfaceContainerHigh,
+                  }}>
+                  <MaterialCommunityIcons name="sort" size={22} color={colors.primary} />
+                </TVFocusable>
+                <TVFocusable
+                  accessibilityRole="button"
                   accessibilityLabel="Local content"
                   onPress={() => navigation.navigate('LocalContent', {collectionId: activeCollection?.id})}
                   borderRadius={18}
@@ -883,6 +922,20 @@ const Library = () => {
           </View>
         </View>
       ) : null}
+
+      {sortPickerVisible && (
+        <SettingsChoiceDialog
+          title="Sort Library"
+          choices={librarySortChoices}
+          selected={sort}
+          onSelect={value => {
+            mainStorage.setString(LIBRARY_SORT_KEY, value);
+            setSort(value);
+            setSortPickerVisible(false);
+          }}
+          onDismiss={() => setSortPickerVisible(false)}
+        />
+      )}
 
       <LibraryCollectionDialog
         visible={editor.visible}
