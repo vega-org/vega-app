@@ -38,7 +38,7 @@ const BOTTOM_EDGE_PADDING = 12;
 // These fonts have different built-in margins; keep the slot and touch target fixed.
 const COMMUNITY_ICON_SCALE: Record<string, number> = {
   'screen-rotation': 20 / 24,
-  'playlist-play': 20 / 19,
+  'playlist-play': 22 / 19,
   'picture-in-picture-bottom-right-outline': 20 / 22.2,
 };
 const MATERIAL_ICON_SCALE: Record<string, number> = {
