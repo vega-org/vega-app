@@ -1,5 +1,6 @@
 const fs = require('fs');
 const {addVideoPlayerAlias} = require('./video-player-intents');
+const {writeSplashVectorResources} = require('./splash-vector-resources');
 const path = require('path');
 const {
   withAndroidManifest,
@@ -214,23 +215,6 @@ const copyTvBannerResources = (projectRoot, resRoot) => {
   }
 };
 
-const copySplashResources = (projectRoot, resRoot) => {
-  const sourceRoot = path.join(projectRoot, 'assets', 'bootsplash', 'android');
-  for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
-    const bucket = `drawable-${density}`;
-    const sourceDir = path.join(sourceRoot, bucket);
-    const targetDir = path.join(resRoot, bucket);
-    fs.mkdirSync(targetDir, {recursive: true});
-    for (const variant of variants) {
-      const filename = `bootsplash_logo_${variant.id.toLowerCase()}.png`;
-      fs.copyFileSync(
-        path.join(sourceDir, filename),
-        path.join(targetDir, filename),
-      );
-    }
-  }
-};
-
 const patchGeneratedBootSplashFiles = (projectRoot, packageName) => {
   const mainActivityPath = path.join(
     projectRoot,
@@ -265,7 +249,7 @@ const withLauncherResources = config =>
       );
       writeLauncherResources(resRoot);
       copyTvBannerResources(projectRoot, resRoot);
-      copySplashResources(projectRoot, resRoot);
+      writeSplashVectorResources(projectRoot, resRoot, variants);
       patchGeneratedBootSplashFiles(
         projectRoot,
         modConfig.android?.package || 'com.vega',
