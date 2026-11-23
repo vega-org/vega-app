@@ -53,11 +53,13 @@ import StatusBarScrim from '../../components/ui/StatusBarScrim';
 import {TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
 import useTVNavigationStore from '../../lib/zustand/tvNavigationStore';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Info'>;
 
 export default function Info({route, navigation}: Props): React.JSX.Element {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const searchNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
   const provider = useContentStore(state => state.provider);
@@ -477,7 +479,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
               <View
                 style={{
                   backgroundColor: detailColors.background,
-                  height: 110,
+                  height: 110 + floatingTabBarInset,
                 }}
               />
             }

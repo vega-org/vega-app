@@ -42,11 +42,13 @@ import MissingDownloadsSection from '../settings/components/MissingDownloadsSect
 import DownloadsEmptyState from './components/DownloadsEmptyState';
 import DownloadsSelectionBottomBar from './components/DownloadsSelectionBottomBar';
 import DownloadsSelectionHeader from './components/DownloadsSelectionHeader';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 import {deleteDownloadedMediaGroups} from './utils/deleteDownloadGroups';
 
 const Downloads = () => {
   const insets = useSafeAreaInsets();
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor();
   const navigation =
     useNavigation<NativeStackNavigationProp<DownloadsStackParamList>>();
@@ -343,7 +345,7 @@ const Downloads = () => {
         contentContainerStyle={{
           paddingHorizontal: containerPadding,
           paddingTop: isSelectionMode ? 14 : 0,
-          paddingBottom: isSelectionMode ? 120 : 80,
+          paddingBottom: (isSelectionMode ? 120 : 80) + floatingTabBarInset,
         }}
         ListHeaderComponent={
           !isSelectionMode ? (

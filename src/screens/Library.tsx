@@ -41,6 +41,7 @@ import {isTV} from '../lib/tv';
 import {TVFocusable, TVFocusGuide} from '../components/tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
 import useTVNavigationStore from '../lib/zustand/tvNavigationStore';
+import {useFloatingTabBarInset} from '../components/navigation/FloatingTabBarInsetContext';
 
 /** Chip id for every saved title, across categories. */
 const ALL_FILTER = '__all__';
@@ -65,6 +66,7 @@ type EditorState =
 const Library = () => {
   const insets = useSafeAreaInsets();
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor();
   const {width: screenWidth} = useWindowDimensions();
   const [containerWidth, setContainerWidth] = useState(screenWidth);
@@ -762,7 +764,7 @@ const Library = () => {
             }
             contentContainerStyle={{
               paddingTop: isSelectionMode ? 14 : 0,
-              paddingBottom: isSelectionMode ? 120 : 50,
+              paddingBottom: (isSelectionMode ? 120 : 50) + floatingTabBarInset,
             }}
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
@@ -806,7 +808,7 @@ const Library = () => {
       {isSelectionMode ? (
         <View
           style={{
-            bottom: isTV ? 20 : 24,
+            bottom: isTV ? 20 : 24 + floatingTabBarInset,
             left: isTV ? 24 : 16,
             position: 'absolute',
             right: isTV ? 48 : 16,

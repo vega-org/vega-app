@@ -35,6 +35,7 @@ import ContinueWatching from '../../components/ContinueWatching';
 import StatusBarScrim from '../../components/ui/StatusBarScrim';
 import {isTV} from '../../lib/tv/constants';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Home'>;
 
@@ -62,6 +63,7 @@ const HOME_DRAW_DISTANCE = isTV ? 800 : 250;
 
 const Home = ({}: Props) => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const isFocused = useIsFocused();
   const [statusBarScrimVisible, setStatusBarScrimVisible] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -279,7 +281,7 @@ const Home = ({}: Props) => {
     installedProviders.length === 0 ||
     !provider?.value
   ) {
-    return <ScrollView contentContainerStyle={{flexGrow: 1, paddingTop: isTV ? 12 : 32}}>
+    return <ScrollView contentContainerStyle={{flexGrow: 1, paddingTop: isTV ? 12 : 32, paddingBottom: isTV ? 0 : floatingTabBarInset}}>
       {showContinueWatching && <ContinueWatching localOnly />}
       <View style={{flex: 1, minHeight: 400}}><Tutorial /></View>
     </ScrollView>;
@@ -331,7 +333,7 @@ const Home = ({}: Props) => {
               scrollEventThrottle={16}
               showsVerticalScrollIndicator={false}
               style={{backgroundColor: colors.background}}
-              contentContainerStyle={{paddingBottom: isTV ? 120 : 32}}
+              contentContainerStyle={{paddingBottom: isTV ? 120 : 32 + floatingTabBarInset}}
               refreshControl={
                 <RefreshControl
                   colors={[colors.primary]}

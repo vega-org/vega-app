@@ -6,6 +6,7 @@ import SettingsSection from './SettingsSection';
 import Surface from './Surface';
 import AppText from './Text';
 import {scheduleWhenIdle} from '../../lib/performance/idleWork';
+import {useFloatingTabBarInset} from '../navigation/FloatingTabBarInsetContext';
 
 // React.Children does not descend into fragments: flatten them explicitly so
 // platform/conditional groups do not mount a whole section as one list row.
@@ -23,6 +24,7 @@ const SettingsPage = ({children, searchFallback}: {
   searchFallback?: Readonly<Record<string, string>>;
 }) => {
   const searchTarget = useSettingsSearchTarget();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const [ready, setReady] = React.useState(isTV);
   React.useEffect(() => {
     if (isTV || searchTarget) return;
@@ -35,7 +37,7 @@ const SettingsPage = ({children, searchFallback}: {
       <SettingsSearchScrollView searchFallback={searchFallback} focusable={false} accessible={false}
         className="h-full w-full bg-m3-background"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{paddingBottom: 40, paddingTop: 20}}>
+        contentContainerStyle={{paddingBottom: 40 + floatingTabBarInset, paddingTop: 20}}>
         <View style={{paddingHorizontal: 20}}>{items}</View>
       </SettingsSearchScrollView>
     );
@@ -72,7 +74,7 @@ const SettingsPage = ({children, searchFallback}: {
       windowSize={3}
       removeClippedSubviews={false}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40, paddingTop: 20}}
+      contentContainerStyle={{paddingHorizontal: 20, paddingBottom: 40 + floatingTabBarInset, paddingTop: 20}}
     />
   );
 };

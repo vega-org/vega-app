@@ -132,6 +132,7 @@ import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
 import Constants from 'expo-constants';
 import {searchSettings} from './settingsSearch';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 type Props = NativeStackScreenProps<SettingsStackParamList, 'Settings'>;
 
 const AnimatedSection = ({
@@ -166,6 +167,7 @@ const Settings = ({navigation}: Props) => {
   const tabNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const provider = useContentStore(state => state.provider);
   const setProvider = useContentStore(state => state.setProvider);
   const installedProviders = useContentStore(state => state.installedProviders);
@@ -256,7 +258,7 @@ const Settings = ({navigation}: Props) => {
           overScrollMode="always"
           contentContainerStyle={{
             paddingTop: 15,
-            paddingBottom: 24,
+            paddingBottom: 24 + floatingTabBarInset,
             flexGrow: 1,
           }}>
           <View className="p-5">

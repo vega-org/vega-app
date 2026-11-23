@@ -410,7 +410,7 @@ export default function LocalContent({
     setReview([]);
     releaseUnusedRoot(root.current);
     root.current = undefined;
-    if (route.params?.editId) navigation.goBack();
+    if (route.params?.editId || navigation.canGoBack?.()) navigation.goBack();
     else navigation.navigate('WatchList');
   };
   return (
