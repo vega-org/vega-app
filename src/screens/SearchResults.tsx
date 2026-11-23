@@ -16,6 +16,7 @@ import {isTV} from '../lib/tv';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {runProviderSearches} from '../lib/search/runProviderSearches';
 import type {ProviderExtension} from '../lib/storage/extensionStorage';
+import {useFloatingTabBarInset} from '../components/navigation/FloatingTabBarInsetContext';
 
 type Props = NativeStackScreenProps<SearchStackParamList, 'SearchResults'>;
 
@@ -39,6 +40,7 @@ const activeFirst = (providers: ProviderExtension[]) => {
 
 const SearchResults = ({route, navigation}: Props): React.ReactElement => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const storeProviders = useContentStore(state => state.installedProviders);
   // Reordering providers in the drawer makes a new array with the same
   // providers. Only a real install or removal should restart the searches.
@@ -355,7 +357,7 @@ const SearchResults = ({route, navigation}: Props): React.ReactElement => {
             )}
           </View>
         )}
-        <View className="h-16" />
+        <View style={{height: 64 + floatingTabBarInset}} />
       </ScrollView>
     </ScreenSafeArea>
   );

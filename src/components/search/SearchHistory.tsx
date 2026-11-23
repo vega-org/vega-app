@@ -6,6 +6,7 @@ import AppText from '../ui/Text';
 import Button from '../ui/Button';
 import {isTV} from '../../lib/tv/constants';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
+import {useFloatingTabBarInset} from '../navigation/FloatingTabBarInsetContext';
 
 interface SearchHistoryProps {
   history: string[];
@@ -186,6 +187,7 @@ const SearchHistory: React.FC<SearchHistoryProps> = ({
   onFirstItemNodeHandle,
 }) => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor();
   const scrollViewRef = useRef<ScrollView>(null);
   const itemRefs = useRef<(View | null)[]>([]);
@@ -304,7 +306,7 @@ const SearchHistory: React.FC<SearchHistoryProps> = ({
           ref={scrollViewRef}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{paddingBottom: 20}}>
+          contentContainerStyle={{paddingBottom: 20 + floatingTabBarInset}}>
           {visibleHistory.map((item, index) => (
             <HistoryRow
               key={`history-${item}`}

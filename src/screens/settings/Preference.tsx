@@ -22,6 +22,8 @@ import AppText from '../../components/ui/Text';
 import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsPage from '../../components/ui/SettingsPage';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
+import SettingsRow from '../../components/ui/SettingsRow';
+import SettingsChoiceDialog from '../../components/ui/SettingsChoiceDialog';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
@@ -50,7 +52,13 @@ const applyTelemetryOptIn = async (next: boolean) => {
   } catch {}
 };
 
+const bottomBarStyles = [
+  {value: 'material', label: 'Material', description: 'Standard navigation bar'},
+  {value: 'glass', label: 'Glass', description: 'Floating, rounded navigation bar'},
+] as const;
+
 const Preferences = ({navigation}: any) => {
+  const [showBottomBarStyles, setShowBottomBarStyles] = useState(false);
   const hasFirebase =
     Boolean(Constants?.expoConfig?.extra?.hasFirebase) &&
     isFirebaseNativeReady();
@@ -91,6 +99,16 @@ const Preferences = ({navigation}: any) => {
 
   const [showTabBarLables, setShowTabBarLables] = useState<boolean>(() =>
     settingsStorage.showTabBarLabels(),
+  );
+  const glassTabBar = useNavigationPreferencesStore(state => state.glassTabBar);
+  const setGlassTabBar = useNavigationPreferencesStore(
+    state => state.setGlassTabBar,
+  );
+  const hideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.hideGlassTabBarInSubpages,
+  );
+  const setHideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.setHideGlassTabBarInSubpages,
   );
   const hideDownloadsTab = useNavigationPreferencesStore(
     state => state.hideDownloadsTab,
@@ -199,6 +217,21 @@ const Preferences = ({navigation}: any) => {
                 );
               }}
             />
+            {!isTV && (
+              <SettingsRow
+                title="Bottom bar style"
+                description={glassTabBar ? 'Glass' : 'Material'}
+                onPress={() => setShowBottomBarStyles(true)}
+              />
+            )}
+            {!isTV && glassTabBar && (
+              <SettingsSwitchRow
+                title="Hide glass bar on subpages"
+                description="Hide the floating Glass bar on detail and settings pages"
+                value={hideGlassTabBarInSubpages}
+                onValueChange={setHideGlassTabBarInSubpages}
+              />
+            )}
             <SettingsSwitchRow
               title="Hide downloads tab"
               description="Move Downloads from the tab bar to Settings"
@@ -338,6 +371,18 @@ const Preferences = ({navigation}: any) => {
           <DownloadConcurrencyPreference primary={colors.primary} />
 
       </SettingsPage>
+      {showBottomBarStyles && (
+        <SettingsChoiceDialog
+          title="Bottom bar style"
+          choices={bottomBarStyles}
+          selected={glassTabBar ? 'glass' : 'material'}
+          onSelect={style => {
+            setGlassTabBar(style === 'glass');
+            setShowBottomBarStyles(false);
+          }}
+          onDismiss={() => setShowBottomBarStyles(false)}
+        />
+      )}
     </TVFocusGuide>
   );
 };

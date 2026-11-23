@@ -18,6 +18,8 @@ export enum SettingsKeys {
   PRIMARY_COLOR = 'primaryColor',
   IS_CUSTOM_THEME = 'isCustomTheme',
   SHOW_TAB_BAR_LABELS = 'showTabBarLabels',
+  GLASS_TAB_BAR = 'glassTabBar',
+  HIDE_GLASS_TAB_BAR_IN_SUBPAGES = 'hideGlassTabBarInSubpages',
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
   CUSTOM_COLOR = 'customColor',
@@ -322,6 +324,25 @@ export class SettingsStorage {
 
   setShowTabBarLabels(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_TAB_BAR_LABELS, show);
+  }
+
+  isGlassTabBarEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, false);
+  }
+
+  setGlassTabBarEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.GLASS_TAB_BAR, enabled);
+  }
+
+  hideGlassTabBarInSubpages(): boolean {
+    return mainStorage.getBool(
+      SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES,
+      true,
+    );
+  }
+
+  setHideGlassTabBarInSubpages(hide: boolean): void {
+    mainStorage.setBool(SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES, hide);
   }
 
   hideDownloadsTab(): boolean {

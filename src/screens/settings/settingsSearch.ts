@@ -17,6 +17,8 @@ const entries: SearchEntry[] = [
   ...['Appearance', 'Accent color', 'Dynamic info accent', 'Launcher icon'].map(
     (label): SearchEntry => ({label, page: 'Appearance', route: 'Appearance', keywords: 'theme wallpaper color icon'}),
   ),
+  {label: 'Bottom bar style', page: 'Preferences', route: 'Preferences', keywords: 'ios glass material navigation style', phoneOnly: true},
+  {label: 'Hide glass bar on subpages', page: 'Preferences', route: 'Preferences', keywords: 'glass bottom bar navigation hide subpages detail pages', phoneOnly: true},
   ...['Preferences', 'Auto update providers', 'Provider verification windows', 'Haptic feedback',
     'Tab bar labels', 'Hide downloads tab', 'Hamburger menu', 'Continue watching',
     'Disable drawer', 'External downloader', 'Skip in-app webview', 'Excluded qualities',

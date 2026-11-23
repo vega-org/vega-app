@@ -149,16 +149,24 @@ const Extensions = ({navigation, route}: Props) => {
     actions?: AppDialogAction[],
   ) => setDialog({title, message, variant, actions});
 
+  const goBackToSettings = useCallback(() => {
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Settings');
+    }
+  }, [navigation]);
+
   // Register only while this screen is focused. A hidden screen in a
   // mounted tab or stack must not swallow back presses.
   useFocusEffect(
     useCallback(() => {
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
-        navigation.navigate('Settings');
+        goBackToSettings();
         return true;
       });
       return () => backSub.remove();
-    }, [navigation]),
+    }, [goBackToSettings]),
   );
 
   // Load providers immediately on component mount (synchronous 0ms load)
@@ -632,7 +640,7 @@ const Extensions = ({navigation, route}: Props) => {
             hasTVPreferredFocus={isTV}
             accessibilityRole="button"
             accessibilityLabel="Back to settings"
-            onPress={() => navigation.navigate('Settings')}
+            onPress={goBackToSettings}
             borderRadius={16}
             focusScale={1.12}
             style={{

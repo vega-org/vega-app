@@ -23,6 +23,7 @@ import {
   NavigationContainer,
   createNavigationContainerRef,
 } from '@react-navigation/native';
+import {BlurTargetView} from 'expo-blur';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -41,7 +42,7 @@ import PlayerControlSettings from './screens/settings/PlayerControlSettings';
 import Appearance from './screens/settings/Appearance';
 import DataManagement from './screens/settings/DataManagement';
 import {M3ThemeProvider} from './theme/M3ThemeProvider';
-import {AppState, Linking, LogBox, useWindowDimensions} from 'react-native';
+import {AppState, Linking, LogBox, Platform, useWindowDimensions, View} from 'react-native';
 import {vegaCastService} from './lib/remote/vegaCastService';
 import {EpisodeLink, Stream} from './lib/providers/types';
 import {
@@ -79,12 +80,18 @@ import {
 } from './lib/downloadReconciliation';
 import useDownloadsStore from './lib/zustand/downloadsStore';
 import useNavigationPreferencesStore from './lib/zustand/navigationPreferencesStore';
+import {syncTabVisibility, useTabVisibilityStore} from './lib/zustand/tabVisibilityStore';
 import {
   initializeSyncService,
   publishSyncManifest,
   syncFromSharedFolder,
 } from './lib/sync/syncService';
 import StreamingTabBar from './components/navigation/StreamingTabBar';
+import {
+  FloatingTabBarInsetContext,
+  getGlassTabBarClearance,
+  isTabRouteOnSubpage,
+} from './components/navigation/FloatingTabBarInsetContext';
 import AppDialogHost from './components/AppDialogHost';
 import {RemoteVolumeToast} from './components/remote-player/RemoteVolumeToast';
 import {
@@ -364,9 +371,22 @@ const settingsTabOptions = {
   tabBarIcon: makeTabIcon('cog', 'cog-outline'),
 };
 
-const renderTabBar = (props: React.ComponentProps<typeof StreamingTabBar>) => (
-  <StreamingTabBar {...props} />
-);
+function TabBlurScene({children, onReady}: {
+  children: React.ReactNode;
+  onReady: (target: View) => void;
+}) {
+  const target = React.useRef<View>(null);
+
+  React.useEffect(() => {
+    if (target.current) onReady(target.current);
+  }, [onReady]);
+
+  return (
+    <BlurTargetView ref={target} style={{flex: 1}}>
+      {children}
+    </BlurTargetView>
+  );
+}
 
 function HomeStackScreen() {
   return (
@@ -474,14 +494,29 @@ function SettingsStackScreen() {
   );
 }
 
+type TabScreenLayoutProps = Parameters<
+  NonNullable<React.ComponentProps<typeof Tab.Navigator>['screenLayout']>
+>[0];
+
 function TabStack() {
+  const subpages = useTabVisibilityStore(state => state.subpages);
   // Native tab retention can leave inactive Screen roots above Home on Android.
   // Use the navigator's native detach policy until retention is touch-safe.
+  const insets = useSafeAreaInsets();
   const {width: windowWidth, height: windowHeight} = useWindowDimensions();
   const isLargeScreen = isTV || Math.min(windowWidth, windowHeight) >= 600;
   const hideDownloadsTab = useNavigationPreferencesStore(
     state => state.hideDownloadsTab,
   );
+  const glassTabBar = useNavigationPreferencesStore(state => state.glassTabBar);
+  const hideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.hideGlassTabBarInSubpages,
+  );
+  const showTabBarLabels = settingsStorage.showTabBarLabels();
+  const floatingTabBarInset =
+    !isLargeScreen && glassTabBar
+      ? getGlassTabBarClearance(insets.bottom, showTabBarLabels)
+      : 0;
   const screenOptions = useMemo(
     () => ({
       animation: isTV ? ('shift' as const) : ('fade' as const),
@@ -493,11 +528,49 @@ function TabStack() {
     }),
     [isLargeScreen],
   );
+  const [blurTargets, setBlurTargets] = useState<Record<string, View>>({});
+  const useAndroidBlurTarget = Platform.OS === 'android' && !isTV;
+  const renderScreenLayout = useCallback(
+    ({children, route, navigation}: TabScreenLayoutProps) => {
+      const routeWithState = navigation
+        .getState()
+        ?.routes.find(item => item.key === route.key);
+      const hiddenOnSubpage =
+        hideGlassTabBarInSubpages && (subpages[route.key] ?? isTabRouteOnSubpage(routeWithState));
+      const tabInset = hiddenOnSubpage ? 0 : floatingTabBarInset;
+      const content = useAndroidBlurTarget ? (
+        <TabBlurScene
+          onReady={target => {
+            setBlurTargets(previous =>
+              previous[route.name] === target
+                ? previous
+                : {...previous, [route.name]: target},
+            );
+          }}>
+          {children}
+        </TabBlurScene>
+      ) : (
+        children
+      );
+      return (
+        <FloatingTabBarInsetContext.Provider value={tabInset}>
+          {content}
+        </FloatingTabBarInsetContext.Provider>
+      );
+    },
+    [floatingTabBarInset, hideGlassTabBarInSubpages, useAndroidBlurTarget, subpages],
+  );
   const tabs = (
     <Tab.Navigator
       screenListeners={navigationWorkListeners}
       detachInactiveScreens
-      tabBar={renderTabBar}
+      screenLayout={renderScreenLayout}
+      tabBar={props => (
+        <StreamingTabBar
+          {...props}
+          blurTarget={blurTargets[props.state.routes[props.state.index]?.name]}
+        />
+      )}
       screenOptions={screenOptions}>
       <Tab.Screen
         name="HomeStack"
@@ -723,6 +796,7 @@ const App = () => {
   }, []);
 
   const handleNavigationReady = useCallback(async () => {
+    syncTabVisibility(navigationRef.getRootState());
     if (pendingDownloadsNavigation) {
       openDownloadsScreen();
     }
@@ -745,6 +819,7 @@ const App = () => {
   }, [hasFirebase]);
 
   const handleNavigationStateChange = useCallback(async () => {
+    syncTabVisibility(navigationRef.getRootState());
     if (hasFirebase) {
       await logScreenView();
     }

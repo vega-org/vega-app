@@ -48,6 +48,7 @@ describe('settings defaults', () => {
     expect(settingsStorage.isTelemetryOptIn()).toBe(true);
     expect(settingsStorage.isDohEnabled()).toBe(true);
     expect(settingsStorage.showTabBarLabels()).toBe(true);
+    expect(settingsStorage.hideGlassTabBarInSubpages()).toBe(true);
     expect(settingsStorage.showPlayerEpisodeSidebar()).toBe(true);
     expect(settingsStorage.isAutoPlayNextEpisodeEnabled()).toBe(true);
   });
@@ -222,6 +223,22 @@ describe('settings defaults', () => {
 
     mockNumberValues.set(SettingsKeys.PLAYBACK_SPEED, Number.NaN);
     expect(settingsStorage.getPlaybackSpeed()).toBe(1);
+  });
+
+  it('persists the hide glass bar on subpages preference', () => {
+    expect(settingsStorage.hideGlassTabBarInSubpages()).toBe(true);
+
+    settingsStorage.setHideGlassTabBarInSubpages(false);
+    expect(settingsStorage.hideGlassTabBarInSubpages()).toBe(false);
+    expect(
+      mockBooleanValues.get(SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES),
+    ).toBe(false);
+
+    settingsStorage.setHideGlassTabBarInSubpages(true);
+    expect(settingsStorage.hideGlassTabBarInSubpages()).toBe(true);
+    expect(
+      mockBooleanValues.get(SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES),
+    ).toBe(true);
   });
 
   it('persists the Downloads tab preference', () => {

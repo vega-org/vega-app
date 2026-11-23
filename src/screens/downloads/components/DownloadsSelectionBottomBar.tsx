@@ -7,6 +7,7 @@ import AppText from '../../../components/ui/Text';
 import {isTV} from '../../../lib/tv';
 import {useTVFocusBorderColor} from '../../../lib/tv/useTVFocusBorderColor';
 import {useM3Colors} from '../../../theme/M3PaletteContext';
+import {useFloatingTabBarInset} from '../../../components/navigation/FloatingTabBarInsetContext';
 
 interface DownloadsSelectionBottomBarProps {
   selectedCount: number;
@@ -28,12 +29,13 @@ export const DownloadsSelectionBottomBar: React.FC<DownloadsSelectionBottomBarPr
   onExitSelection,
 }) => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor();
 
   return (
     <View
       style={{
-        bottom: isTV ? 20 : 24,
+        bottom: isTV ? 20 : 24 + floatingTabBarInset,
         left: isTV ? 24 : 16,
         position: 'absolute',
         right: isTV ? 48 : 16,
