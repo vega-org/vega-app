@@ -54,3 +54,17 @@ test('prebuild aligns existing Maven dependency and adds one mandatory release c
   assert.match(gradle, /endsWith\('ReleaseNativeLibs'\).*dependsOn\(verifyFfmpegArmv7\)/);
   assert.match(gradle, /ffmpegkit_abidetect/);
 });
+
+test('prebuild updates existing ARMv7 verification to check the packaged ABIs', () => {
+  const {configureGradle} = plugin();
+  const cfg = {modResults: {contents: `
+dependencies {}
+// Vega: require complete ARMv7 FFmpegKit in release builds
+def verifyFfmpegArmv7 = tasks.register('verifyFfmpegArmv7') {
+    doLast {}
+}
+`}};
+  configureGradle(cfg);
+  configureGradle(cfg);
+  assert.equal((cfg.modResults.contents.match(/onlyIf \{ android\.defaultConfig\.ndk\.abiFilters\.contains\('armeabi-v7a'\) \}/g) || []).length, 1);
+});

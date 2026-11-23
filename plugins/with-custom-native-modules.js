@@ -255,9 +255,15 @@ allprojects {
     contents = contents.replace(/dev\.ffmpegkit-maintained:ffmpeg-kit-https:[^'"\s]+/g,
       'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.9');
     const armv7Guard = '// Vega: require complete ARMv7 FFmpegKit in release builds';
+    // Migrate the old unconditional check in an existing Expo prebuild.
+    contents = contents.replace(
+      /(def verifyFfmpegArmv7 = tasks.register\('verifyFfmpegArmv7'\) \{\r?\n)(    doLast)/,
+      "$1    onlyIf { android.defaultConfig.ndk.abiFilters.contains('armeabi-v7a') }\n$2",
+    );
     if (!contents.includes(armv7Guard)) contents += `
 ${armv7Guard}
 def verifyFfmpegArmv7 = tasks.register('verifyFfmpegArmv7') {
+    onlyIf { android.defaultConfig.ndk.abiFilters.contains('armeabi-v7a') }
     doLast {
         ['ffmpegkit', 'ffmpegkit_abidetect', 'avcodec', 'avformat', 'avutil', 'avfilter', 'avdevice', 'swresample', 'swscale'].each { name ->
             def library = file("src/main/jniLibs/armeabi-v7a/lib" + name + ".so")
