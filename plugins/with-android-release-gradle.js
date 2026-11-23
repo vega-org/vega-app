@@ -48,7 +48,9 @@ if (project.android) {
     }
     defaultConfig {
       ndk {
-        abiFilters 'armeabi-v7a', 'arm64-v8a'
+        def architectures = project.findProperty('reactNativeArchitectures') ?: 'armeabi-v7a,arm64-v8a'
+        abiFilters.clear()
+        abiFilters.addAll(architectures.toString().split(',').collect { it.trim() }.findAll { it })
       }
     }
     packagingOptions {

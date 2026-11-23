@@ -9,7 +9,10 @@ const GRADLE_PROPERTIES = {
   'org.gradle.workers.max': '4',
   // Bound the Kotlin daemon heap; it otherwise sizes to the host and adds up.
   'kotlin.daemon.jvmargs': '-Xmx1536m',
-  'reactNativeArchitectures': 'armeabi-v7a,arm64-v8a',
+  // The source-built ARMv7 FFmpeg libraries are produced by the Linux build job.
+  'reactNativeArchitectures': process.platform === 'win32'
+    ? 'arm64-v8a'
+    : 'armeabi-v7a,arm64-v8a',
   'expo.useLegacyPackaging': 'true',
   // Store the Hermes bundle uncompressed so it is memory-mapped at launch
   // instead of inflated into RAM first. Faster cold start and less memory on
