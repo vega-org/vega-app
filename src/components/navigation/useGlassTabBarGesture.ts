@@ -78,7 +78,7 @@ export function useGlassTabBarGesture({
 
   const triggerHoverHaptic = useCallback(() => {
     if (settingsStorage.isHapticFeedbackEnabled()) {
-      ReactNativeHapticFeedback.trigger('effectTick', {
+      ReactNativeHapticFeedback.trigger('effectClick', {
         enableVibrateFallback: true,
         ignoreAndroidSystemSettings: false,
       });

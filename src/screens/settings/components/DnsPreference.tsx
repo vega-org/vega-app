@@ -11,6 +11,7 @@ import {
   BackHandler,
 } from 'react-native';
 import { settingsStorage } from '../../../lib/storage';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {
   DOH_PROVIDERS,
   DohProviderValue,
@@ -119,6 +120,12 @@ const DnsPreference = () => {
 
   const onToggleWarp = async (value: boolean) => {
     if (isWarpBusy || isByeDpiBusy) return;
+    if (!isTV && settingsStorage.isHapticFeedbackEnabled()) {
+      ReactNativeHapticFeedback.trigger('effectClick', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    }
     setIsWarpBusy(true);
     setWarpEnabledState(value);
     if (value) {
@@ -159,6 +166,12 @@ const DnsPreference = () => {
 
   const onToggleByeDpi = async (value: boolean) => {
     if (isByeDpiBusy || isWarpBusy) return;
+    if (!isTV && settingsStorage.isHapticFeedbackEnabled()) {
+      ReactNativeHapticFeedback.trigger('effectClick', {
+        enableVibrateFallback: true,
+        ignoreAndroidSystemSettings: false,
+      });
+    }
     setIsByeDpiBusy(true);
     setByeDpiEnabledState(value);
     if (value) {

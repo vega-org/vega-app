@@ -274,7 +274,7 @@ const StreamingTabBar = ({
 
       if (index !== currentState.index) {
         if (!options?.skipHaptic && settingsStorage.isHapticFeedbackEnabled()) {
-          ReactNativeHapticFeedback.trigger('effectTick', {
+          ReactNativeHapticFeedback.trigger('effectClick', {
             enableVibrateFallback: true,
             ignoreAndroidSystemSettings: false,
           });

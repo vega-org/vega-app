@@ -1,8 +1,10 @@
 import {SettingsSearchAnchor} from './SettingsSearchTarget';
 import React, {useCallback, useRef, useState} from 'react';
 import {findNodeHandle, Platform, Pressable, Switch, View} from 'react-native';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {isTV} from '../../lib/tv';
+import {settingsStorage} from '../../lib/storage/SettingsStorage';
 import {TVFocusable} from '../tv';
 import AppText from './Text';
 import {rippleColor} from './rippleColor';
@@ -39,6 +41,19 @@ const SettingsSwitchRow = React.forwardRef<View, SettingsSwitchRowProps>(({
     }
   }, []);
 
+  const handleToggle = useCallback(
+    (nextValue: boolean) => {
+      onValueChange(nextValue);
+      if (!isTV && settingsStorage.isHapticFeedbackEnabled()) {
+        ReactNativeHapticFeedback.trigger('effectClick', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
+      }
+    },
+    [onValueChange],
+  );
+
   const renderContent = (isFocused: boolean) => (
     <SettingsSearchAnchor label={title}>
       <View
@@ -71,7 +86,7 @@ const SettingsSwitchRow = React.forwardRef<View, SettingsSwitchRowProps>(({
           focusable={false}
           pointerEvents={isTV ? 'none' : 'auto'}
           importantForAccessibility={isTV ? 'no' : 'auto'}
-          onValueChange={isTV ? undefined : onValueChange}
+          onValueChange={isTV ? undefined : handleToggle}
           thumbColor={value ? colors.onPrimary : colors.outline}
           trackColor={{
             false: colors.surfaceContainerHighest,
@@ -87,7 +102,7 @@ const SettingsSwitchRow = React.forwardRef<View, SettingsSwitchRowProps>(({
       <TVFocusable
         ref={setRefs}
         onLayout={onLayout}
-        onPress={() => onValueChange(!value)}
+        onPress={() => handleToggle(!value)}
         nextFocusRight={rowHandle}
         nextFocusUp={nextFocusUp}
         focusScale={1.02}
@@ -106,7 +121,7 @@ const SettingsSwitchRow = React.forwardRef<View, SettingsSwitchRowProps>(({
       accessibilityRole="switch"
       accessibilityState={{checked: value}}
       accessibilityLabel={title}
-      onPress={() => onValueChange(!value)}
+      onPress={() => handleToggle(!value)}
       // Ripple keeps playing after a quick tap, unlike a pressed-state
       // opacity change that flips back before it can be seen.
       android_ripple={{color: rippleColor(colors.onSurface)}}
