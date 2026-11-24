@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {BlurView} from 'expo-blur';
 import LinearGradient from 'react-native-linear-gradient';
 import {GestureDetector} from 'react-native-gesture-handler';
@@ -13,14 +13,13 @@ import Animated, {
 import {
   I18nManager,
   Keyboard,
+  type LayoutChangeEvent,
   Platform,
   StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import AppText from '../ui/Text';
-import {AnimatedTabIcon, type AnimatedTabIconName} from './AnimatedTabIcon';
 import {
   GLASS_BAR_BOTTOM_MARGIN,
   GLASS_BAR_HEIGHT_COMPACT,
@@ -28,14 +27,10 @@ import {
   GLASS_BAR_MIN_BOTTOM_INSET,
   GLASS_BAR_PADDING,
 } from './FloatingTabBarInsetContext';
+import {GlassTabBarItem, type GlassTabItem} from './GlassTabBarItem';
 import {useGlassTabBarGesture} from './useGlassTabBarGesture';
 
-export interface GlassTabItem {
-  key: string;
-  label: string;
-  icon: AnimatedTabIconName;
-  accessibilityLabel?: string;
-}
+export type {GlassTabItem};
 
 interface GlassTabBarProps {
   items: GlassTabItem[];
@@ -48,8 +43,44 @@ interface GlassTabBarProps {
 }
 
 const SUBPAGE_TRANSITION_MS = 200;
+const GLASS_GRADIENT_COLORS = [
+  'rgba(44, 44, 48, 0.46)',
+  'rgba(22, 22, 26, 0.46)',
+];
 
-export function GlassTabBar({
+const GlassTabBarBackdrop = React.memo(function GlassTabBarBackdrop({
+  blurActive,
+  blurTarget,
+}: {
+  blurActive: boolean;
+  blurTarget?: View;
+}) {
+  const blurTargetRef = useMemo(
+    () => (blurTarget ? {current: blurTarget} : undefined),
+    [blurTarget],
+  );
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {blurActive && (Platform.OS === 'ios' || blurTarget) && (
+        <BlurView
+          style={StyleSheet.absoluteFill}
+          tint="systemChromeMaterialDark"
+          intensity={75}
+          blurReductionFactor={3.5}
+          blurMethod={blurTarget ? 'dimezisBlurView' : undefined}
+          blurTarget={blurTargetRef}
+        />
+      )}
+      <LinearGradient
+        colors={GLASS_GRADIENT_COLORS}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+});
+
+export const GlassTabBar = React.memo(function GlassTabBar({
   items,
   selectedIndex,
   showLabels,
@@ -140,14 +171,22 @@ export function GlassTabBar({
     };
   });
 
-  const {hoveredIndex, gesture, lens, handleBarLayout} = useGlassTabBarGesture({
-    itemCount: items.length,
-    selectedIndex,
-    reducedMotion,
-    rtl,
-    hidden,
-    onSelect,
-  });
+  const {barWidth, position, gesture, lens, pressHighlight, handleBarLayout} =
+    useGlassTabBarGesture({
+      itemCount: items.length,
+      selectedIndex,
+      reducedMotion,
+      rtl,
+      hidden,
+      onSelect,
+    });
+
+  const onBarLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      handleBarLayout(event.nativeEvent.layout.width);
+    },
+    [handleBarLayout],
+  );
 
   if (hideOnKeyboard && keyboardVisible) {
     return null;
@@ -157,8 +196,14 @@ export function GlassTabBar({
     ? GLASS_BAR_HEIGHT_WITH_LABELS
     : GLASS_BAR_HEIGHT_COMPACT;
   const pillRadius = pillHeight / 2;
+  const selectionRadius = showLabels ? 28 : 22;
   const compactText = items.length >= 5;
   const sidePadding = 16;
+  const tabWidth =
+    barWidth > 0
+      ? Math.max(0, barWidth - GLASS_BAR_PADDING * 2) /
+        Math.max(1, items.length)
+      : 0;
 
   return (
     <Animated.View
@@ -186,7 +231,7 @@ export function GlassTabBar({
         ]}>
         <GestureDetector gesture={gesture}>
           <View
-            onLayout={event => handleBarLayout(event.nativeEvent.layout.width)}
+            onLayout={onBarLayout}
             style={[
               styles.glassBar,
               {
@@ -199,90 +244,45 @@ export function GlassTabBar({
                     : 'rgba(22, 22, 26, 0.88)',
               },
             ]}>
-            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              {blurActive && (Platform.OS === 'ios' || blurTarget) && (
-                <BlurView
-                  key={items[selectedIndex]?.key}
-                  style={StyleSheet.absoluteFill}
-                  tint="systemChromeMaterialDark"
-                  intensity={75}
-                  blurReductionFactor={3.5}
-                  blurMethod={blurTarget ? 'dimezisBlurView' : undefined}
-                  blurTarget={blurTarget ? {current: blurTarget} : undefined}
-                />
-              )}
-              <LinearGradient
-                colors={['rgba(44, 44, 48, 0.46)', 'rgba(22, 22, 26, 0.46)']}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
+            <GlassTabBarBackdrop
+              blurActive={blurActive}
+              blurTarget={blurTarget}
+            />
             <Animated.View
               pointerEvents="none"
               style={[
                 styles.glassSelection,
-                {borderRadius: showLabels ? 28 : 22},
+                {width: tabWidth, borderRadius: selectionRadius},
                 lens,
-              ]}
-            />
-            {items.map((item, index) => {
-              const isFocused = index === selectedIndex;
-              const highlighted =
-                hoveredIndex !== null ? hoveredIndex === index : isFocused;
-              const contentColor = highlighted
-                ? '#FFFFFF'
-                : 'rgba(255, 255, 255, 0.56)';
-
-              return (
-                <View
-                  key={item.key}
-                  accessible
-                  accessibilityRole="tab"
-                  accessibilityState={isFocused ? {selected: true} : {}}
-                  accessibilityLabel={item.accessibilityLabel || item.label}
-                  accessibilityActions={[{name: 'activate'}]}
-                  onAccessibilityAction={() => onSelect(index)}
-                  style={[
-                    styles.tabItem,
-                    showLabels && styles.tabItemWithLabel,
-                  ]}>
-                  <AnimatedTabIcon
-                    name={item.icon}
-                    active={isFocused}
-                    color={contentColor}
-                    size={22}
-                  />
-                  {showLabels ? (
-                    <AppText
-                      role={
-                        highlighted ? 'labelMediumEmphasized' : 'labelMedium'
-                      }
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                      maxFontSizeMultiplier={1.15}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.85}
-                      style={{
-                        color: contentColor,
-                        fontSize: compactText ? 10.5 : 11.5,
-                        lineHeight: compactText ? 13 : 14,
-                        letterSpacing: compactText ? 0.1 : 0.15,
-                        fontWeight: highlighted ? '600' : '500',
-                        marginTop: 2,
-                        textAlign: 'center',
-                        alignSelf: 'stretch',
-                      }}>
-                      {item.label}
-                    </AppText>
-                  ) : null}
-                </View>
-              );
-            })}
+              ]}>
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  StyleSheet.absoluteFill,
+                  styles.glassSelectionHighlight,
+                  {borderRadius: selectionRadius},
+                  pressHighlight,
+                ]}
+              />
+            </Animated.View>
+            {items.map((item, index) => (
+              <GlassTabBarItem
+                key={item.key}
+                item={item}
+                index={index}
+                isFocused={index === selectedIndex}
+                showLabels={showLabels}
+                compactText={compactText}
+                position={position}
+                onSelect={onSelect}
+              />
+            ))}
           </View>
         </GestureDetector>
       </View>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   overlay: {
@@ -315,16 +315,12 @@ const styles = StyleSheet.create({
     bottom: GLASS_BAR_PADDING,
     start: GLASS_BAR_PADDING,
     borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  tabItem: {
-    flex: 1,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  tabItemWithLabel: {
-    paddingHorizontal: 6,
-    paddingBottom: 6,
+  glassSelectionHighlight: {
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
   },
 });

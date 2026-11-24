@@ -10,6 +10,8 @@ interface NavigationPreferencesState {
   setHideDownloadsTab: (hide: boolean) => void;
   showContinueWatching: boolean;
   setShowContinueWatching: (show: boolean) => void;
+  showHeroLibraryButton: boolean;
+  setShowHeroLibraryButton: (show: boolean) => void;
 }
 
 const useNavigationPreferencesStore = create<NavigationPreferencesState>(
@@ -33,6 +35,11 @@ const useNavigationPreferencesStore = create<NavigationPreferencesState>(
     setShowContinueWatching: show => {
       settingsStorage.setShowContinueWatching(show);
       set({showContinueWatching: show});
+    },
+    showHeroLibraryButton: settingsStorage.showHeroLibraryButton(),
+    setShowHeroLibraryButton: show => {
+      settingsStorage.setShowHeroLibraryButton(show);
+      set({showHeroLibraryButton: show});
     },
   }),
 );

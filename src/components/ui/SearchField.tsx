@@ -14,6 +14,7 @@ import React, {forwardRef, useCallback, useEffect, useImperativeHandle, useRef, 
 import {View, TextInput, Keyboard, Pressable, BackHandler, Text as RNText, findNodeHandle, UIManager} from 'react-native';
 import {useM3Colors, useM3HostTheme} from '../../theme/M3PaletteContext';
 import {isTV} from '../../lib/tv';
+import {scheduleWhenIdle} from '../../lib/performance/idleWork';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
 import {useSafeIsNavFocused, useTVNavFocusMemory} from '../../lib/tv/useTVNavFocusMemory';
 
@@ -37,13 +38,12 @@ export interface SearchFieldRef {
   getNodeHandle: () => number | null;
 }
 
-const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
+const TVSearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
   (
     {
       value,
       onChangeText,
       onSubmit,
-      onClear,
       onFocusChange,
       placeholder = 'Search',
       nextFocusDown,
@@ -55,9 +55,6 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
     ref,
   ) => {
     const colors = useM3Colors();
-    const hostTheme = useM3HostTheme();
-    const nativeValue = useNativeState(value);
-    const fieldRef = useRef<TextFieldRef>(null);
     const tvInputRef = useRef<TextInput>(null);
     const containerRef = useRef<View>(null);
     const [tvFocused, setTvFocused] = useState(false);
@@ -71,23 +68,6 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
       isNavFocused,
       hasTVPreferredFocus: hasPreferredFocus,
     });
-    // Text the native field already shows. Pushing it back with setText moves
-    // the cursor to the end, so only outside changes (clear, history pick) sync.
-    const nativeTextRef = useRef(value);
-    const handleNativeChange = useCallback(
-      (text: string) => {
-        nativeTextRef.current = text;
-        onChangeText(text);
-      },
-      [onChangeText],
-    );
-
-    const handleClear = useCallback(() => {
-      nativeTextRef.current = '';
-      fieldRef.current?.setText('');
-      onChangeText('');
-      onClear?.();
-    }, [onChangeText, onClear]);
 
     const exitEditingToContainer = useCallback(() => {
       Keyboard.dismiss();
@@ -102,7 +82,7 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
     }, [onFocusChange]);
 
     useEffect(() => {
-      if (isTV && containerRef.current && !isEditing) {
+      if (containerRef.current && !isEditing) {
         const handle = findNodeHandle(containerRef.current);
         setContainerHandle(handle);
         onNodeHandle?.(handle);
@@ -111,23 +91,17 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
 
     useImperativeHandle(ref, () => ({
       focus: () => {
-        if (isTV) {
-          // A Pressable ref has no TextInput-style focus method. Ask native TV
-          // focus and keep preferred focus set until onFocus confirms arrival.
-          setHasPreferredFocus(true);
-          setIsEditing(false);
-          const handle = containerRef.current ? findNodeHandle(containerRef.current) : null;
-          if (handle) UIManager.dispatchViewManagerCommand(handle, 'requestTVFocus', []);
-        } else {
-          fieldRef.current?.focus();
-        }
+        // A Pressable ref has no TextInput-style focus method. Ask native TV
+        // focus and keep preferred focus set until onFocus confirms arrival.
+        setHasPreferredFocus(true);
+        setIsEditing(false);
+        const handle = containerRef.current ? findNodeHandle(containerRef.current) : null;
+        if (handle) UIManager.dispatchViewManagerCommand(handle, 'requestTVFocus', []);
       },
       blur: () => {
-        if (isTV) {
-          exitEditingQuietly();
-          tvInputRef.current?.blur();
-          (containerRef.current as any)?.blur?.();
-        }
+        exitEditingQuietly();
+        tvInputRef.current?.blur();
+        (containerRef.current as any)?.blur?.();
       },
       getNodeHandle: () => {
         return containerRef.current ? findNodeHandle(containerRef.current) : null;
@@ -135,14 +109,7 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
     }));
 
     useEffect(() => {
-      if (!isTV && value !== nativeTextRef.current) {
-        nativeTextRef.current = value;
-        fieldRef.current?.setText(value);
-      }
-    }, [value]);
-
-    useEffect(() => {
-      if (isTV && isEditing) {
+      if (isEditing) {
         const timer = setTimeout(() => {
           tvInputRef.current?.focus();
         }, 50);
@@ -151,7 +118,7 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
     }, [isEditing]);
 
     useEffect(() => {
-      if (!isTV || !isEditing) {
+      if (!isEditing) {
         return;
       }
 
@@ -173,93 +140,51 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
       };
     }, [isEditing, exitEditingToContainer]);
 
-    if (isTV) {
-      if (!isEditing) {
-        return (
-          <Pressable
-            ref={containerRef as any}
-            focusable={true}
-            isTVSelectable={true}
-            hasTVPreferredFocus={hasPreferredFocus}
-            nextFocusDown={nextFocusDown ?? undefined}
-            nextFocusUp={
-              nextFocusUp !== undefined
-                ? (nextFocusUp ?? undefined)
-                : (containerHandle ?? undefined)
-            }
-            nextFocusLeft={nextFocusLeft ?? undefined}
-            nextFocusRight={nextFocusRight ?? undefined}
-            onFocus={() => {
-              rememberFocus();
-              setHasPreferredFocus(false);
-              setTvFocused(true);
-              onFocusChange?.(true);
-            }}
-            onBlur={() => {
-              forgetFocus();
-              setHasPreferredFocus(false);
-              setTvFocused(false);
-              onFocusChange?.(false);
-            }}
-            onPress={() => {
-              setHasPreferredFocus(false);
-              setTvFocused(false);
-              setIsEditing(true);
-            }}
-            accessible={true}
-            accessibilityRole="button"
-            accessibilityLabel={value ? `Search query: ${value}` : placeholder}
-            style={{
-              width: '100%',
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: tvFocused
-                ? colors.surfaceContainerHigh
-                : colors.surfaceContainerLow,
-              borderRadius: 999,
-              borderWidth: tvFocused ? 2.5 : 1,
-              borderColor: tvFocused ? tvFocusBorderColor : 'transparent',
-              paddingHorizontal: 16,
-              height: 52,
-            }}>
-            <View
-              style={{
-                height: 24,
-                width: 24,
-                marginRight: 12,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}>
-              <MaterialCommunityIcons
-                name="magnify"
-                size={24}
-                color={tvFocused ? colors.primary : colors.onSurfaceVariant}
-              />
-            </View>
-            <View style={{flex: 1, justifyContent: 'center'}}>
-              <RNText
-                numberOfLines={1}
-                style={{
-                  color: value ? colors.onSurface : colors.onSurfaceVariant,
-                  fontSize: 16,
-                }}>
-                {value || placeholder}
-              </RNText>
-            </View>
-          </Pressable>
-        );
-      }
-
+    if (!isEditing) {
       return (
-        <View
+        <Pressable
+          ref={containerRef as any}
+          focusable={true}
+          isTVSelectable={true}
+          hasTVPreferredFocus={hasPreferredFocus}
+          nextFocusDown={nextFocusDown ?? undefined}
+          nextFocusUp={
+            nextFocusUp !== undefined
+              ? (nextFocusUp ?? undefined)
+              : (containerHandle ?? undefined)
+          }
+          nextFocusLeft={nextFocusLeft ?? undefined}
+          nextFocusRight={nextFocusRight ?? undefined}
+          onFocus={() => {
+            rememberFocus();
+            setHasPreferredFocus(false);
+            setTvFocused(true);
+            onFocusChange?.(true);
+          }}
+          onBlur={() => {
+            forgetFocus();
+            setHasPreferredFocus(false);
+            setTvFocused(false);
+            onFocusChange?.(false);
+          }}
+          onPress={() => {
+            setHasPreferredFocus(false);
+            setTvFocused(false);
+            setIsEditing(true);
+          }}
+          accessible={true}
+          accessibilityRole="button"
+          accessibilityLabel={value ? `Search query: ${value}` : placeholder}
           style={{
             width: '100%',
             flexDirection: 'row',
             alignItems: 'center',
-            backgroundColor: colors.surfaceContainerHigh,
+            backgroundColor: tvFocused
+              ? colors.surfaceContainerHigh
+              : colors.surfaceContainerLow,
             borderRadius: 999,
-            borderWidth: 2.5,
-            borderColor: tvFocusBorderColor,
+            borderWidth: tvFocused ? 2.5 : 1,
+            borderColor: tvFocused ? tvFocusBorderColor : 'transparent',
             paddingHorizontal: 16,
             height: 52,
           }}>
@@ -274,42 +199,148 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
             <MaterialCommunityIcons
               name="magnify"
               size={24}
-              color={colors.primary}
+              color={tvFocused ? colors.primary : colors.onSurfaceVariant}
             />
           </View>
-          <TextInput
-            ref={tvInputRef}
-            autoFocus={true}
-            value={value}
-            onChangeText={onChangeText}
-            onSubmitEditing={() => {
-              exitEditingToContainer();
-              onSubmit(value);
-            }}
-            onBlur={() => {
-              exitEditingQuietly();
-            }}
-            placeholder={placeholder}
-            placeholderTextColor={colors.onSurfaceVariant}
-            returnKeyType="search"
-            autoCorrect={false}
-            autoCapitalize="none"
-            style={{
-              flex: 1,
-              color: colors.onSurface,
-              fontSize: 16,
-              height: '100%',
-              paddingVertical: 0,
-            }}
-          />
-        </View>
+          <View style={{flex: 1, justifyContent: 'center'}}>
+            <RNText
+              numberOfLines={1}
+              style={{
+                color: value ? colors.onSurface : colors.onSurfaceVariant,
+                fontSize: 16,
+              }}>
+              {value || placeholder}
+            </RNText>
+          </View>
+        </Pressable>
       );
     }
+
+    return (
+      <View
+        style={{
+          width: '100%',
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.surfaceContainerHigh,
+          borderRadius: 999,
+          borderWidth: 2.5,
+          borderColor: tvFocusBorderColor,
+          paddingHorizontal: 16,
+          height: 52,
+        }}>
+        <View
+          style={{
+            height: 24,
+            width: 24,
+            marginRight: 12,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+          <MaterialCommunityIcons
+            name="magnify"
+            size={24}
+            color={colors.primary}
+          />
+        </View>
+        <TextInput
+          ref={tvInputRef}
+          autoFocus={true}
+          value={value}
+          onChangeText={onChangeText}
+          onSubmitEditing={() => {
+            exitEditingToContainer();
+            onSubmit(value);
+          }}
+          onBlur={() => {
+            exitEditingQuietly();
+          }}
+          placeholder={placeholder}
+          placeholderTextColor={colors.onSurfaceVariant}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          style={{
+            flex: 1,
+            color: colors.onSurface,
+            fontSize: 16,
+            height: '100%',
+            paddingVertical: 0,
+          }}
+        />
+      </View>
+    );
+  },
+);
+
+interface MobileComposeSearchFieldProps {
+  value: string;
+  onChangeText: (value: string) => void;
+  onSubmit: (value: string) => void;
+  onClear?: () => void;
+  onFocusChange?: (focused: boolean) => void;
+  placeholder: string;
+  onHostLayoutContent: (event: {nativeEvent: {width: number; height: number}}) => void;
+}
+
+type ComposeSearchFieldHandle = {
+  focus: () => Promise<void>;
+  blur: () => Promise<void>;
+};
+
+const MobileComposeSearchField = forwardRef<ComposeSearchFieldHandle, MobileComposeSearchFieldProps>(
+  (
+    {
+      value,
+      onChangeText,
+      onSubmit,
+      onClear,
+      onFocusChange,
+      placeholder,
+      onHostLayoutContent,
+    },
+    ref,
+  ) => {
+    const colors = useM3Colors();
+    const hostTheme = useM3HostTheme();
+    const nativeValue = useNativeState(value);
+    const fieldRef = useRef<TextFieldRef>(null);
+    // Text the native field already shows. Pushing it back with setText moves
+    // the cursor to the end, so only outside changes (clear, history pick) sync.
+    const nativeTextRef = useRef(value);
+
+    useImperativeHandle(ref, () => ({
+      focus: () => fieldRef.current?.focus() ?? Promise.resolve(),
+      blur: () => fieldRef.current?.blur() ?? Promise.resolve(),
+    }));
+
+    const handleNativeChange = useCallback(
+      (text: string) => {
+        nativeTextRef.current = text;
+        onChangeText(text);
+      },
+      [onChangeText],
+    );
+
+    const handleClear = useCallback(() => {
+      nativeTextRef.current = '';
+      fieldRef.current?.setText('');
+      onChangeText('');
+      onClear?.();
+    }, [onChangeText, onClear]);
+
+    useEffect(() => {
+      if (value !== nativeTextRef.current) {
+        nativeTextRef.current = value;
+        fieldRef.current?.setText(value);
+      }
+    }, [value]);
 
     return (
       <Host
         style={{width: '100%'}}
         matchContents={{vertical: true}}
+        onLayoutContent={onHostLayoutContent}
         {...hostTheme}>
         <TextField
           ref={fieldRef}
@@ -384,6 +415,163 @@ const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
       </Host>
     );
   },
+);
+
+const MobileSearchField = forwardRef<SearchFieldRef, SearchFieldProps>(
+  (
+    {
+      value,
+      onChangeText,
+      onSubmit,
+      onClear,
+      onFocusChange,
+      placeholder = 'Search',
+    },
+    ref,
+  ) => {
+    const colors = useM3Colors();
+    const isNavFocused = useSafeIsNavFocused();
+    const [composeReady, setComposeReady] = useState(false);
+    const fieldRef = useRef<ComposeSearchFieldHandle>(null);
+    const pendingFocusRef = useRef(false);
+    const focusRafRef = useRef<number | null>(null);
+
+    useEffect(() => {
+      return () => {
+        if (focusRafRef.current !== null) {
+          cancelAnimationFrame(focusRafRef.current);
+          focusRafRef.current = null;
+        }
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!isNavFocused) {
+        pendingFocusRef.current = false;
+        setComposeReady(false);
+        return;
+      }
+      if (!composeReady) {
+        return scheduleWhenIdle(() => setComposeReady(true), 0, true);
+      }
+    }, [composeReady, isNavFocused]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => {
+          if (composeReady) {
+            fieldRef.current?.focus();
+          } else {
+            pendingFocusRef.current = true;
+            setComposeReady(true);
+          }
+        },
+        blur: () => {
+          pendingFocusRef.current = false;
+          fieldRef.current?.blur();
+        },
+        getNodeHandle: () => null,
+      }),
+      [composeReady],
+    );
+
+    const handleHostLayoutContent = useCallback(
+      (event: {nativeEvent: {width: number; height: number}}) => {
+        if (
+          pendingFocusRef.current &&
+          event.nativeEvent.width > 0 &&
+          event.nativeEvent.height > 0
+        ) {
+          pendingFocusRef.current = false;
+          if (focusRafRef.current !== null) {
+            cancelAnimationFrame(focusRafRef.current);
+          }
+          focusRafRef.current = requestAnimationFrame(() => {
+            focusRafRef.current = null;
+            fieldRef.current?.focus();
+          });
+        }
+      },
+      [],
+    );
+
+    if (!composeReady) {
+      return (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={value || placeholder}
+          onPress={() => {
+            pendingFocusRef.current = true;
+            setComposeReady(true);
+          }}
+          style={{
+            height: 56,
+            width: '100%',
+            borderRadius: 999,
+            backgroundColor: colors.surfaceContainerLow,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}>
+          <MaterialCommunityIcons
+            name="magnify"
+            size={24}
+            color={colors.onSurfaceVariant}
+            style={{marginRight: 12}}
+          />
+          <RNText
+            numberOfLines={1}
+            style={{
+              flex: 1,
+              fontSize: 16,
+              color: value ? colors.onSurface : colors.onSurfaceVariant,
+            }}>
+            {value || placeholder}
+          </RNText>
+          {Boolean(onClear && value.length > 0) && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={8}
+              onPress={() => {
+                onChangeText('');
+                onClear?.();
+              }}
+              style={{
+                height: 24,
+                width: 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+              <MaterialCommunityIcons
+                name="close"
+                size={20}
+                color={colors.onSurfaceVariant}
+              />
+            </Pressable>
+          )}
+        </Pressable>
+      );
+    }
+
+    return (
+      <MobileComposeSearchField
+        ref={fieldRef}
+        value={value}
+        onChangeText={onChangeText}
+        onSubmit={onSubmit}
+        onClear={onClear}
+        onFocusChange={onFocusChange}
+        placeholder={placeholder}
+        onHostLayoutContent={handleHostLayoutContent}
+      />
+    );
+  },
+);
+
+const SearchField = forwardRef<SearchFieldRef, SearchFieldProps>((props, ref) =>
+  isTV ? <TVSearchField ref={ref} {...props} /> : <MobileSearchField ref={ref} {...props} />,
 );
 
 export default SearchField;

@@ -51,6 +51,11 @@ class SandboxBridge {
   private reloadRequester: (() => void) | null = null;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Returns true while a foreground or background sandbox host is attached. */
+  isRegistered(): boolean {
+    return this.injector !== null;
+  }
+
   /** Called by the host component once the WebView is mounted. */
   register(injector: Injector, requestReload: () => void): void {
     this.injector = injector;

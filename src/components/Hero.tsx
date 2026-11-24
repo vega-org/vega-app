@@ -44,6 +44,7 @@ import {
 import useContentStore from '../lib/zustand/contentStore';
 import useHeroStore from '../lib/zustand/herostore';
 import useWatchListStore, {type WatchList} from '../lib/zustand/watchListStore';
+import useNavigationPreferencesStore from '../lib/zustand/navigationPreferencesStore';
 import LibraryCollectionDialog from './library/LibraryCollectionDialog';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {mixHex} from '../theme/seeds';
@@ -328,8 +329,12 @@ const Hero = memo(
       provider.value,
     );
 
-    const inLibrary = useWatchListStore(state =>
-      state.watchList.some(item => item.link === hero?.link),
+    const showHeroLibraryButton = useNavigationPreferencesStore(
+      state => state.showHeroLibraryButton,
+    );
+    const inLibrary = useWatchListStore(
+      state =>
+        showHeroLibraryButton && state.watchList.some(item => item.link === hero?.link),
     );
 
     const toggleLibrary = () => {
@@ -764,15 +769,17 @@ const Hero = memo(
                 onPress={openDetails}>
                 Watch now
               </Button>
-              <HeroTopButton
-                filled
-                icon={inLibrary ? 'check' : 'plus'}
-                iconColor="#FFFFFF"
-                label={inLibrary ? 'Saved to Library' : 'Add to Library'}
-                onPress={toggleLibrary}
-                nextFocusLeft={watchNowNode}
-                nextFocusUp={hamburgerNode}
-              />
+              {showHeroLibraryButton && (
+                <HeroTopButton
+                  filled
+                  icon={inLibrary ? 'check' : 'plus'}
+                  iconColor="#FFFFFF"
+                  label={inLibrary ? 'Saved to Library' : 'Add to Library'}
+                  onPress={toggleLibrary}
+                  nextFocusLeft={watchNowNode}
+                  nextFocusUp={hamburgerNode}
+                />
+              )}
             </View>
           </Animated.View>
           {/* The dots sit below the title block so they never take space from

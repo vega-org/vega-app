@@ -19,87 +19,133 @@ interface ProviderItemProps {
 
 import useTVNavigationStore from '../../lib/zustand/tvNavigationStore';
 
-const ProviderItem = React.memo(
-  ({
-    item,
-    isSelected,
-    isFirst,
-    isLast,
-    colors,
-    onSelect,
-  }: ProviderItemProps) => {
-    const itemRef = React.useRef<View>(null);
-    const [handle, setHandle] = React.useState<number | null>(null);
-    const screenFocused = useIsFocused();
-
-    return (
-      <View
+function ProviderItemContent({
+  item,
+  isSelected,
+  colors,
+}: {
+  item: ProviderExtension;
+  isSelected: boolean;
+  colors: any;
+}) {
+  return (
+    <View className="flex-col items-center justify-center h-full p-3">
+      <RenderProviderFlagIcon type={item.type} />
+      <AppText
+        numberOfLines={1}
+        role="labelMediumEmphasized"
         style={{
-          height: 84,
-          marginRight: 12,
-          width: 132,
+          color: isSelected ? colors.onSecondaryContainer : colors.onSurface,
+          marginTop: 9,
+          textAlign: 'center',
         }}>
-        <TVFocusable
-          ref={itemRef}
-          onLayout={() => {
-            if (!isTV) return;
-            if (itemRef.current) {
-              const h = findNodeHandle(itemRef.current);
-              setHandle(h);
-              if (screenFocused && isFirst && h) {
-                useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
-              }
+        {item.display_name}
+      </AppText>
+      {isSelected && (
+        <View style={{position: 'absolute', right: 8, top: 8}}>
+          <MaterialIcons
+            name="check-circle"
+            size={18}
+            color={colors.onSecondaryContainer}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+const TVProviderItem = ({
+  item,
+  isSelected,
+  isFirst,
+  isLast,
+  colors,
+  onSelect,
+}: ProviderItemProps) => {
+  const itemRef = React.useRef<View>(null);
+  const [handle, setHandle] = React.useState<number | null>(null);
+  const screenFocused = useIsFocused();
+
+  return (
+    <View
+      style={{
+        height: 84,
+        marginRight: 12,
+        width: 132,
+      }}>
+      <TVFocusable
+        ref={itemRef}
+        onLayout={() => {
+          if (itemRef.current) {
+            const h = findNodeHandle(itemRef.current);
+            setHandle(h);
+            if (screenFocused && isFirst && h) {
+              useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
             }
-          }}
-          onFocus={() => {
-            if (itemRef.current) {
-              const h = findNodeHandle(itemRef.current);
-              if (screenFocused && h) {
-                useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
-              }
+          }
+        }}
+        onFocus={() => {
+          if (itemRef.current) {
+            const h = findNodeHandle(itemRef.current);
+            if (screenFocused && h) {
+              useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
             }
-          }}
-          hasTVPreferredFocus={isTV && isFirst}
-          nextFocusRight={isLast ? handle : undefined}
-          onPress={() => onSelect(item)}
-          borderRadius={20}
-          focusScale={1.08}
-          style={{
-            flex: 1,
-            backgroundColor: isSelected ? colors.secondaryContainer : '#2A2A2A',
-            borderColor: isSelected ? colors.primary : '#5A5A5A',
-            borderRadius: 20,
-            borderWidth: isSelected ? 2 : 1,
-          }}>
-          <View className="flex-col items-center justify-center h-full p-3">
-            <RenderProviderFlagIcon type={item.type} />
-            <AppText
-              numberOfLines={1}
-              role="labelMediumEmphasized"
-              style={{
-                color: isSelected
-                  ? colors.onSecondaryContainer
-                  : colors.onSurface,
-                marginTop: 9,
-                textAlign: 'center',
-              }}>
-              {item.display_name}
-            </AppText>
-            {isSelected && (
-              <View style={{position: 'absolute', right: 8, top: 8}}>
-                <MaterialIcons
-                  name="check-circle"
-                  size={18}
-                  color={colors.onSecondaryContainer}
-                />
-              </View>
-            )}
-          </View>
-        </TVFocusable>
-      </View>
-    );
-  },
+          }
+        }}
+        hasTVPreferredFocus={isFirst}
+        nextFocusRight={isLast ? handle : undefined}
+        onPress={() => onSelect(item)}
+        borderRadius={20}
+        focusScale={1.08}
+        style={{
+          flex: 1,
+          backgroundColor: isSelected ? colors.secondaryContainer : '#2A2A2A',
+          borderColor: isSelected ? colors.primary : '#5A5A5A',
+          borderRadius: 20,
+          borderWidth: isSelected ? 2 : 1,
+        }}>
+        <ProviderItemContent
+          item={item}
+          isSelected={isSelected}
+          colors={colors}
+        />
+      </TVFocusable>
+    </View>
+  );
+};
+
+const MobileProviderItem = ({
+  item,
+  isSelected,
+  colors,
+  onSelect,
+}: ProviderItemProps) => (
+  <View
+    style={{
+      height: 84,
+      marginRight: 12,
+      width: 132,
+    }}>
+    <TVFocusable
+      onPress={() => onSelect(item)}
+      borderRadius={20}
+      style={{
+        flex: 1,
+        backgroundColor: isSelected ? colors.secondaryContainer : '#2A2A2A',
+        borderColor: isSelected ? colors.primary : '#5A5A5A',
+        borderRadius: 20,
+        borderWidth: isSelected ? 2 : 1,
+      }}>
+      <ProviderItemContent
+        item={item}
+        isSelected={isSelected}
+        colors={colors}
+      />
+    </TVFocusable>
+  </View>
 );
+
+const ProviderItem = React.memo(isTV ? TVProviderItem : MobileProviderItem);
 import React, {useCallback, useMemo} from 'react';
 import {
   settingsStorage,
@@ -113,7 +159,6 @@ import {
 } from '@react-navigation/native-stack';
 import {SettingsStackParamList, TabStackParamList} from '../../App';
 import {MaterialIcons} from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
 import {
   useFocusEffect,
   useIsFocused,
@@ -121,6 +166,8 @@ import {
 } from '@react-navigation/native';
 import RenderProviderFlagIcon from '../../components/RenderProviderFLagIcon';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
+import useFollowedShowsStore from '../../lib/zustand/followedShowsStore';
+import {getEpisodeUpdateIntervalLabel} from '../../lib/storage/FollowedShowsStorage';
 import GitHubStarButton from './components/GitHubStarButton';
 import DnsPreference from './components/DnsPreference';
 import Button from '../../components/ui/Button';
@@ -132,22 +179,29 @@ import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
 import Constants from 'expo-constants';
 import {searchSettings} from './settingsSearch';
+import {scheduleWhenIdle} from '../../lib/performance/idleWork';
 import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 type Props = NativeStackScreenProps<SettingsStackParamList, 'Settings'>;
-
-const AnimatedSection = ({
-  children,
-}: {
-  delay: number;
-  children: React.ReactNode;
-}) => <View>{children}</View>;
 
 const Settings = ({navigation}: Props) => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [searchFocused, setSearchFocused] = React.useState(false);
+  const [belowFoldReady, setBelowFoldReady] = React.useState(isTV);
+  const followedShowsCount = useFollowedShowsStore(state => state.shows.length);
+  const followedUpdateInterval = useFollowedShowsStore(
+    state => state.updateInterval,
+  );
+  const followedShowsDescription =
+    followedShowsCount > 0
+      ? `${followedShowsCount} ${followedShowsCount === 1 ? 'show' : 'shows'} • ${getEpisodeUpdateIntervalLabel(followedUpdateInterval)}`
+      : `Automatic updates: ${getEpisodeUpdateIntervalLabel(followedUpdateInterval)}`;
   const [searchHistory, setSearchHistory] = React.useState(
     () => settingsStorage.getSettingsSearchHistory(),
   );
+  React.useEffect(() => {
+    if (isTV) return;
+    return scheduleWhenIdle(() => setBelowFoldReady(true), 0, true);
+  }, []);
   const searchInputRef = React.useRef<TextInput>(null);
   const saveSearch = () => {
     const query = searchQuery.trim();
@@ -161,8 +215,11 @@ const Settings = ({navigation}: Props) => {
     setSearchHistory(next);
   };
   const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
-  const results = searchSettings(searchQuery, {isTV, isPlayStore});
   const searching = searchQuery.trim().length > 0;
+  const results = useMemo(
+    () => (searching ? searchSettings(searchQuery, {isTV, isPlayStore}) : []),
+    [isPlayStore, searchQuery, searching],
+  );
   const providerManagerRowRef = React.useRef<View>(null);
   const tabNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
@@ -238,8 +295,6 @@ const Settings = ({navigation}: Props) => {
     [installedProviders, provider.value, colors, handleProviderSelect],
   );
 
-  const ScrollContainer = isTV ? ScrollView : Animated.ScrollView;
-
   return (
     <ScreenSafeArea className="bg-m3-background">
       <TVFocusGuide
@@ -247,7 +302,7 @@ const Settings = ({navigation}: Props) => {
         trapFocusRight={true}
         trapFocusDown={true}
         style={{flex: 1}}>
-        <ScrollContainer
+        <ScrollView
           focusable={false}
           accessible={false}
           className="h-full w-full bg-m3-background"
@@ -262,21 +317,11 @@ const Settings = ({navigation}: Props) => {
             flexGrow: 1,
           }}>
           <View className="p-5">
-            {isTV ? (
-              <AppText
-                role="headlineLargeEmphasized"
-                className="mb-6 text-m3-on-background">
-                Settings
-              </AppText>
-            ) : (
-              <Animated.View>
-                <AppText
-                  role="headlineLargeEmphasized"
-                  className="mb-6 text-m3-on-background">
-                  Settings
-                </AppText>
-              </Animated.View>
-            )}
+            <AppText
+              role="headlineLargeEmphasized"
+              className="mb-6 text-m3-on-background">
+              Settings
+            </AppText>
 
             <View
               style={{
@@ -383,126 +428,125 @@ const Settings = ({navigation}: Props) => {
               </>
             ) : (
               <>
-                {/* Content provider section */}
-                <AnimatedSection delay={100}>
-                  <View className="mb-6">
-                    <AppText
-                      role="labelLarge"
-                      className="mb-3"
-                      style={{color: colors.onSurfaceVariant}}>
-                      Content Provider
-                    </AppText>
-                    <View
-                      style={{
-                        backgroundColor: colors.background,
-                        borderColor: colors.outlineVariant,
-                        borderRadius: 24,
-                        borderWidth: 1,
-                        height: 116,
-                        justifyContent: 'center',
+                <View className="mb-6">
+                  <AppText
+                    role="labelLarge"
+                    className="mb-3"
+                    style={{color: colors.onSurfaceVariant}}>
+                    Content Provider
+                  </AppText>
+                  <View
+                    style={{
+                      backgroundColor: colors.background,
+                      borderColor: colors.outlineVariant,
+                      borderRadius: 24,
+                      borderWidth: 1,
+                      height: 116,
+                      justifyContent: 'center',
+                    }}>
+                    <ScrollView
+                      horizontal
+                      nestedScrollEnabled
+                      focusable={false}
+                      accessible={false}
+                      showsHorizontalScrollIndicator={false}
+                      style={{flexGrow: 0}}
+                      contentContainerStyle={{
+                        alignItems: 'center',
+                        paddingHorizontal: 10,
                       }}>
-                      <ScrollView
-                        horizontal
-                        nestedScrollEnabled
-                        focusable={false}
-                        accessible={false}
-                        showsHorizontalScrollIndicator={false}
-                        style={{flexGrow: 0}}
-                        contentContainerStyle={{
-                          alignItems: 'center',
-                          paddingHorizontal: 10,
-                        }}>
-                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                          {providersList}
-                        </View>
-                        {installedProviders.length === 0 && (
-                          <AppText
-                            role="bodyMedium"
-                            style={{color: colors.onSurfaceVariant}}>
-                            No providers installed
-                          </AppText>
-                        )}
-                      </ScrollView>
-                    </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                        {providersList}
+                      </View>
+                      {installedProviders.length === 0 && (
+                        <AppText
+                          role="bodyMedium"
+                          style={{color: colors.onSurfaceVariant}}>
+                          No providers installed
+                        </AppText>
+                      )}
+                    </ScrollView>
                   </View>
-                  <SettingsSection title="Provider tools">
-                    <SettingsRow
-                      ref={providerManagerRowRef}
-                      hasTVPreferredFocus={isTV && installedProviders.length === 0}
-                      title="Provider Manager"
-                      description="Install, update, and test provider extensions"
-                      icon="puzzle-outline"
-                      divider={false}
-                      onPress={() => navigation.navigate('Extensions')}
-                    />
-                  </SettingsSection>
-                </AnimatedSection>
+                </View>
+                <SettingsSection title="Provider tools">
+                  <SettingsRow
+                    ref={providerManagerRowRef}
+                    hasTVPreferredFocus={isTV && installedProviders.length === 0}
+                    title="Provider Manager"
+                    description="Install, update, and test provider extensions"
+                    icon="puzzle-outline"
+                    divider={false}
+                    onPress={() => navigation.navigate('Extensions')}
+                  />
+                </SettingsSection>
 
-                {/* Network Section */}
-                <AnimatedSection delay={150}>
-                  <SettingsSection title="Network">
-                    <DnsPreference />
-                  </SettingsSection>
-                </AnimatedSection>
+                <SettingsSection title="Network">
+                  <DnsPreference />
+                </SettingsSection>
 
-                {/* Main options section */}
-                <AnimatedSection delay={200}>
-                  <SettingsSection title="Options">
-                    <SettingsRow
-                      title="Appearance"
-                      // description="Accent colors and launcher icon"
-                      icon="palette-outline"
-                      onPress={() => navigation.navigate('Appearance')}
-                    />
-                    <SettingsRow
-                      title="Player settings"
-                      icon="play-circle-outline"
-                      onPress={() => navigation.navigate('PlayerSettings')}
-                    />
-                    {hideDownloadsTab && (
+                {belowFoldReady ? (
+                  <>
+                    <SettingsSection title="Updates">
                       <SettingsRow
-                        title="Downloads"
-                        icon="download-circle-outline"
-                        onPress={() => navigation.navigate('DownloadsStack')}
+                        title="Followed shows"
+                        description={followedShowsDescription}
+                        icon="bell-outline"
+                        divider={false}
+                        onPress={() => navigation.navigate('FollowedShows')}
                       />
-                    )}
-                    <SettingsRow
-                      title="Preferences"
-                      icon="tune-variant"
-                      divider={false}
-                      onPress={() => navigation.navigate('Preferences')}
-                    />
-                  </SettingsSection>
-                </AnimatedSection>
+                    </SettingsSection>
 
-                {/* Data Management section */}
-                <AnimatedSection delay={300}>
-                  <SettingsSection title="Data Management">
-                    <SettingsRow
-                      title="Data management"
-                      description="Backups, cache, watch progress, and sync"
-                      icon="database-outline"
-                      divider={false}
-                      onPress={() => navigation.navigate('DataManagement')}
-                    />
-                  </SettingsSection>
-                </AnimatedSection>
+                    <SettingsSection title="Options">
+                      <SettingsRow
+                        title="Appearance"
+                        // description="Accent colors and launcher icon"
+                        icon="palette-outline"
+                        onPress={() => navigation.navigate('Appearance')}
+                      />
+                      <SettingsRow
+                        title="Player settings"
+                        icon="play-circle-outline"
+                        onPress={() => navigation.navigate('PlayerSettings')}
+                      />
+                      {hideDownloadsTab && (
+                        <SettingsRow
+                          title="Downloads"
+                          icon="download-circle-outline"
+                          onPress={() => navigation.navigate('DownloadsStack')}
+                        />
+                      )}
+                      <SettingsRow
+                        title="Preferences"
+                        icon="tune-variant"
+                        divider={false}
+                        onPress={() => navigation.navigate('Preferences')}
+                      />
+                    </SettingsSection>
 
-                {/* About & GitHub section */}
-                <AnimatedSection delay={400}>
-                  <SettingsSection title="Vega">
-                    <SettingsRow
-                      title={isPlayStore ? 'About Vega' : 'About & updates'}
-                      icon="information-outline"
-                      onPress={() => navigation.navigate('About')}
-                    />
-                    <GitHubStarButton primary={colors.primary} />
-                  </SettingsSection>
-                </AnimatedSection>
+                    <SettingsSection title="Data Management">
+                      <SettingsRow
+                        title="Data management"
+                        description="Backups, cache, watch progress, and sync"
+                        icon="database-outline"
+                        divider={false}
+                        onPress={() => navigation.navigate('DataManagement')}
+                      />
+                    </SettingsSection>
+
+                    <SettingsSection title="Vega">
+                      <SettingsRow
+                        title={isPlayStore ? 'About Vega' : 'About & updates'}
+                        icon="information-outline"
+                        onPress={() => navigation.navigate('About')}
+                      />
+                      <GitHubStarButton primary={colors.primary} />
+                    </SettingsSection>
+                  </>
+                ) : null}
               </>
             )}
           </View>
-        </ScrollContainer>
+        </ScrollView>
       </TVFocusGuide>
     </ScreenSafeArea>
   );

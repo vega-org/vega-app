@@ -7,13 +7,17 @@ import {isTV} from '../../lib/tv';
 interface SettingsSectionProps {
   title: string;
   children: ReactNode;
+  headerAction?: ReactNode;
 }
 
-const SettingsSection = ({title, children}: SettingsSectionProps) => (
+const SettingsSection = ({title, children, headerAction}: SettingsSectionProps) => (
   <View className="mb-6">
-    <AppText role="labelLarge" className="mb-3 text-m3-on-surface-variant">
-      {title}
-    </AppText>
+    <View className="mb-3 flex-row items-center justify-between">
+      <AppText role="labelLarge" className="text-m3-on-surface-variant">
+        {title}
+      </AppText>
+      {headerAction}
+    </View>
     <Surface level="low" className={isTV ? undefined : 'overflow-hidden'}>
       {children}
     </Surface>

@@ -8,6 +8,7 @@ jest.mock('../src/lib/storage/StorageService', () => {
     return {
       getString: (key: string) => values.get(key) as string | undefined,
       setString: (key: string, value: string) => values.set(key, value),
+      getBool: (key: string, fallback = false) => values.get(key) ?? fallback,
       getNumber: (key: string) => values.get(key) as number | undefined,
       setNumber: (key: string, value: number) => values.set(key, value),
       getObject: (key: string) => values.get(key),

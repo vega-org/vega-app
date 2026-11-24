@@ -11,6 +11,7 @@ import {TVFocusable, TVFocusGuide} from './tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
 import ProviderIcon from './ProviderIcon';
 import ReorderableProviderList from './ReorderableProviderList';
+import {useFloatingTabBarInset} from './navigation/FloatingTabBarInsetContext';
 
 interface ProviderDrawerProps {
   onClose: () => void;
@@ -34,6 +35,7 @@ const ProviderDrawer = ({
   );
   const primary = useM3Colors().primary;
   const insets = useSafeAreaInsets();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor(primary);
   const mountTimeRef = React.useRef<number>(Date.now());
   const closeRef = React.useRef<View>(null);
@@ -124,7 +126,8 @@ const ProviderDrawer = ({
         style={{flex: 1}}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          className="flex-1 px-2">
+          className="flex-1 px-2"
+          contentContainerStyle={{paddingBottom: Math.max(64, floatingTabBarInset)}}>
           {/* TV keeps a plain list: rows are picked with the remote. */}
           {isTV &&
             installedProviders.map((item, index) => {
@@ -195,7 +198,6 @@ const ProviderDrawer = ({
               onSelect={handleSelectProvider}
             />
           )}
-          <View className="h-16" />
         </ScrollView>
       </TVFocusGuide>
     </TVFocusGuide>

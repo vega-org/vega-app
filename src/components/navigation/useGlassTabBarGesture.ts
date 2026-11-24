@@ -30,7 +30,7 @@ export function useGlassTabBarGesture({
   hidden,
   onSelect,
 }: UseGlassTabBarGestureParams) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [barWidth, setBarWidth] = useState(0);
   const onSelectRef = useRef(onSelect);
   const selectedIndexRef = useRef(selectedIndex);
 
@@ -43,6 +43,7 @@ export function useGlassTabBarGesture({
   }, [selectedIndex]);
 
   const position = useSharedValue(selectedIndex);
+  const targetIndex = useSharedValue(selectedIndex);
   const pressed = useSharedValue(0);
   const width = useSharedValue(0);
   const dragging = useSharedValue(false);
@@ -53,15 +54,13 @@ export function useGlassTabBarGesture({
 
   useEffect(() => {
     hiddenShared.set(hidden);
-    if (hidden) {
-      setHoveredIndex(null);
-    }
   }, [hidden, hiddenShared]);
 
   useEffect(() => {
     selectedIndexShared.set(selectedIndex);
     countShared.set(Math.max(1, itemCount));
-    if (!dragging.get()) {
+    if (!dragging.get() && targetIndex.get() !== selectedIndex) {
+      targetIndex.set(selectedIndex);
       position.set(
         reducedMotion ? selectedIndex : withSpring(selectedIndex, lensSpring),
       );
@@ -74,14 +73,10 @@ export function useGlassTabBarGesture({
     reducedMotion,
     selectedIndex,
     selectedIndexShared,
+    targetIndex,
   ]);
 
-  const handleDragStart = useCallback((index: number) => {
-    setHoveredIndex(index);
-  }, []);
-
-  const handleHoverChange = useCallback((index: number) => {
-    setHoveredIndex(index);
+  const triggerHoverHaptic = useCallback(() => {
     if (settingsStorage.isHapticFeedbackEnabled()) {
       ReactNativeHapticFeedback.trigger('effectTick', {
         enableVibrateFallback: true,
@@ -92,20 +87,16 @@ export function useGlassTabBarGesture({
 
   const handleFinishSelection = useCallback(
     (index: number, fromDrag: boolean) => {
-      setHoveredIndex(null);
       if (!onSelectRef.current(index, {skipHaptic: fromDrag})) {
         const fallback = selectedIndexRef.current;
+        targetIndex.set(fallback);
         position.set(
           reducedMotion ? fallback : withSpring(fallback, lensSpring),
         );
       }
     },
-    [position, reducedMotion],
+    [position, reducedMotion, targetIndex],
   );
-
-  const handleCancelDrag = useCallback(() => {
-    setHoveredIndex(null);
-  }, []);
 
   const gesture = useMemo(() => {
     const indexAt = (x: number) => {
@@ -131,12 +122,12 @@ export function useGlassTabBarGesture({
       .onStart(event => {
         if (hiddenShared.get()) return;
         dragging.set(true);
+        targetIndex.set(-1);
         if (width.get() > 0) {
           const nextPos = indexAt(event.x);
           position.set(nextPos);
           const hovered = Math.round(nextPos);
           lastHovered.set(hovered);
-          runOnJS(handleDragStart)(hovered);
         }
       })
       .onUpdate(event => {
@@ -147,24 +138,24 @@ export function useGlassTabBarGesture({
           const hovered = Math.round(nextPos);
           if (hovered !== lastHovered.get()) {
             lastHovered.set(hovered);
-            runOnJS(handleHoverChange)(hovered);
+            runOnJS(triggerHoverHaptic)();
           }
         }
       })
       .onEnd((event, success) => {
         if (!success || hiddenShared.get() || width.get() <= 0) return;
         const next = Math.round(indexAt(event.x));
+        targetIndex.set(next);
         position.set(reducedMotion ? next : withSpring(next, lensSpring));
         runOnJS(handleFinishSelection)(next, true);
       })
       .onFinalize((_event, success) => {
         if (!success && dragging.get()) {
+          const current = selectedIndexShared.get();
+          targetIndex.set(current);
           position.set(
-            reducedMotion
-              ? selectedIndexShared.get()
-              : withSpring(selectedIndexShared.get(), lensSpring),
+            reducedMotion ? current : withSpring(current, lensSpring),
           );
-          runOnJS(handleCancelDrag)();
         }
         dragging.set(false);
         lastHovered.set(-1);
@@ -177,6 +168,7 @@ export function useGlassTabBarGesture({
       .onEnd((event, success) => {
         if (!success || hiddenShared.get() || width.get() <= 0) return;
         const next = Math.round(indexAt(event.x));
+        targetIndex.set(next);
         position.set(reducedMotion ? next : withSpring(next, lensSpring));
         runOnJS(handleFinishSelection)(next, false);
       });
@@ -185,10 +177,7 @@ export function useGlassTabBarGesture({
   }, [
     countShared,
     dragging,
-    handleCancelDrag,
-    handleDragStart,
     handleFinishSelection,
-    handleHoverChange,
     hiddenShared,
     lastHovered,
     position,
@@ -196,6 +185,8 @@ export function useGlassTabBarGesture({
     reducedMotion,
     rtl,
     selectedIndexShared,
+    targetIndex,
+    triggerHoverHaptic,
     width,
   ]);
 
@@ -207,9 +198,6 @@ export function useGlassTabBarGesture({
     const travel = position.get() * tabWidth * (rtl ? -1 : 1);
     return {
       opacity: innerWidth > 0 ? 1 : 0,
-      width: tabWidth,
-      backgroundColor: `rgba(255,255,255,${0.16 + lift * 0.07})`,
-      borderColor: `rgba(255,255,255,${0.06 + lift * 0.22})`,
       transform: [
         {translateX: travel},
         {scaleX: reducedMotion ? 1 : 1 + lift * 0.04},
@@ -218,17 +206,26 @@ export function useGlassTabBarGesture({
     };
   });
 
+  const pressHighlight = useAnimatedStyle(() => ({
+    opacity: Math.max(0, Math.min(1, pressed.get())),
+  }));
+
   const handleBarLayout = useCallback(
     (layoutWidth: number) => {
       width.set(layoutWidth);
+      setBarWidth(previous =>
+        Math.abs(layoutWidth - previous) > 0.5 ? layoutWidth : previous,
+      );
     },
     [width],
   );
 
   return {
-    hoveredIndex,
+    barWidth,
+    position,
     gesture,
     lens,
+    pressHighlight,
     handleBarLayout,
   };
 }

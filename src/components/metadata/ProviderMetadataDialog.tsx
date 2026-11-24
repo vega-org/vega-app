@@ -25,12 +25,14 @@ export default function ProviderMetadataDialog({
   info,
   provider,
   link,
+  onSearchTitle,
 }: {
   visible: boolean;
   onClose: () => void;
   info: Info;
   provider: string;
   link: string;
+  onSearchTitle?: () => void;
 }) {
   const colors = useM3Colors();
   const insets = useSafeAreaInsets();
@@ -145,8 +147,42 @@ export default function ProviderMetadataDialog({
               shadowRadius: 12,
               shadowOffset: {width: 0, height: 4},
             }}>
+            {onSearchTitle && (
+              <TVFocusable
+                hasTVPreferredFocus={isTV}
+                borderRadius={10}
+                accessibilityRole="button"
+                accessibilityLabel="Search title"
+                onPress={() => {
+                  close();
+                  onSearchTitle();
+                }}
+                style={{
+                  minHeight: 48,
+                  paddingHorizontal: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                }}>
+                <MaterialCommunityIcons
+                  name="magnify"
+                  size={20}
+                  color={colors.onSurface}
+                />
+                <AppText
+                  style={{
+                    color: colors.onSurface,
+                    fontSize: 14,
+                    fontWeight: '400',
+                    letterSpacing: 0,
+                    flex: 1,
+                  }}>
+                  Search
+                </AppText>
+              </TVFocusable>
+            )}
             <TVFocusable
-              hasTVPreferredFocus={isTV}
+              hasTVPreferredFocus={isTV && !onSearchTitle}
               borderRadius={10}
               accessibilityRole="button"
               accessibilityLabel="Edit metadata"

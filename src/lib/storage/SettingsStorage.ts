@@ -22,6 +22,7 @@ export enum SettingsKeys {
   HIDE_GLASS_TAB_BAR_IN_SUBPAGES = 'hideGlassTabBarInSubpages',
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
+  SHOW_HERO_LIBRARY_BUTTON = 'showHeroLibraryButton',
   CUSTOM_COLOR = 'customColor',
   ACCENT_SOURCE = 'accentSource',
   LAUNCHER_ICON = 'launcherIcon',
@@ -327,7 +328,7 @@ export class SettingsStorage {
   }
 
   isGlassTabBarEnabled(): boolean {
-    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, false);
+    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, true);
   }
 
   setGlassTabBarEnabled(enabled: boolean): void {
@@ -360,6 +361,14 @@ export class SettingsStorage {
 
   setShowContinueWatching(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_CONTINUE_WATCHING, show);
+  }
+
+  showHeroLibraryButton(): boolean {
+    return mainStorage.getBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, false);
+  }
+
+  setShowHeroLibraryButton(show: boolean): void {
+    mainStorage.setBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, show);
   }
 
   isHapticFeedbackEnabled(): boolean {

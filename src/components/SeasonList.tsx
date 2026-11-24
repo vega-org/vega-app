@@ -103,6 +103,11 @@ interface SeasonListProps {
   synopsis?: string;
   refreshVersion?: number;
   quickDownload?: boolean;
+  onActiveSeasonChange?: (
+    season: Link,
+    index: number,
+    episodes: EpisodeLink[],
+  ) => void;
 }
 
 interface PlayHandlerProps {
@@ -426,6 +431,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   synopsis,
   refreshVersion,
   quickDownload,
+  onActiveSeasonChange,
 }) => {
   const manualMetadata = useMetadataOverrideStore(state => state.overrides[metadataOverrideKey(providerValue, routeParams.link)]);
   const colors = useM3Colors();
@@ -601,6 +607,30 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         : [],
     [activeSeason.directLinks, activeSeason.title, manualMetadata],
   );
+
+  useEffect(() => {
+    if (!onActiveSeasonChange || !activeSeason?.title) {
+      return;
+    }
+    const seasonIndex = Math.max(
+      0,
+      LinkList.findIndex(
+        item =>
+          item === activeSeason ||
+          (item.title === activeSeason.title &&
+            item.episodesLink === activeSeason.episodesLink),
+      ),
+    );
+    const episodes =
+      validEpisodes.length > 0 ? validEpisodes : validDirectLinks;
+    onActiveSeasonChange(activeSeason, seasonIndex, episodes);
+  }, [
+    LinkList,
+    activeSeason,
+    onActiveSeasonChange,
+    validDirectLinks,
+    validEpisodes,
+  ]);
 
   // Long seasons are shown in blocks of 50; the chosen block is remembered per season.
   const rangesOnEpisodes = validEpisodes.length > 0;

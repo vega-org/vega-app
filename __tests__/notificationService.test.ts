@@ -22,6 +22,7 @@ jest.mock('@notifee/react-native', () => ({
   },
   AndroidImportance: {DEFAULT: 3, HIGH: 4},
   AndroidGroupAlertBehavior: {ALL: 0, SUMMARY: 1, CHILDREN: 2},
+  AndroidStyle: {INBOX: 2},
   AndroidForegroundServiceType: {
     FOREGROUND_SERVICE_TYPE_DATA_SYNC: 1,
   },
@@ -78,7 +79,7 @@ jest.mock('../src/lib/downloadManager', () => ({
   waitForDownloadsHydration: mockWaitForDownloadsHydration,
 }));
 
-import {EventType} from '@notifee/react-native';
+import {AndroidStyle, EventType} from '@notifee/react-native';
 import notifee from '@notifee/react-native';
 import * as RNFS from '@dr.pogodin/react-native-fs';
 import RNApkInstaller from '@himanshu8443/react-native-apk-installer';
@@ -99,6 +100,20 @@ const mockGetContentUriAsync = FileSystem.getContentUriAsync as jest.Mock;
 
 const flushAsyncWork = () =>
   new Promise<void>(resolve => setImmediate(resolve));
+
+it('lists each new episode from a newest-first provider in the expanded alert', async () => {
+  await notificationService.displayEpisodeNotification({
+    show: {id: 'p::show', title: 'Show', link: 'https://example.com/show', provider: 'p', poster: '', seasonTitle: 'Season 2'},
+    newEpisodes: [{title: 'Episode 12'}, {title: 'Episode 11'}],
+  });
+
+  expect(mockDisplayNotification).toHaveBeenLastCalledWith(expect.objectContaining({
+    body: 'Season 2 • Episode 12, Episode 11',
+    android: expect.objectContaining({
+      style: {type: AndroidStyle.INBOX, lines: ['Episode 12', 'Episode 11'], summary: 'Season 2'},
+    }),
+  }));
+});
 
 describe('notification service download lifecycle', () => {
   beforeEach(async () => {
