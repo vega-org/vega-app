@@ -139,6 +139,7 @@ allprojects {
       'RemoteDeliveryPackage()',
       'DlnaPackage()',
       'VideoIntentPackage()',
+      'AnimatedSplashPackage()',
     ];
 
     for (const pkg of packagesToAdd) {

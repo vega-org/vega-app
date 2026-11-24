@@ -3,6 +3,7 @@ const path = require('path');
 
 const ANDROID = 'http://schemas.android.com/apk/res/android';
 const XML = '<?xml version="1.0" encoding="utf-8"?>\n';
+const DRAW_DURATION_MS = 1100;
 
 // Convert the supplied SVG paths without rasterizing or changing their geometry.
 function createSplashVectorResources(svg, variants) {
@@ -16,6 +17,12 @@ function createSplashVectorResources(svg, variants) {
   }
   const [clip, ring, wordmark, camera, play] = paths;
   const files = {};
+  // BootSplash's default background uses a bitmap wrapper for the logo.
+  // Reference the vector directly so the follow-up dialog can draw it.
+  files['drawable/vega_bootsplash_background.xml'] = `${XML}<layer-list xmlns:android="${ANDROID}">
+  <item android:drawable="?attr/bootSplashBackground" />
+  <item android:drawable="?attr/bootSplashLogo" android:gravity="center" />
+</layer-list>\n`;
   // 200 x 146dp artwork centered in Android's 288dp splash icon canvas.
   // Transparent padding protects the artwork from the system icon mask.
   const vector = (color, animated) => `${XML}<vector xmlns:android="${ANDROID}"
@@ -26,14 +33,16 @@ function createSplashVectorResources(svg, variants) {
       <clip-path android:pathData="${clip.d}" />
       <path android:name="ring" android:pathData="${ring.d}"
           android:fillColor="#00000000" android:strokeColor="${ring.stroke}"
-          android:strokeWidth="${ring['stroke-width']}" android:trimPathEnd="${animated ? 0 : 1}" />
+          android:strokeWidth="${ring['stroke-width']}" android:trimPathEnd="1"
+          android:strokeAlpha="${animated ? 0.4 : 1}" />
+      ${animated ? `<path android:name="ring_draw" android:pathData="${ring.d}"
+          android:fillColor="#00000000" android:strokeColor="${ring.stroke}"
+          android:strokeWidth="${ring['stroke-width']}" android:trimPathEnd="0" />` : ''}
     </group>
     <path android:name="wordmark" android:pathData="${wordmark.d}"
-        android:fillColor="${wordmark.fill}" android:fillAlpha="${animated ? 0 : 1}" />
-    <path android:name="camera" android:pathData="${camera.d}"
-        android:fillColor="${color}" android:fillAlpha="${animated ? 0 : 1}" />
-    <path android:name="play" android:pathData="${play.d}"
-        android:fillColor="${color}" android:fillAlpha="${animated ? 0 : 1}" />
+        android:fillColor="${wordmark.fill}" />
+    <path android:name="camera" android:pathData="${camera.d}" android:fillColor="${color}" />
+    <path android:name="play" android:pathData="${play.d}" android:fillColor="${color}" />
   </group>
 </vector>\n`;
 
@@ -43,25 +52,24 @@ function createSplashVectorResources(svg, variants) {
     files[`drawable/bootsplash_motion_${id}.xml`] = vector(variant.color, true);
     files[`drawable/bootsplash_animated_${id}.xml`] = `${XML}<animated-vector xmlns:android="${ANDROID}"
     android:drawable="@drawable/bootsplash_motion_${id}">
-  ${['ring', 'wordmark', 'camera', 'play'].map(name => `<target android:name="${name}" android:animation="@animator/bootsplash_${name}" />`).join('\n  ')}
+  ${['ring_draw', 'ring'].map(name => `<target android:name="${name}" android:animation="@animator/bootsplash_${name}" />`).join('\n  ')}
 </animated-vector>\n`;
   }
-  for (const [name, property, delay, duration] of [
-    ['ring', 'trimPathEnd', 0, 800],
-    ['wordmark', 'fillAlpha', 50, 380],
-    ['camera', 'fillAlpha', 90, 350],
-    ['play', 'fillAlpha', 330, 280],
+  // The full logo is on screen from the first frame; a bright arc draws over
+  // the dimmed ring, which then reaches full opacity.
+  for (const [name, property, from, to, delay, duration, interpolator] of [
+    ['ring_draw', 'trimPathEnd', 0, 1, 0, DRAW_DURATION_MS, 'fast_out_slow_in'],
+    ['ring', 'strokeAlpha', 0.4, 1, 700, 400, 'decelerate_cubic'],
   ]) {
     files[`animator/bootsplash_${name}.xml`] = `${XML}<objectAnimator xmlns:android="${ANDROID}"
-    android:propertyName="${property}" android:valueFrom="0" android:valueTo="1"
+    android:propertyName="${property}" android:valueFrom="${from}" android:valueTo="${to}"
     android:valueType="floatType" android:startOffset="${delay}" android:duration="${duration}"
-    android:interpolator="@android:interpolator/linear" />\n`;
+    android:interpolator="@android:interpolator/${interpolator}" />\n`;
   }
   files['values-v31/vega_splash.xml'] = `${XML}<resources>
 ${variants.map(variant => `  <style name="BootTheme.${variant.id}" parent="BootTheme.Base">
     <item name="bootSplashLogo">@drawable/bootsplash_logo_${variant.id.toLowerCase()}</item>
-    <item name="android:windowSplashScreenAnimatedIcon">@drawable/bootsplash_animated_${variant.id.toLowerCase()}</item>
-    <item name="android:windowSplashScreenAnimationDuration">800</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/bootsplash_motion_${variant.id.toLowerCase()}</item>
   </style>`).join('\n')}
 </resources>\n`;
   return files;
@@ -81,6 +89,16 @@ function writeSplashVectorResources(projectRoot, resRoot, variants) {
     for (const variant of variants) {
       const old = path.join(resRoot, `drawable-${density}`, `bootsplash_logo_${variant.id.toLowerCase()}.png`);
       if (fs.existsSync(old)) fs.unlinkSync(old);
+    }
+  }
+  // Remove animators this generator no longer produces, otherwise stale files
+  // stay in the merged resources after an incremental prebuild.
+  const animatorDir = path.join(resRoot, 'animator');
+  if (fs.existsSync(animatorDir)) {
+    for (const name of fs.readdirSync(animatorDir)) {
+      if (!/^bootsplash_.*\.xml$/.test(name)) continue;
+      if (files[`animator/${name}`] !== undefined) continue;
+      fs.unlinkSync(path.join(animatorDir, name));
     }
   }
 }

@@ -33,7 +33,7 @@ import WebView from './screens/WebView';
 import SearchResults from './screens/SearchResults';
 // import DisableProviders from './screens/settings/DisableProviders';
 import About, {checkForUpdate} from './screens/settings/About';
-import BootSplash from 'react-native-bootsplash';
+import {hideBootSplash, SPLASH_FALLBACK_HIDE_MS} from './lib/utils/bootSplash';
 import {SystemBars} from 'react-native-edge-to-edge';
 import {enableFreeze, enableScreens} from 'react-native-screens';
 import Preferences from './screens/settings/Preference';
@@ -623,8 +623,8 @@ const App = () => {
   // Safety fallback to ensure splash is hidden
   useEffect(() => {
     const timer = setTimeout(() => {
-      BootSplash.hide({fade: true}).catch(() => {});
-    }, 1200);
+      hideBootSplash({fade: true}).catch(() => {});
+    }, SPLASH_FALLBACK_HIDE_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -800,8 +800,11 @@ const App = () => {
     if (pendingDownloadsNavigation) {
       openDownloadsScreen();
     }
+    if (pendingInfoNavigation) {
+      openInfoScreen(pendingInfoNavigation);
+    }
     // Hide bootsplash
-    await BootSplash.hide({fade: true});
+    await hideBootSplash({fade: true});
     const initialSource = pendingAddSource ?? (await getInitialSourceIntent());
     if (initialSource) {
       openAddSourceScreen(initialSource);

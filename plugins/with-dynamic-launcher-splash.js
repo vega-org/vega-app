@@ -119,6 +119,7 @@ const withLauncherStyles = config =>
     upsertStyle(styles, 'BootTheme.Base', 'Theme.BootSplash.EdgeToEdge', [
       ['postBootSplashTheme', '@style/AppTheme'],
       ['bootSplashBackground', '@color/bootsplash_background'],
+      ['android:windowBackground', '@drawable/vega_bootsplash_background'],
     ]);
     for (const variant of variants) {
       upsertStyle(styles, `BootTheme.${variant.id}`, 'BootTheme.Base', [
@@ -153,11 +154,43 @@ const bootThemeMethod = `  private fun getBootTheme(): Int {
 
 `;
 
+const enterAnimationCompleteMethod = `  override fun onEnterAnimationComplete() {
+    super.onEnterAnimationComplete()
+    AnimatedSplashHandoff.onEnterAnimationComplete(this)
+  }
+
+`;
+
 const bootSplashInitialization = `val bootTheme = getBootTheme()
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
       splashScreen.setSplashScreenTheme(bootTheme)
     }
-    RNBootSplash.init(this, bootTheme)`;
+    if (!AnimatedSplashHandoff.install(this, bootTheme)) {
+      RNBootSplash.init(this, bootTheme)
+    }`;
+
+const patchBootSplashInitialization = contents => {
+  let updated = contents
+    .replace(
+      /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
+      bootSplashInitialization,
+    )
+    .replace(
+      /RNBootSplash\.init\(this, bootTheme\)\r?\n    AnimatedSplashHandoff\.install\(this\)/,
+      'if (!AnimatedSplashHandoff.install(this, bootTheme)) {\n      RNBootSplash.init(this, bootTheme)\n    }',
+    )
+    .replace(
+      /(?<!  )RNBootSplash\.init\(this, bootTheme\)(?!\r?\n    \})/,
+      'if (!AnimatedSplashHandoff.install(this, bootTheme)) {\n      RNBootSplash.init(this, bootTheme)\n    }',
+    );
+  if (!updated.includes('override fun onEnterAnimationComplete()')) {
+    updated = updated.replace(
+      /  override fun onCreate\(savedInstanceState: Bundle\?\)/,
+      match => `${enterAnimationCompleteMethod}${match}`,
+    );
+  }
+  return updated;
+};
 
 const withLauncherMainActivity = config =>
   withMainActivity(config, activityConfig => {
@@ -170,11 +203,7 @@ const withLauncherMainActivity = config =>
         match => `${match}${bootThemeMethod}`,
       );
     }
-    contents = contents.replace(
-      /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
-      bootSplashInitialization,
-    );
-    activityConfig.modResults.contents = contents;
+    activityConfig.modResults.contents = patchBootSplashInitialization(contents);
     return activityConfig;
   });
 
@@ -226,10 +255,8 @@ const patchGeneratedBootSplashFiles = (projectRoot, packageName) => {
     ...packageName.split('.'),
     'MainActivity.kt',
   );
-  let mainActivity = fs.readFileSync(mainActivityPath, 'utf8');
-  mainActivity = mainActivity.replace(
-    /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
-    bootSplashInitialization,
+  const mainActivity = patchBootSplashInitialization(
+    fs.readFileSync(mainActivityPath, 'utf8'),
   );
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');
 };
