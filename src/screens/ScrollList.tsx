@@ -7,7 +7,7 @@ import { Post } from '../lib/providers/types';
 import { Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import useContentStore from '../lib/zustand/contentStore';
+import {useBrowsingProvider} from '../lib/hooks/useVisibleProviders';
 import { settingsStorage } from '../lib/storage';
 import { FlashList } from '@shopify/flash-list';
 import { BlurView } from 'expo-blur';
@@ -228,7 +228,7 @@ const ScrollList = ({ route }: Props): React.ReactElement => {
   const [page, setPage] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isEnd, setIsEnd] = useState<boolean>(false);
-  const provider = useContentStore(state => state.provider);
+  const provider = useBrowsingProvider();
   const [viewType, setViewType] = useState<number>(
     settingsStorage.getListViewType(),
   );

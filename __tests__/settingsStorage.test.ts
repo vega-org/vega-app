@@ -55,6 +55,7 @@ describe('settings defaults', () => {
   });
 
   it('keeps intentional default-off preferences disabled', () => {
+    expect(settingsStorage.hideAdultProviders()).toBe(false);
     expect(settingsStorage.hideDownloadsTab()).toBe(false);
     expect(settingsStorage.showHeroLibraryButton()).toBe(false);
     expect(settingsStorage.isAutoDownloadEnabled()).toBe(true); // Auto update defaults to on.

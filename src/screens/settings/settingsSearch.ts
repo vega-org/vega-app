@@ -27,7 +27,7 @@ const entries: SearchEntry[] = [
   ),
   {label: 'Bottom bar style', page: 'Appearance', route: 'Appearance', keywords: 'ios glass material navigation style', phoneOnly: true},
   {label: 'Hide glass bar on subpages', page: 'Appearance', route: 'Appearance', keywords: 'glass bottom bar navigation hide subpages detail pages', phoneOnly: true},
-  ...['Preferences', 'Auto update providers', 'Provider verification windows', 'Haptic feedback',
+  ...['Preferences', 'Auto update providers', 'Hide 18+ providers', 'Provider verification windows', 'Haptic feedback',
     'Hold to preview', 'Hero Add to Library', 'Disable drawer', 'External downloader', 'Skip in-app webview', 'Excluded qualities',
     'TMDB API key', 'Download location', 'Reset download location', 'Connections per download',
     'Automatically try next server'].map(

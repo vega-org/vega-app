@@ -1,4 +1,6 @@
 import ScreenSafeArea from '../../components/ui/ScreenSafeArea';
+import ProviderAdultBadge from '../../components/ProviderAdultBadge';
+import {useBrowsingProvider, useVisibleInstalledProviders} from '../../lib/hooks/useVisibleProviders';
 import {
   View,
   ScrollView,
@@ -31,6 +33,11 @@ function ProviderItemContent({
   return (
     <View className="flex-col items-center justify-center h-full p-3">
       <RenderProviderFlagIcon type={item.type} />
+      {item.adult === true && (
+        <View style={{position: 'absolute', left: 4, top: 6}}>
+          <ProviderAdultBadge />
+        </View>
+      )}
       <AppText
         numberOfLines={1}
         role="labelMediumEmphasized"
@@ -225,9 +232,9 @@ const Settings = ({navigation}: Props) => {
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
   const colors = useM3Colors();
   const floatingTabBarInset = useFloatingTabBarInset();
-  const provider = useContentStore(state => state.provider);
+  const provider = useBrowsingProvider();
   const setProvider = useContentStore(state => state.setProvider);
-  const installedProviders = useContentStore(state => state.installedProviders);
+  const installedProviders = useVisibleInstalledProviders();
   const hideDownloadsTab = useNavigationPreferencesStore(
     state => state.hideDownloadsTab,
   );

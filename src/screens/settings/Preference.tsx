@@ -54,6 +54,8 @@ const Preferences = ({navigation}: any) => {
     Boolean(Constants?.expoConfig?.extra?.hasFirebase) &&
     isFirebaseNativeReady();
   const colors = useM3Colors();
+  const hideAdultProviders = useNavigationPreferencesStore(state => state.hideAdultProviders);
+  const setHideAdultProviders = useNavigationPreferencesStore(state => state.setHideAdultProviders);
 
   // Register only while this screen is focused. A hidden screen in a
   // mounted tab or stack must not swallow back presses.
@@ -164,6 +166,12 @@ const Preferences = ({navigation}: any) => {
           </AppText>
 
           <SettingsSection title="Providers">
+            <SettingsSwitchRow
+              title="Hide 18+ providers"
+              description="Hide providers marked 18+ from browsing and Provider Manager"
+              value={hideAdultProviders}
+              onValueChange={setHideAdultProviders}
+            />
             <SettingsSwitchRow title="Auto update providers"
               description="Install provider updates automatically. Turn off to review and install updates manually in Extensions."
               value={providerAutoUpdates} onValueChange={next => {

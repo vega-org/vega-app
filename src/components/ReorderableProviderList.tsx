@@ -19,6 +19,7 @@ import {
   sortInstalledProviders,
 } from '../lib/providerOrder';
 import ProviderIcon from './ProviderIcon';
+import ProviderAdultBadge from './ProviderAdultBadge';
 
 const LONG_PRESS_MS = 300;
 const SETTLE_MS = 120;
@@ -72,13 +73,17 @@ const ReorderableProviderList = ({
       }
       // Apply the move to the latest list, so changes made during the drag
       // are kept.
-      const next = sortInstalledProviders(
-        providers,
-        moveItem(order, from, to).map(providerOrderKey),
-      );
+      const store = useContentStore.getState();
+      const visible = new Set(providers.map(providerOrderKey));
+      const next = sortInstalledProviders(providers, moveItem(order, from, to).map(providerOrderKey));
+      const reorderedKeys = next.map(providerOrderKey).values();
+      const fullOrder = store.installedProviders.map(provider => {
+        const key = providerOrderKey(provider);
+        return visible.has(key) ? reorderedKeys.next().value ?? key : key;
+      });
       setOrder(next);
-      settingsStorage.setProviderOrder(next.map(providerOrderKey));
-      useContentStore.getState().setInstalledProviders(next);
+      settingsStorage.setProviderOrder(fullOrder);
+      store.setInstalledProviders(store.installedProviders);
     },
     [providers, order, dragFrom, dragY],
   );
@@ -284,6 +289,7 @@ const ProviderRow = memo(
                 style={{flexShrink: 1}}>
                 {item.display_name}
               </Text>
+              {item.adult === true && <ProviderAdultBadge />}
             </View>
             {isSelected && (
               <MaterialIcons name="check" size={20} color={primary} />

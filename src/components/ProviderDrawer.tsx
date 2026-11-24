@@ -10,6 +10,8 @@ import {isTV} from '../lib/tv';
 import {TVFocusable, TVFocusGuide} from './tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
 import ProviderIcon from './ProviderIcon';
+import ProviderAdultBadge from './ProviderAdultBadge';
+import {useBrowsingProvider, useVisibleInstalledProviders} from '../lib/hooks/useVisibleProviders';
 import ReorderableProviderList from './ReorderableProviderList';
 import {useFloatingTabBarInset} from './navigation/FloatingTabBarInsetContext';
 
@@ -27,9 +29,9 @@ const ProviderDrawer = ({
   isOpen = true,
   onSelectProvider,
 }: ProviderDrawerProps) => {
-  const provider = useContentStore(state => state.provider);
+  const provider = useBrowsingProvider();
   const setProvider = useContentStore(state => state.setProvider);
-  const installedProviders = useContentStore(state => state.installedProviders);
+  const installedProviders = useVisibleInstalledProviders();
   const hasSelectedProvider = installedProviders.some(
     item => item.value === provider.value,
   );
@@ -181,6 +183,7 @@ const ProviderDrawer = ({
                           }}>
                           {item.display_name}
                         </Text>
+                        {item.adult === true && <ProviderAdultBadge />}
                       </View>
                       {isSelected && (
                         <MaterialIcons name="check" size={22} color={primary} />

@@ -87,6 +87,13 @@ class UpdateProvidersService {
         }
       }
 
+      const refreshedProviders = extensionStorage.getInstalledProviders();
+      if (refreshedProviders.some((provider, index) =>
+        provider.adult !== installedProviders[index]?.adult,
+      )) {
+        useContentStore.getState().setInstalledProviders(refreshedProviders);
+      }
+
       const updateInfos: UpdateInfo[] = [];
 
       for (const installed of installedProviders) {

@@ -175,6 +175,7 @@ jest.mock('../src/lib/storage', () => ({
     hideDownloadsTab: () => false,
     showContinueWatching: () => true,
     showHeroLibraryButton: () => false,
+    hideAdultProviders: () => false,
     setGlassTabBarEnabled: jest.fn(),
     setHideGlassTabBarInSubpages: jest.fn(),
     setHideDownloadsTab: jest.fn(),

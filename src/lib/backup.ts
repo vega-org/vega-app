@@ -49,6 +49,7 @@ const BACKUP_SETTINGS: Record<string, SettingType> = {
   [SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES]: 'bool',
   [SettingsKeys.HIDE_DOWNLOADS_TAB]: 'bool',
   [SettingsKeys.SHOW_CONTINUE_WATCHING]: 'bool',
+  [SettingsKeys.HIDE_ADULT_PROVIDERS]: 'bool',
   [SettingsKeys.CUSTOM_COLOR]: 'string',
   [SettingsKeys.ACCENT_SOURCE]: 'string',
   [SettingsKeys.DYNAMIC_INFO_ACCENT]: 'bool',

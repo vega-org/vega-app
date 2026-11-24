@@ -23,6 +23,7 @@ export enum SettingsKeys {
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
   SHOW_HERO_LIBRARY_BUTTON = 'showHeroLibraryButton',
+  HIDE_ADULT_PROVIDERS = 'hideAdultProviders',
   HOLD_PREVIEW_ENABLED = 'holdPreviewEnabled',
   HOLD_PREVIEW_ONLY_WHILE_HOLDING = 'holdPreviewOnlyWhileHolding',
   CUSTOM_COLOR = 'customColor',
@@ -367,6 +368,14 @@ export class SettingsStorage {
 
   showHeroLibraryButton(): boolean {
     return mainStorage.getBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, false);
+  }
+
+  hideAdultProviders(): boolean {
+    return mainStorage.getBool(SettingsKeys.HIDE_ADULT_PROVIDERS, false);
+  }
+
+  setHideAdultProviders(hide: boolean): void {
+    mainStorage.setBool(SettingsKeys.HIDE_ADULT_PROVIDERS, hide);
   }
 
   setShowHeroLibraryButton(show: boolean): void {

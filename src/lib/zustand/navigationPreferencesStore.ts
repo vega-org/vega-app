@@ -11,6 +11,8 @@ interface NavigationPreferencesState {
   showContinueWatching: boolean;
   setShowContinueWatching: (show: boolean) => void;
   showHeroLibraryButton: boolean;
+  hideAdultProviders: boolean;
+  setHideAdultProviders: (hide: boolean) => void;
   setShowHeroLibraryButton: (show: boolean) => void;
   holdPreviewEnabled: boolean;
   setHoldPreviewEnabled: (enabled: boolean) => void;
@@ -41,6 +43,11 @@ const useNavigationPreferencesStore = create<NavigationPreferencesState>(
       set({showContinueWatching: show});
     },
     showHeroLibraryButton: settingsStorage.showHeroLibraryButton(),
+    hideAdultProviders: settingsStorage.hideAdultProviders(),
+    setHideAdultProviders: hide => {
+      settingsStorage.setHideAdultProviders(hide);
+      set({hideAdultProviders: hide});
+    },
     setShowHeroLibraryButton: show => {
       settingsStorage.setShowHeroLibraryButton(show);
       set({showHeroLibraryButton: show});

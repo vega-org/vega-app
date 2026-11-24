@@ -41,7 +41,7 @@ import {
   useHeroMetadata,
   useHeroRotation,
 } from '../lib/hooks/useHomePageData';
-import useContentStore from '../lib/zustand/contentStore';
+import {useBrowsingProvider} from '../lib/hooks/useVisibleProviders';
 import useHeroStore from '../lib/zustand/herostore';
 import useWatchListStore, {type WatchList} from '../lib/zustand/watchListStore';
 import useNavigationPreferencesStore from '../lib/zustand/navigationPreferencesStore';
@@ -274,7 +274,7 @@ const Hero = memo(
       isDrawerOpen,
     ]);
 
-    const provider = useContentStore(state => state.provider);
+    const provider = useBrowsingProvider();
     const heroes = useHeroStore(state => state.heroes);
     const isFocused = useIsFocused();
     const appActive = useAppActive();
