@@ -21,6 +21,7 @@ const AppDialogHost = () => {
       primary={colors.primary}
       variant={dialog.variant}
       actions={dialog.actions}
+      dismissOption={dialog.dismissOption}
       progress={dialog.progress}
       onDismiss={() => {
         dismissDialog();

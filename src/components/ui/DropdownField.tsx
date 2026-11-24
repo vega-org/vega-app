@@ -11,7 +11,7 @@ import {
   TextField,
 } from '@expo/ui/jetpack-compose';
 import {clip, fillMaxWidth, menuAnchor, padding, Shapes} from '@expo/ui/jetpack-compose/modifiers';
-import React, {useState, useEffect} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   BackHandler,
   Modal,
@@ -40,7 +40,20 @@ interface DropdownFieldProps<T> {
   disabled?: boolean;
 }
 
-const DropdownField = <T,>({
+function resolveSelection<T>(
+  options: readonly T[],
+  value: T | undefined,
+  getKey: (option: T) => string,
+  getLabel: (option: T) => string,
+  placeholder: string,
+) {
+  const selectedKey = value ? getKey(value) : undefined;
+  const selectedOption = options.find(option => getKey(option) === selectedKey);
+  const selectedLabel = selectedOption ? getLabel(selectedOption) : placeholder;
+  return {selectedKey, selectedLabel};
+}
+
+const TVDropdownField = <T,>({
   options,
   value,
   getKey,
@@ -52,15 +65,18 @@ const DropdownField = <T,>({
   disabled = false,
 }: DropdownFieldProps<T>) => {
   const colors = useM3Colors();
-  const hostTheme = useM3HostTheme();
   const tvFocusBorder = useTVFocusBorderColor();
   const [expanded, setExpanded] = useState(false);
-  const selectedKey = value ? getKey(value) : undefined;
-  const selectedOption = options.find(option => getKey(option) === selectedKey);
-  const selectedLabel = selectedOption ? getLabel(selectedOption) : placeholder;
+  const {selectedKey, selectedLabel} = resolveSelection(
+    options,
+    value,
+    getKey,
+    getLabel,
+    placeholder,
+  );
 
   useEffect(() => {
-    if (!isTV || !expanded) return;
+    if (!expanded) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       setExpanded(false);
       return true;
@@ -68,119 +84,118 @@ const DropdownField = <T,>({
     return () => sub.remove();
   }, [expanded]);
 
-  if (isTV) {
-    const dialogTitle =
-      placeholder && placeholder !== 'Select' ? placeholder : 'Select Season';
+  const dialogTitle =
+    placeholder && placeholder !== 'Select' ? placeholder : 'Select Season';
 
-    return (
-      <View style={[{width: '100%', minHeight: 56}, style]}>
-        <TVFocusable
-          onPress={() => !disabled && setExpanded(true)}
-          disabled={disabled}
-          borderRadius={16}
-          focusScale={1.03}
-          focusBorderColor={tvFocusBorder}
+  return (
+    <View style={[{width: '100%', minHeight: 56}, style]}>
+      <TVFocusable
+        onPress={() => !disabled && setExpanded(true)}
+        disabled={disabled}
+        borderRadius={16}
+        focusScale={1.03}
+        focusBorderColor={tvFocusBorder}
+        style={{
+          backgroundColor: LEGACY_TERTIARY_BACKGROUND,
+          borderRadius: 16,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderWidth: 1,
+          borderColor: colors.outlineVariant,
+          opacity: disabled ? 0.45 : 1,
+        }}>
+        <RNText
+          numberOfLines={1}
           style={{
-            backgroundColor: LEGACY_TERTIARY_BACKGROUND,
-            borderRadius: 16,
-            paddingHorizontal: 16,
-            paddingVertical: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderWidth: 1,
-            borderColor: colors.outlineVariant,
-            opacity: disabled ? 0.45 : 1,
+            fontSize: 14,
+            color: colors.onSurface,
+            fontWeight: value ? '600' : '400',
+            flex: 1,
+            marginRight: 8,
           }}>
-          <RNText
-            numberOfLines={1}
-            style={{
-              fontSize: 14,
-              color: colors.onSurface,
-              fontWeight: value ? '600' : '400',
-              flex: 1,
-              marginRight: 8,
-            }}>
-            {selectedLabel}
-          </RNText>
-          <MaterialCommunityIcons
-            name={expanded ? 'menu-up' : 'menu-down'}
-            size={24}
-            color={colors.primary}
-          />
-        </TVFocusable>
+          {selectedLabel}
+        </RNText>
+        <MaterialCommunityIcons
+          name={expanded ? 'menu-up' : 'menu-down'}
+          size={24}
+          color={colors.primary}
+        />
+      </TVFocusable>
 
-        <Modal
-          visible={expanded}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setExpanded(false)}>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: 'rgba(0, 0, 0, 0.78)',
-              justifyContent: 'center',
-              alignItems: 'center',
-              padding: 24,
-            }}>
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => setExpanded(false)}
-            />
-            <TVFocusGuide autoFocus={true} trapFocusRight={true}>
+      <Modal
+        visible={expanded}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExpanded(false)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.78)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setExpanded(false)}
+          />
+          <TVFocusGuide autoFocus={true} trapFocusRight={true}>
+            <View
+              style={{
+                width: '90%',
+                maxWidth: 480,
+                maxHeight: '80%',
+                backgroundColor: '#1E1E1E',
+                borderRadius: 20,
+                padding: 20,
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.12)',
+                zIndex: 10,
+                overflow: 'hidden',
+              }}>
               <View
                 style={{
-                  width: '90%',
-                  maxWidth: 480,
-                  maxHeight: '80%',
-                  backgroundColor: '#1E1E1E',
-                  borderRadius: 20,
-                  padding: 20,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.12)',
-                  zIndex: 10,
-                  overflow: 'hidden',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 16,
+                  paddingHorizontal: 4,
                 }}>
-                <View
+                <RNText
                   style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16,
-                    paddingHorizontal: 4,
+                    fontSize: 18,
+                    fontWeight: '700',
+                    color: '#FFFFFF',
                   }}>
-                  <RNText
-                    style={{
-                      fontSize: 18,
-                      fontWeight: '700',
-                      color: '#FFFFFF',
-                    }}>
-                    {dialogTitle}
-                  </RNText>
-                  <TVFocusable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    borderRadius={18}
-                    focusScale={1}
-                    focusBorderColor={tvFocusBorder}
-                    onPress={() => setExpanded(false)}
-                    style={{padding: 6}}>
-                    <MaterialCommunityIcons
-                      name="close"
-                      size={24}
-                      color="#AAAAAA"
-                    />
-                  </TVFocusable>
-                </View>
+                  {dialogTitle}
+                </RNText>
+                <TVFocusable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  borderRadius={18}
+                  focusScale={1}
+                  focusBorderColor={tvFocusBorder}
+                  onPress={() => setExpanded(false)}
+                  style={{padding: 6}}>
+                  <MaterialCommunityIcons
+                    name="close"
+                    size={24}
+                    color="#AAAAAA"
+                  />
+                </TVFocusable>
+              </View>
 
-                <ScrollView
-                  focusable={false}
-                  accessible={false}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{
-                    paddingHorizontal: 4,
-                    paddingVertical: 4,
-                  }}>
+              <ScrollView
+                focusable={false}
+                accessible={false}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: 4,
+                  paddingVertical: 4,
+                }}>
                 {options.map(option => {
                   const key = getKey(option);
                   const selected = key === selectedKey;
@@ -258,6 +273,132 @@ const DropdownField = <T,>({
           </TVFocusGuide>
         </View>
       </Modal>
+    </View>
+  );
+};
+
+const MobileDropdownField = <T,>({
+  options,
+  value,
+  getKey,
+  getLabel,
+  onChange,
+  placeholder = 'Select',
+  showFullOptionLabels = false,
+  style,
+  disabled = false,
+}: DropdownFieldProps<T>) => {
+  const colors = useM3Colors();
+  const hostTheme = useM3HostTheme();
+  const [composeActive, setComposeActive] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const pendingOpenRef = useRef(false);
+  const openRafRef = useRef<number | null>(null);
+  const {selectedKey, selectedLabel} = resolveSelection(
+    options,
+    value,
+    getKey,
+    getLabel,
+    placeholder,
+  );
+
+  useEffect(() => {
+    return () => {
+      if (openRafRef.current !== null) {
+        cancelAnimationFrame(openRafRef.current);
+        openRafRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (disabled) {
+      pendingOpenRef.current = false;
+      setExpanded(false);
+      setComposeActive(false);
+    }
+  }, [disabled]);
+
+  useEffect(() => {
+    if (!composeActive || expanded) return;
+    const timer = setTimeout(() => {
+      if (pendingOpenRef.current) {
+        pendingOpenRef.current = false;
+        setExpanded(true);
+      }
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [composeActive, expanded]);
+
+  const handleHostLayoutContent = useCallback(
+    (event: {nativeEvent: {width: number; height: number}}) => {
+      if (
+        pendingOpenRef.current &&
+        event.nativeEvent.width > 0 &&
+        event.nativeEvent.height > 0
+      ) {
+        pendingOpenRef.current = false;
+        if (openRafRef.current !== null) {
+          cancelAnimationFrame(openRafRef.current);
+        }
+        openRafRef.current = requestAnimationFrame(() => {
+          openRafRef.current = null;
+          setExpanded(true);
+        });
+      }
+    },
+    [],
+  );
+
+  const closeComposeMenu = useCallback(() => {
+    pendingOpenRef.current = false;
+    setExpanded(false);
+    setComposeActive(false);
+  }, []);
+
+  if (!composeActive) {
+    return (
+      <View style={[{width: '100%', minHeight: 56}, style]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={selectedLabel}
+          accessibilityState={{disabled, expanded: false}}
+          disabled={disabled}
+          onPress={() => {
+            if (disabled) return;
+            pendingOpenRef.current = true;
+            setComposeActive(true);
+          }}
+          style={{
+            width: '100%',
+            minHeight: 56,
+            backgroundColor: LEGACY_TERTIARY_BACKGROUND,
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: colors.outlineVariant,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            opacity: disabled ? 0.45 : 1,
+          }}>
+          <RNText
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{
+              flex: 1,
+              fontSize: 14,
+              color: colors.onSurface,
+              marginRight: 8,
+            }}>
+            {selectedLabel}
+          </RNText>
+          <MaterialCommunityIcons
+            name="menu-down"
+            size={22}
+            color={colors.primary}
+          />
+        </Pressable>
       </View>
     );
   }
@@ -266,106 +407,117 @@ const DropdownField = <T,>({
     <View style={[{width: '100%', minHeight: 56}, style]}>
       <Host
         matchContents={{vertical: true}}
+        onLayoutContent={handleHostLayoutContent}
         style={{width: '100%', minHeight: 56, opacity: disabled ? 0.45 : 1}}
         pointerEvents={disabled ? 'none' : 'auto'}
         {...hostTheme}>
-      <ExposedDropdownMenuBox
-        expanded={disabled ? false : expanded}
-        onExpandedChange={next => !disabled && setExpanded(next)}>
-        <TextField
-          readOnly
-          singleLine
-          modifiers={[menuAnchor(), fillMaxWidth()]}
-          shape={Shape.RoundedCorner({
-            cornerRadii: {
-              topStart: 16,
-              topEnd: 16,
-              bottomStart: 16,
-              bottomEnd: 16,
-            },
-          })}
-          textStyle={{fontSize: 14, color: colors.onSurface}}
-          colors={{
-            focusedContainerColor: LEGACY_TERTIARY_BACKGROUND,
-            unfocusedContainerColor: LEGACY_TERTIARY_BACKGROUND,
-            focusedTextColor: colors.onSurface,
-            unfocusedTextColor: colors.onSurface,
-            focusedIndicatorColor: colors.primary,
-            unfocusedIndicatorColor: colors.outlineVariant,
-            focusedPlaceholderColor: colors.onSurface,
-            unfocusedPlaceholderColor: colors.onSurface,
+        <ExposedDropdownMenuBox
+          expanded={disabled ? false : expanded}
+          onExpandedChange={next => {
+            if (disabled) return;
+            if (next) {
+              setExpanded(true);
+            } else {
+              closeComposeMenu();
+            }
           }}>
-          <TextField.Placeholder>
-            <Text
-              color={colors.onSurface}
-              maxLines={1}
-              overflow="ellipsis"
-              softWrap={false}>
-              {selectedLabel}
-            </Text>
-          </TextField.Placeholder>
-          <TextField.TrailingIcon>
-            <RNHostView matchContents>
-              <View
-                style={{
-                  alignItems: 'center',
-                  height: 24,
-                  justifyContent: 'center',
-                  width: 24,
-                }}>
-                <MaterialCommunityIcons
-                  name={expanded ? 'menu-up' : 'menu-down'}
-                  size={22}
-                  color={colors.primary}
-                />
-              </View>
-            </RNHostView>
-          </TextField.TrailingIcon>
-        </TextField>
-        <ExposedDropdownMenu
-          expanded={expanded}
-          containerColor={LEGACY_TERTIARY_BACKGROUND}
-          modifiers={[clip(Shapes.RoundedCorner(16))]}
-          onDismissRequest={() => setExpanded(false)}>
-          {options.map((option, index) => {
-            const key = getKey(option);
-            const selected = key === selectedKey;
-            return (
-              <React.Fragment key={key}>
-                {index > 0 && (
-                  <HorizontalDivider
-                    thickness={StyleSheet.hairlineWidth}
-                    color={colors.outlineVariant}
-                  />
-                )}
-                <DropdownMenuItem
-                  elementColors={{
-                    textColor: selected ? colors.primary : colors.onSurface,
-                  }}
-                  onClick={() => {
-                    onChange(option);
-                    setExpanded(false);
+          <TextField
+            readOnly
+            singleLine
+            modifiers={[menuAnchor(), fillMaxWidth()]}
+            shape={Shape.RoundedCorner({
+              cornerRadii: {
+                topStart: 16,
+                topEnd: 16,
+                bottomStart: 16,
+                bottomEnd: 16,
+              },
+            })}
+            textStyle={{fontSize: 14, color: colors.onSurface}}
+            colors={{
+              focusedContainerColor: LEGACY_TERTIARY_BACKGROUND,
+              unfocusedContainerColor: LEGACY_TERTIARY_BACKGROUND,
+              focusedTextColor: colors.onSurface,
+              unfocusedTextColor: colors.onSurface,
+              focusedIndicatorColor: colors.primary,
+              unfocusedIndicatorColor: colors.outlineVariant,
+              focusedPlaceholderColor: colors.onSurface,
+              unfocusedPlaceholderColor: colors.onSurface,
+            }}>
+            <TextField.Placeholder>
+              <Text
+                color={colors.onSurface}
+                maxLines={1}
+                overflow="ellipsis"
+                softWrap={false}>
+                {selectedLabel}
+              </Text>
+            </TextField.Placeholder>
+            <TextField.TrailingIcon>
+              <RNHostView matchContents>
+                <View
+                  style={{
+                    alignItems: 'center',
+                    height: 24,
+                    justifyContent: 'center',
+                    width: 24,
                   }}>
-                  <DropdownMenuItem.Text>
-                    <Text
-                      color={selected ? colors.primary : colors.onSurface}
-                      modifiers={[padding(0, 10, 0, 10)]}
-                      maxLines={showFullOptionLabels ? undefined : 2}
-                      overflow={showFullOptionLabels ? undefined : 'ellipsis'}
-                      softWrap={showFullOptionLabels}
-                      style={{fontWeight: selected ? '700' : '400'}}>
-                      {getLabel(option)}
-                    </Text>
-                  </DropdownMenuItem.Text>
-                </DropdownMenuItem>
-              </React.Fragment>
-            );
-          })}
-        </ExposedDropdownMenu>
-      </ExposedDropdownMenuBox>
-    </Host>
+                  <MaterialCommunityIcons
+                    name={expanded ? 'menu-up' : 'menu-down'}
+                    size={22}
+                    color={colors.primary}
+                  />
+                </View>
+              </RNHostView>
+            </TextField.TrailingIcon>
+          </TextField>
+          <ExposedDropdownMenu
+            expanded={expanded}
+            containerColor={LEGACY_TERTIARY_BACKGROUND}
+            modifiers={[clip(Shapes.RoundedCorner(16))]}
+            onDismissRequest={closeComposeMenu}>
+            {options.map((option, index) => {
+              const key = getKey(option);
+              const selected = key === selectedKey;
+              return (
+                <React.Fragment key={key}>
+                  {index > 0 && (
+                    <HorizontalDivider
+                      thickness={StyleSheet.hairlineWidth}
+                      color={colors.outlineVariant}
+                    />
+                  )}
+                  <DropdownMenuItem
+                    elementColors={{
+                      textColor: selected ? colors.primary : colors.onSurface,
+                    }}
+                    onClick={() => {
+                      onChange(option);
+                      closeComposeMenu();
+                    }}>
+                    <DropdownMenuItem.Text>
+                      <Text
+                        color={selected ? colors.primary : colors.onSurface}
+                        modifiers={[padding(0, 10, 0, 10)]}
+                        maxLines={showFullOptionLabels ? undefined : 2}
+                        overflow={showFullOptionLabels ? undefined : 'ellipsis'}
+                        softWrap={showFullOptionLabels}
+                        style={{fontWeight: selected ? '700' : '400'}}>
+                        {getLabel(option)}
+                      </Text>
+                    </DropdownMenuItem.Text>
+                  </DropdownMenuItem>
+                </React.Fragment>
+              );
+            })}
+          </ExposedDropdownMenu>
+        </ExposedDropdownMenuBox>
+      </Host>
     </View>
   );
 };
+
+const DropdownField = <T,>(props: DropdownFieldProps<T>) =>
+  isTV ? <TVDropdownField {...props} /> : <MobileDropdownField {...props} />;
 
 export default DropdownField;

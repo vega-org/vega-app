@@ -35,4 +35,9 @@ notifee.registerForegroundService(async () => {
   return new Promise(() => {});
 });
 
+AppRegistry.registerHeadlessTask('VegaEpisodeCheck', () => async () => {
+  const {runHeadlessEpisodeCheck} = require('./src/lib/services/episodeCheckService');
+  await runHeadlessEpisodeCheck();
+});
+
 AppRegistry.registerComponent('main', () => App);

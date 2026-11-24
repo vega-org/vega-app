@@ -36,9 +36,11 @@ import SkeletonLoader from '../../components/Skeleton';
 import {useContentDetails} from '../../lib/hooks/useContentInfo';
 import {useArtworkShape} from '../../lib/hooks/useHomePageData';
 import {useInfoAccent} from '../../lib/hooks/useInfoAccent';
-import type {Link} from '../../lib/providers/types';
+import type {EpisodeLink, Link} from '../../lib/providers/types';
 import {settingsStorage} from '../../lib/storage';
+import {createFollowedShowId} from '../../lib/storage/FollowedShowsStorage';
 import useContentStore from '../../lib/zustand/contentStore';
+import useFollowedShowsStore from '../../lib/zustand/followedShowsStore';
 import useWatchListStore from '../../lib/zustand/watchListStore';
 import {M3PaletteContext, useM3Colors} from '../../theme/M3PaletteContext';
 import type {MaterialColors} from '../../theme/colors';
@@ -46,6 +48,7 @@ import {buildDetailPalette} from '../../theme/detailPalette';
 import ContentOverview from './components/ContentOverview';
 import InfoStoryModal from './components/InfoStoryModal';
 import LibraryCollectionDialog from '../../components/library/LibraryCollectionDialog';
+import FollowShowDialog from '../../components/FollowShowDialog';
 import ProviderMetadataDialog from '../../components/metadata/ProviderMetadataDialog';
 import LocalMetadataDialog from '../../components/metadata/LocalMetadataDialog';
 import InfoSkeleton from './components/InfoSkeleton';
@@ -87,7 +90,16 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     state.watchList.some(item => item.link === route.params.link),
   );
   const inLibrary = localTitle ? localTitle.inLibrary !== false : remoteInLibrary;
+  const followShowId = createFollowedShowId(providerValue, route.params.link);
+  const isFollowing = useFollowedShowsStore(state =>
+    state.shows.some(item => item.id === followShowId),
+  );
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
+  const [followDialogVisible, setFollowDialogVisible] = useState(false);
+  const [activeSeasonIndex, setActiveSeasonIndex] = useState(0);
+  const [activeSeasonEpisodes, setActiveSeasonEpisodes] = useState<
+    EpisodeLink[]
+  >([]);
   const [metadataMenuVisible, setMetadataMenuVisible] = useState(false);
   const [readMore, setReadMore] = useState(false);
   const [storyVisible, setStoryVisible] = useState(false);
@@ -257,6 +269,20 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     setItemCollections,
   ]);
 
+  const handleActiveSeasonChange = useCallback(
+    (_season: Link, index: number, episodes: EpisodeLink[]) => {
+      setActiveSeasonIndex(index);
+      setActiveSeasonEpisodes(episodes);
+    },
+    [],
+  );
+
+  const openFollowedShowsSettings = useCallback(() => {
+    searchNavigation.navigate('SettingsStack', {
+      screen: 'FollowedShows',
+    } as never);
+  }, [searchNavigation]);
+
   const searchTitle = useCallback(() => {
     if (!displayTitle) {
       return;
@@ -413,9 +439,15 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   headerPosterAspectRatio={backdropAspectRatio}
                   genres={meta?.genres}
                   inLibrary={inLibrary}
+                  isFollowing={isFollowing}
                   isLoading={isLoading && !info}
                   logo={displayLogo}
                   onBack={navigation.goBack}
+                  onFollowShow={
+                    !localTitle && filteredLinkList.length > 0
+                      ? () => setFollowDialogVisible(true)
+                      : undefined
+                  }
                   onOpenMenu={() => setMetadataMenuVisible(true)}
                   backButtonRef={backButtonRef}
                   onBackButtonLayout={registerBackFocus}
@@ -470,6 +502,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                       synopsis={synopsis}
                       routeParams={route.params}
                       quickDownload={info?.quickDownload}
+                      onActiveSeasonChange={handleActiveSeasonChange}
                     />
                   )}
                 </View>
@@ -531,7 +564,23 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
             info={info}
             provider={providerValue}
             link={route.params.link}
+            onSearchTitle={searchTitle}
           />}
+          {!localTitle && filteredLinkList.length > 0 && (
+            <FollowShowDialog
+              visible={followDialogVisible}
+              onClose={() => setFollowDialogVisible(false)}
+              link={route.params.link}
+              provider={providerValue}
+              providerName={contentProviderName}
+              title={displayTitle || 'Unknown title'}
+              poster={posterImage}
+              seasons={filteredLinkList}
+              activeSeasonIndex={activeSeasonIndex}
+              activeSeasonEpisodes={activeSeasonEpisodes}
+              onOpenSettings={openFollowedShowsSettings}
+            />
+          )}
         </View>
       </M3PaletteContext.Provider>
     </QueryErrorBoundary>

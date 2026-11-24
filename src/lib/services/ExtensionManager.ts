@@ -215,6 +215,7 @@ export class ExtensionManager {
           value: item.value,
           display_name: item.display_name,
           disabled: item.disabled || false,
+          adult: item.adult === true,
           source: {author: activeSource.author, url: activeSource.url},
           version: item.version,
           icon: item.icon || '',

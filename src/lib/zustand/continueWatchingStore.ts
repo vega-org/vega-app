@@ -3,6 +3,7 @@ import {createJSONStorage, persist} from 'zustand/middleware';
 import type {EpisodeLink} from '../providers/types';
 import {getEpisodeIdentity} from '../utils/episodeIdentity';
 import {createZustandStorage} from '../storage/StorageService';
+import useFollowedShowsStore from './followedShowsStore';
 import {
   getContinueWatchingAfterMark,
   getUpNextItem,
@@ -141,8 +142,15 @@ const useContinueWatchingStore = create<ContinueWatchingState>()(
         }));
         return true;
       },
-      removeItem: id =>
-        set(state => ({items: state.items.filter(item => item.id !== id)})),
+      removeItem: id => {
+        const removed = get().items.find(item => item.id === id);
+        if (!removed) return;
+
+        set(state => ({items: state.items.filter(item => item.id !== id)}));
+        useFollowedShowsStore.getState().unfollowRemovedShows('continueWatching', [
+          {provider: removed.providerValue, link: removed.infoUrl},
+        ]);
+      },
     }),
     {
       name: 'continue-watching-storage',

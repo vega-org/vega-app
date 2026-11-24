@@ -23,6 +23,7 @@ export interface ProviderExtension {
   version: string;
   icon: string;
   disabled: boolean;
+  adult?: boolean;
   type: 'global' | 'english' | 'india' | 'italy' | 'anime' | 'drama';
   installed: boolean;
   hasSettings?: boolean;
@@ -271,6 +272,17 @@ export class ExtensionStorage {
       this.scopedKey(ExtensionKeys.AVAILABLE_PROVIDERS, author),
       providers,
     );
+    const flags = new Map(providers.map(provider => [provider.value, provider.adult === true]));
+    const installed = this.getInstalledProviders();
+    let changed = false;
+    const updated = installed.map(provider => {
+      const adult = flags.get(provider.value);
+      if (provider.source?.author !== author || adult === undefined ||
+          adult === (provider.adult === true)) return provider;
+      changed = true;
+      return {...provider, adult};
+    });
+    if (changed) this.setInstalledProviders(updated);
   }
 
   /**
@@ -289,6 +301,7 @@ export class ExtensionStorage {
       existing.version = provider.version;
       existing.source = provider.source;
       existing.hasSettings = provider.hasSettings ?? existing.hasSettings;
+      existing.adult = provider.adult ?? existing.adult;
       existing.path = provider.path;
       existing.lastUpdated = Date.now();
     } else {

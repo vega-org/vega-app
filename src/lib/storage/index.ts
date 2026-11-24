@@ -64,3 +64,18 @@ export {
 } from './WatchProgressStorage';
 export type {WatchProgress} from './WatchProgressStorage';
 
+// Export FollowedShowsStorage
+export {
+  FollowedShowsStorage,
+  followedShowsStorage,
+  FollowedShowsKeys,
+  EPISODE_UPDATE_INTERVAL_OPTIONS,
+  getEpisodeUpdateIntervalHours,
+  getEpisodeUpdateIntervalLabel,
+  createFollowedShowId,
+} from './FollowedShowsStorage';
+export type {
+  FollowedShow,
+  EpisodeUpdateInterval,
+} from './FollowedShowsStorage';
+

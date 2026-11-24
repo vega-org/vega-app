@@ -19,6 +19,7 @@ let mockInsets = {top: 24, right: 0, bottom: 16, left: 0};
 let latestPanBuilder: any;
 let latestTapBuilder: any;
 let latestAnimatedStyleFn: (() => any) | undefined;
+let mockItemOpacityStyleFns: Array<() => {opacity: number}> = [];
 const mockRace = jest.fn((pan: unknown, tap: unknown) => ({
   type: 'race',
   pan,
@@ -62,8 +63,20 @@ jest.mock('react-native-reanimated', () => {
       }).current,
     useAnimatedStyle: (fn: () => any) => {
       const evaluated = fn();
-      if (evaluated && 'backgroundColor' in evaluated) {
+      if (
+        evaluated &&
+        Array.isArray(evaluated.transform) &&
+        evaluated.transform.some((t: any) => 'scaleX' in t)
+      ) {
         latestAnimatedStyleFn = fn;
+      } else if (
+        evaluated &&
+        typeof evaluated.opacity === 'number' &&
+        evaluated.opacity >= 0.56 &&
+        !('transform' in evaluated) &&
+        !('backgroundColor' in evaluated)
+      ) {
+        mockItemOpacityStyleFns.push(fn);
       }
       return evaluated;
     },
@@ -161,6 +174,8 @@ jest.mock('../src/lib/storage', () => ({
     isHapticFeedbackEnabled: () => mockHapticsEnabled,
     hideDownloadsTab: () => false,
     showContinueWatching: () => true,
+    showHeroLibraryButton: () => false,
+    hideAdultProviders: () => false,
     setGlassTabBarEnabled: jest.fn(),
     setHideGlassTabBarInSubpages: jest.fn(),
     setHideDownloadsTab: jest.fn(),
@@ -199,6 +214,11 @@ import {
   type GlassTabItem,
 } from '../src/components/navigation/GlassTabBar';
 import StreamingTabBar from '../src/components/navigation/StreamingTabBar';
+import {
+  createTabBarOverlayStore,
+  TabBarOverlayOutlet,
+  TabBarOverlayPublisher,
+} from '../src/components/navigation/TabBarOverlayHost';
 import {syncTabVisibility, useTabVisibilityStore} from '../src/lib/zustand/tabVisibilityStore';
 import useNavigationPreferencesStore from '../src/lib/zustand/navigationPreferencesStore';
 
@@ -271,11 +291,19 @@ beforeEach(() => {
   latestPanBuilder = undefined;
   latestTapBuilder = undefined;
   latestAnimatedStyleFn = undefined;
+  mockItemOpacityStyleFns = [];
   useNavigationPreferencesStore.setState({
     glassTabBar: true,
     hideGlassTabBarInSubpages: true,
   });
 });
+
+function findGlassTabBar(tree: renderer.ReactTestRenderer) {
+  const innerType = (GlassTabBar as any).type;
+  return tree.root.find(
+    node => node.type === GlassTabBar || (innerType && node.type === innerType),
+  );
+}
 
 it.each([
   [0, 'Home', 'Info'],
@@ -305,9 +333,9 @@ it.each([
   });
   let tree!: renderer.ReactTestRenderer;
   act(() => {publish(true); tree = renderer.create(<StreamingTabBar {...props} />);});
-  expect(tree.root.findByType(GlassTabBar).props.hidden).toBe(true);
+  expect(findGlassTabBar(tree).props.hidden).toBe(true);
   act(() => publish(false));
-  expect(tree.root.findByType(GlassTabBar).props.hidden).toBe(false);
+  expect(findGlassTabBar(tree).props.hidden).toBe(false);
   expect(tree.root.findAllByType(View)[0].props.pointerEvents).toBe('box-none');
   act(() => tree.unmount());
 });
@@ -366,17 +394,20 @@ it('avoids TouchableOpacity inside GlassTabBar and configures immediate Pan + Ta
   act(() => tree.unmount());
 });
 
-it('tracks finger movement 1:1 without recreating gesture, highlights hovered tab, and commits on release', () => {
+it('tracks finger movement 1:1 without recreating gesture or re-rendering on hover, and commits on release', () => {
   const onSelect = jest.fn(() => true);
+  const onRender = jest.fn();
   let tree!: renderer.ReactTestRenderer;
   act(() => {
     tree = renderer.create(
-      <GlassTabBar
-        items={FIVE_ITEMS}
-        selectedIndex={0}
-        showLabels
-        onSelect={onSelect}
-      />,
+      <React.Profiler id="glass-tab-bar" onRender={onRender}>
+        <GlassTabBar
+          items={FIVE_ITEMS}
+          selectedIndex={0}
+          showLabels
+          onSelect={onSelect}
+        />
+      </React.Profiler>,
     );
   });
 
@@ -392,12 +423,19 @@ it('tracks finger movement 1:1 without recreating gesture, highlights hovered ta
     barView.props.onLayout({nativeEvent: {layout: {width: 408}}});
   });
 
+  const rendersAfterLayout = onRender.mock.calls.length;
+  const getItemOpacity = (index: number) =>
+    mockItemOpacityStyleFns.slice(-FIVE_ITEMS.length)[index]().opacity;
+
   // Start drag over tab 0 (center x = 4 + 40 = 44)
   act(() => {
     latestPanBuilder.begin();
     latestPanBuilder.start({x: 44});
   });
-  expect(getTranslateX(latestAnimatedStyleFn!())).toBeCloseTo(0, 5);
+  const startLens = latestAnimatedStyleFn!();
+  expect(getTranslateX(startLens)).toBeCloseTo(0, 5);
+  expect('width' in startLens).toBe(false);
+  expect('backgroundColor' in startLens).toBe(false);
   expect(mockHapticTrigger).not.toHaveBeenCalled();
 
   // Sub-pixel/mid-tab drag at x = 84 => index unit = 0.5 => translateX = 40px
@@ -407,16 +445,12 @@ it('tracks finger movement 1:1 without recreating gesture, highlights hovered ta
   expect(getTranslateX(latestAnimatedStyleFn!())).toBeCloseTo(40, 5);
   expect(mockHapticTrigger).toHaveBeenCalledTimes(1);
 
-  // Hovering tab 1 caused a re-render to highlight its label, yet gesture stays memoized!
+  // Hover emphasis updates smoothly on UI thread with zero React re-renders and keeps gesture memoized
+  expect(onRender).toHaveBeenCalledTimes(rendersAfterLayout);
   expect(detector.props.gesture).toBe(initialGesture);
-  const texts = tree.root.findAllByType(Text);
-  const searchLabel = texts.find(t => t.props.children === 'Search')!;
-  const homeLabel = texts.find(t => t.props.children === 'Home')!;
-  expect(StyleSheet.flatten(searchLabel.props.style).color).toBe('#FFFFFF');
-  expect(StyleSheet.flatten(searchLabel.props.style).fontWeight).toBe('600');
-  expect(StyleSheet.flatten(homeLabel.props.style).color).toBe(
-    'rgba(255, 255, 255, 0.56)',
-  );
+  expect(getItemOpacity(0)).toBeCloseTo(0.78, 5);
+  expect(getItemOpacity(1)).toBeCloseTo(0.78, 5);
+  expect(getItemOpacity(2)).toBeCloseTo(0.56, 5);
 
   // Continue dragging to tab 2 (center x = 4 + 200 = 204)
   act(() => {
@@ -424,6 +458,9 @@ it('tracks finger movement 1:1 without recreating gesture, highlights hovered ta
   });
   expect(getTranslateX(latestAnimatedStyleFn!())).toBeCloseTo(160, 5);
   expect(mockHapticTrigger).toHaveBeenCalledTimes(2);
+  expect(onRender).toHaveBeenCalledTimes(rendersAfterLayout);
+  expect(getItemOpacity(2)).toBeCloseTo(1, 5);
+  expect(getItemOpacity(0)).toBeCloseTo(0.56, 5);
 
   // Release on tab 2 => skips duplicate navigation haptic
   act(() => {
@@ -797,5 +834,136 @@ it('animates hiding the Glass bar on subpages when enabled and keeps Material ba
   expect(materialStyle.opacity).not.toBe(0);
   expect(getTranslateX(materialStyle)).not.toBe(-390);
 
+  act(() => tree.unmount());
+});
+
+it('keeps a single mounted BlurView instance across tab changes', () => {
+  const onSelect = jest.fn(() => true);
+  const blurTarget = {} as View;
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {
+    tree = renderer.create(
+      <GlassTabBar
+        items={FIVE_ITEMS}
+        selectedIndex={0}
+        showLabels
+        blurTarget={blurTarget}
+        onSelect={onSelect}
+      />,
+    );
+  });
+
+  const initialBlurView = tree.root.findByType(BlurView);
+
+  act(() => {
+    tree.update(
+      <GlassTabBar
+        items={FIVE_ITEMS}
+        selectedIndex={4}
+        showLabels
+        blurTarget={blurTarget}
+        onSelect={onSelect}
+      />,
+    );
+  });
+
+  expect(tree.root.findByType(BlurView)).toBe(initialBlurView);
+  act(() => tree.unmount());
+});
+
+it('does not restart the lens spring when selectedIndex catches up after a tap', () => {
+  const {withSpring} = require('react-native-reanimated');
+  const onSelect = jest.fn(() => true);
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {
+    tree = renderer.create(
+      <GlassTabBar
+        items={FIVE_ITEMS}
+        selectedIndex={0}
+        showLabels
+        onSelect={onSelect}
+      />,
+    );
+  });
+
+  const detector = tree.root.findByType('GestureDetector' as any);
+  const barView = detector.find(
+    node =>
+      typeof node.props.onLayout === 'function' && node.type === (View as any),
+  );
+  act(() => {
+    barView.props.onLayout({nativeEvent: {layout: {width: 408}}});
+  });
+
+  (withSpring as jest.Mock).mockClear();
+
+  act(() => {
+    latestTapBuilder.end({x: 284}, true);
+  });
+  expect(withSpring).toHaveBeenCalledTimes(1);
+  expect(withSpring).toHaveBeenCalledWith(3, expect.any(Object));
+
+  act(() => {
+    tree.update(
+      <GlassTabBar
+        items={FIVE_ITEMS}
+        selectedIndex={3}
+        showLabels
+        onSelect={onSelect}
+      />,
+    );
+  });
+  expect(withSpring).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    tree.update(
+      <GlassTabBar
+        items={FIVE_ITEMS}
+        selectedIndex={1}
+        showLabels
+        onSelect={onSelect}
+      />,
+    );
+  });
+  expect(withSpring).toHaveBeenCalledTimes(2);
+  expect(withSpring).toHaveBeenLastCalledWith(1, expect.any(Object));
+
+  act(() => tree.unmount());
+});
+
+it('syncs sibling TabBarOverlayOutlet from TabBarOverlayPublisher without remounting BlurView', () => {
+  const store = createTabBarOverlayStore();
+  const blurTarget = {} as View;
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {
+    tree = renderer.create(
+      <View>
+        <TabBarOverlayPublisher
+          store={store}
+          tabBarProps={makeBottomTabProps(FIVE_ROUTES, 0)}
+        />
+        <TabBarOverlayOutlet store={store} blurTarget={blurTarget} />
+      </View>,
+    );
+  });
+
+  const initialBlurView = tree.root.findByType(BlurView);
+  expect(findGlassTabBar(tree).props.selectedIndex).toBe(0);
+  expect(initialBlurView.props.blurTarget.current).toBe(blurTarget);
+
+  act(() => {
+    tree.update(
+      <View>
+        <TabBarOverlayPublisher
+          store={store}
+          tabBarProps={makeBottomTabProps(FIVE_ROUTES, 4)}
+        />
+        <TabBarOverlayOutlet store={store} blurTarget={blurTarget} />
+      </View>,
+    );
+  });
+
+  expect(findGlassTabBar(tree).props.selectedIndex).toBe(4);
+  expect(tree.root.findByType(BlurView)).toBe(initialBlurView);
   act(() => tree.unmount());
 });
