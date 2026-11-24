@@ -20,7 +20,9 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -41,11 +43,13 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.uimanager.ViewManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
 private const val EPISODE_CHECK_WORK_NAME = "vega_episode_check"
+private const val EPISODE_CHECK_CUSTOM_WORK_NAME = "vega_episode_check_custom"
 private const val EPISODE_CHECK_HEADLESS_TASK = "VegaEpisodeCheck"
 private const val BACKGROUND_SANDBOX_EVENT = "VegaBackgroundSandboxMessage"
 private const val BACKGROUND_SANDBOX_RELOAD_EVENT = "VegaBackgroundSandboxReload"
@@ -76,35 +80,24 @@ class EpisodeCheckModule(
     }
 
     @ReactMethod
-    fun schedule(intervalHours: Int, wifiOnly: Boolean, promise: Promise) =
-        scheduleCheck(intervalHours.coerceAtLeast(1).toLong(), null, wifiOnly, promise)
-
-    @ReactMethod
-    fun scheduleAt(nextAt: Double, wifiOnly: Boolean, promise: Promise) =
-        scheduleCheck(24, nextAt.toLong(), wifiOnly, promise)
-
-    private fun scheduleCheck(intervalHours: Long, nextAt: Long?, wifiOnly: Boolean, promise: Promise) {
+    fun schedule(intervalHours: Int, wifiOnly: Boolean, promise: Promise) {
         try {
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(
-                    if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-                )
+            val workManager = WorkManager.getInstance(reactContext.applicationContext)
+            workManager.cancelUniqueWork(EPISODE_CHECK_CUSTOM_WORK_NAME)
+
+            val request = PeriodicWorkRequestBuilder<EpisodeCheckWorker>(
+                intervalHours.coerceAtLeast(1).toLong(),
+                TimeUnit.HOURS,
+            )
+                .setConstraints(buildConstraints(wifiOnly))
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
                 .build()
 
-            val builder = PeriodicWorkRequestBuilder<EpisodeCheckWorker>(intervalHours, TimeUnit.HOURS)
-                .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
-            if (nextAt == null) {
-                builder.clearNextScheduleTimeOverride()
-            } else {
-                builder.setNextScheduleTimeOverride(nextAt)
-            }
-
-            val result = WorkManager.getInstance(reactContext.applicationContext)
+            val result = workManager
                 .enqueueUniquePeriodicWork(
                     EPISODE_CHECK_WORK_NAME,
                     ExistingPeriodicWorkPolicy.UPDATE,
-                    builder.build(),
+                    request,
                 )
                 .result
             result.addListener({
@@ -121,10 +114,51 @@ class EpisodeCheckModule(
     }
 
     @ReactMethod
+    fun scheduleAt(nextAt: Double, wifiOnly: Boolean, promise: Promise) {
+        try {
+            val workManager = WorkManager.getInstance(reactContext.applicationContext)
+            workManager.cancelUniqueWork(EPISODE_CHECK_WORK_NAME)
+
+            val delayMs = (nextAt.toLong() - System.currentTimeMillis()).coerceAtLeast(0L)
+            val request = OneTimeWorkRequestBuilder<EpisodeCheckWorker>()
+                .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+                .setConstraints(buildConstraints(wifiOnly))
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                .build()
+
+            val result = workManager
+                .enqueueUniqueWork(
+                    EPISODE_CHECK_CUSTOM_WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    request,
+                )
+                .result
+            result.addListener({
+                try {
+                    result.get()
+                    promise.resolve(true)
+                } catch (error: Exception) {
+                    promise.reject("EPISODE_CHECK_SCHEDULE_ERROR", error.message, error)
+                }
+            }, reactContext.mainExecutor)
+        } catch (error: Throwable) {
+            promise.reject("EPISODE_CHECK_SCHEDULE_ERROR", error.message, error)
+        }
+    }
+
+    private fun buildConstraints(wifiOnly: Boolean): Constraints =
+        Constraints.Builder()
+            .setRequiredNetworkType(
+                if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+            )
+            .build()
+
+    @ReactMethod
     fun cancel(promise: Promise) {
         try {
-            WorkManager.getInstance(reactContext.applicationContext)
-                .cancelUniqueWork(EPISODE_CHECK_WORK_NAME)
+            val workManager = WorkManager.getInstance(reactContext.applicationContext)
+            workManager.cancelUniqueWork(EPISODE_CHECK_WORK_NAME)
+            workManager.cancelUniqueWork(EPISODE_CHECK_CUSTOM_WORK_NAME)
             promise.resolve(true)
         } catch (error: Throwable) {
             promise.reject("EPISODE_CHECK_CANCEL_ERROR", error.message, error)
@@ -340,16 +374,16 @@ class EpisodeCheckWorker(
             val config = HeadlessJsTaskConfig(
                 EPISODE_CHECK_HEADLESS_TASK,
                 Arguments.createMap(),
-                120_000L,
+                300_000L,
                 true,
             )
             taskId = headlessContext.startTask(config)
         }
 
         try {
-            withTimeoutOrNull(130_000L) { finished.await() }
+            withTimeoutOrNull(310_000L) { finished.await() }
         } finally {
-            withContext(Dispatchers.Main) {
+            withContext(NonCancellable + Dispatchers.Main) {
                 headlessContext.removeTaskEventListener(taskListener)
             }
         }

@@ -415,6 +415,7 @@ export const runHeadlessEpisodeCheck = async (): Promise<void> => {
   let reloadSub: {remove: () => void} | undefined;
   let disposed = false;
 
+  let summary: EpisodeCheckSummary | undefined;
   try {
     if (attachedBackgroundSandbox) {
       messageSub = DeviceEventEmitter.addListener(
@@ -451,15 +452,7 @@ export const runHeadlessEpisodeCheck = async (): Promise<void> => {
       await episodeCheckNative.startBackgroundSandbox(html, SANDBOX_ORIGIN);
     }
 
-    const summary = await checkFollowedShows({trigger: 'background'});
-    if (
-      updateInterval === 'custom' &&
-      customSchedule &&
-      (summary.checkedCount > 0 || summary.errors > 0)
-    ) {
-      store.advanceCustomSchedule(customSchedule.nextAt);
-      await syncEpisodeCheckSchedule();
-    }
+    summary = await checkFollowedShows({trigger: 'background'});
   } finally {
     disposed = true;
     if (attachedBackgroundSandbox) {
@@ -470,5 +463,15 @@ export const runHeadlessEpisodeCheck = async (): Promise<void> => {
       reloadSub?.remove();
       await episodeCheckNative.stopBackgroundSandbox().catch(() => {});
     }
+  }
+
+  if (
+    updateInterval === 'custom' &&
+    customSchedule &&
+    summary &&
+    (summary.checkedCount > 0 || summary.errors > 0)
+  ) {
+    store.advanceCustomSchedule(customSchedule.nextAt);
+    await syncEpisodeCheckSchedule();
   }
 };
