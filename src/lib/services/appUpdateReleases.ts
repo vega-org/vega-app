@@ -39,6 +39,12 @@ function compareVersions(a: RegExpMatchArray, b: RegExpMatchArray, beta: boolean
   return left.length - right.length;
 }
 
+export function compareAppVersions(left: string, right: string): number | undefined {
+  const a = left.match(VERSION);
+  const b = right.match(VERSION);
+  return a && b ? compareVersions(a, b, false) : undefined;
+}
+
 export function selectUpdate(
   releases: AppRelease[],
   installedVersion: string,

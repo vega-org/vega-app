@@ -61,6 +61,7 @@ import Constants from 'expo-constants';
 import {settingsStorage, migrateWatchProgressFromCacheStorage} from './lib/storage';
 import {syncParallelStreaming} from './lib/parallelStreaming';
 import {updateProvidersService} from './lib/services/UpdateProviders';
+import {checkStartupNotice} from './lib/services/startupNotice';
 import {
   checkFollowedShowsIfDue,
   syncEpisodeCheckSchedule,
@@ -868,6 +869,13 @@ const App = () => {
     if (!isPlayStore && settingsStorage.isAutoCheckUpdateEnabled()) {
       checkForUpdate(() => {}, settingsStorage.isAutoDownloadEnabled(), false);
     }
+  }, []);
+
+  useEffect(() => {
+    const version = Constants.expoConfig?.version;
+    if (!version) return;
+    const build = Constants.expoConfig?.extra?.startupNoticeBuild ?? 'standalone';
+    return scheduleWhenIdle(signal => checkStartupNotice(version, build, signal), 1800);
   }, []);
 
   useEffect(() => subscribeSourceIntent(openAddSourceScreen), []);
