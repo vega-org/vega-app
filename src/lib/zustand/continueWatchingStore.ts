@@ -3,7 +3,11 @@ import {createJSONStorage, persist} from 'zustand/middleware';
 import type {EpisodeLink} from '../providers/types';
 import {getEpisodeIdentity} from '../utils/episodeIdentity';
 import {createZustandStorage} from '../storage/StorageService';
-import {getUpNextItem} from '../player/upNext';
+import {
+  getContinueWatchingAfterMark,
+  getUpNextItem,
+  type ManualWatchContext,
+} from '../player/upNext';
 
 export interface ContinueWatchingItem {
   id: string;
@@ -25,6 +29,7 @@ export interface ContinueWatchingItem {
 interface ContinueWatchingState {
   items: ContinueWatchingItem[];
   upsertItem: (item: ContinueWatchingItem) => void;
+  recordLivePlayback: (id: string, episode: EpisodeLink) => void;
   updateProgress: (
     id: string,
     position: number,
@@ -44,6 +49,12 @@ interface ContinueWatchingState {
     next?: EpisodeLink,
     nextProgress?: {position: number; duration: number},
   ) => boolean;
+  /**
+   * Updates (or creates for an in-progress series) the Continue Watching entry
+   * when episodes are manually marked watched or unwatched. Returns true when
+   * the store changed.
+   */
+  markEpisodesWatched: (context: ManualWatchContext) => boolean;
   removeItem: (id: string) => void;
 }
 
@@ -63,6 +74,18 @@ const useContinueWatchingStore = create<ContinueWatchingState>()(
               .slice(0, 29),
           ].sort((a, b) => b.updatedAt - a.updatedAt),
         })),
+      recordLivePlayback: (id, episode) => set(state => {
+        const item = state.items.find(entry => entry.id === id &&
+          getEpisodeIdentity(entry.episode) === getEpisodeIdentity(episode));
+        if (!item) return state;
+        const now = Date.now();
+        // Keep recency without persisting a moving DVR window as resume progress.
+        if (state.items[0] === item && item.position === 0 && item.duration === 0 && item.updatedAt > 0 &&
+            now >= item.updatedAt && now - item.updatedAt < 5000) return state;
+        return {items: state.items.map(entry => entry === item
+          ? {...entry, position: 0, duration: 0, updatedAt: now} : entry)
+          .sort((a, b) => b.updatedAt - a.updatedAt)};
+      }),
       updateProgress: (id, position, duration, episode) =>
         set(state => ({
           items: state.items
@@ -91,6 +114,30 @@ const useContinueWatchingStore = create<ContinueWatchingState>()(
           items: state.items
             .map(existing => (existing.id === id ? upNext : existing))
             .sort((a, b) => b.updatedAt - a.updatedAt),
+        }));
+        return true;
+      },
+      markEpisodesWatched: context => {
+        const existing = get().items.find(
+          item =>
+            item.id === context.id ||
+            (item.infoUrl === context.infoUrl &&
+              item.providerValue === context.providerValue),
+        );
+        const updated = getContinueWatchingAfterMark(existing, context);
+        if (!updated || updated === existing) {
+          return false;
+        }
+        set(state => ({
+          items: [
+            updated,
+            ...state.items
+              .filter(
+                item => item.id !== existing?.id && item.id !== updated.id,
+              )
+              .sort((a, b) => b.updatedAt - a.updatedAt)
+              .slice(0, 29),
+          ].sort((a, b) => b.updatedAt - a.updatedAt),
         }));
         return true;
       },

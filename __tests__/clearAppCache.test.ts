@@ -5,18 +5,29 @@ const mockClearImageColors = jest.fn();
 const mockClearImageAccents = jest.fn();
 const mockClearHero = jest.fn();
 const mockUnlink = jest.fn(() => Promise.resolve());
+const mockExists = jest.fn(() => Promise.resolve(true));
+const mockClearStreamCache = jest.fn(() => Promise.resolve(true));
 
 jest.mock('@dr.pogodin/react-native-fs', () => ({
   CachesDirectoryPath: '/cache',
+  DocumentDirectoryPath: '/files',
   readDir: jest.fn(() =>
     Promise.resolve([
       {name: 'downloads', path: '/cache/downloads'},
       {name: 'hls_segments', path: '/cache/hls_segments'},
+      {name: 'torrents', path: '/cache/torrents'},
       {name: 'temporary-update.apk', path: '/cache/temporary-update.apk'},
       {name: 'images', path: '/cache/images'},
     ]),
   ),
+  exists: (path: string) => mockExists(path),
   unlink: (path: string) => mockUnlink(path),
+}));
+
+jest.mock('../src/lib/torrentManager', () => ({
+  torrentManager: {
+    clearStreamCache: () => mockClearStreamCache(),
+  },
 }));
 
 jest.mock('react-native-image-colors', () => ({
@@ -54,9 +65,11 @@ describe('clearAppCache', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCacheValues.clear();
+    mockExists.mockResolvedValue(true);
+    mockClearStreamCache.mockResolvedValue(true);
   });
 
-  it('clears cache layers while preserving download staging', async () => {
+  it('clears cache layers while preserving download staging and delegating torrent cleanup', async () => {
     await clearAppCache();
 
     expect(mockClearMMKVCache).toHaveBeenCalledTimes(1);
@@ -64,17 +77,26 @@ describe('clearAppCache', () => {
     expect(mockClearImageColors).toHaveBeenCalledTimes(1);
     expect(mockClearImageAccents).toHaveBeenCalledTimes(1);
     expect(mockClearHero).toHaveBeenCalledTimes(1);
+    expect(mockClearStreamCache).toHaveBeenCalledTimes(1);
     expect(mockUnlink).toHaveBeenCalledTimes(2);
     expect(mockUnlink).toHaveBeenCalledWith('/cache/temporary-update.apk');
     expect(mockUnlink).toHaveBeenCalledWith('/cache/images');
     expect(mockUnlink).not.toHaveBeenCalledWith('/cache/downloads');
     expect(mockUnlink).not.toHaveBeenCalledWith('/cache/hls_segments');
+    expect(mockUnlink).not.toHaveBeenCalledWith('/cache/torrents');
   });
 
-  it('keeps watch progress and player choices', async () => {
-    const watched = {
-      'https://example.com/s1e1': '{"position":754,"duration":1420}',
-      'https://example.com/s1e2': '{"position":1,"duration":1}',
+  it('falls back to removing legacy and cached torrent dirs when native cleanup is unavailable', async () => {
+    mockClearStreamCache.mockResolvedValueOnce(false);
+
+    await clearAppCache();
+
+    expect(mockUnlink).toHaveBeenCalledWith('/files/torrents');
+    expect(mockUnlink).toHaveBeenCalledWith('/cache/torrents');
+  });
+
+  it('keeps player choices while clearing cache and episode progress', async () => {
+    const preserved = {
       'skips_vega:show:s1e1': '[{"start":0,"end":90}]',
       'LastPlayed:vega:https://example.com/show': '{"link":"s1e1"}',
       'ActiveSeason:Showvega': '{"title":"Season 1"}',
@@ -82,19 +104,21 @@ describe('clearAppCache', () => {
       lastTextTrack: 'English',
       lastAudioTrack: 'Hindi',
     };
-    const fetched = {
+    const cleared = {
+      'https://example.com/s1e1': '{"position":754,"duration":1420}',
+      'https://example.com/s1e2': '{"position":1,"duration":1}',
       'contentInfo:vega:https://example.com/show': '{"title":"Show"}',
       'accent:https://example.com/poster.jpg': '#123456',
       episodes: '[{"position":1,"title":"Episode"}]',
       partial: '{"position":1,"duration":1,"title":"Not progress"}',
     };
-    Object.entries({...watched, ...fetched}).forEach(([key, value]) =>
+    Object.entries({...preserved, ...cleared}).forEach(([key, value]) =>
       mockCacheValues.set(key, value),
     );
 
     await clearAppCache();
 
     expect(mockClearMMKVCache).toHaveBeenCalledTimes(1);
-    expect(Object.fromEntries(mockCacheValues)).toEqual(watched);
+    expect(Object.fromEntries(mockCacheValues)).toEqual(preserved);
   });
 });

@@ -1,7 +1,7 @@
+import {SettingsSearchScrollView} from '../../components/ui/SettingsSearchTarget';
 import {useFocusEffect} from '@react-navigation/native';
 import {
   View,
-  ScrollView,
   Modal,
   Pressable,
   BackHandler,
@@ -250,7 +250,11 @@ const SubtitlePreference = ({navigation}: any) => {
       trapFocusRight={true}
       trapFocusDown={true}
       style={{flex: 1}}>
-      <ScrollView
+      <SettingsSearchScrollView
+        searchFallback={edgeType === 'none' ? {
+          'Outline & shadow color': 'Edge & shadow effect',
+          'Outline & shadow size': 'Edge & shadow effect',
+        } : undefined}
         focusable={false}
         accessible={false}
         className="h-full w-full bg-m3-background"
@@ -911,7 +915,7 @@ const SubtitlePreference = ({navigation}: any) => {
             </TVFocusGuide>
           </Pressable>
         </Modal>
-      </ScrollView>
+      </SettingsSearchScrollView>
     </TVFocusGuide>
   );
 };

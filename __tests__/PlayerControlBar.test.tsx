@@ -3,13 +3,19 @@ import renderer, {act} from 'react-test-renderer';
 import {ScrollView, StyleSheet, Text, TouchableOpacity} from 'react-native';
 import type {PlayerControlId} from '../src/lib/player/controlLayout';
 import PlayerControlBar, {
+  PlayerBottomControlBar,
   PlayerControl,
 } from '../src/components/PlayerControlBar';
-import {defaultPlayerControlStyle} from '../src/lib/player/controlStyle';
+import {normalizePlayerControlStyle, defaultPlayerControlStyle} from '../src/lib/player/controlStyle';
 
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => 'Icon');
 jest.mock('@expo/vector-icons/MaterialIcons', () => 'Icon');
-jest.mock('../src/lib/tv/constants', () => ({isTV: false}));
+jest.mock('../src/lib/tv/useTVFocusBorderColor', () => ({
+  useTVFocusBorderColor: () => '#fff',
+}));
+let mockIsTV = false;
+jest.mock('../src/lib/tv/constants', () => ({get isTV() { return mockIsTV; }}));
+beforeEach(() => { mockIsTV = false; });
 
 const controls: PlayerControl[] = [
   {
@@ -135,7 +141,11 @@ it('supports short and hidden labels, all alignments, scaling and a transparent 
   expect(tree.root.findByType(Text).props.style.fontSize).toBeCloseTo(14.4);
   expect(StyleSheet.flatten(tree.root.findByType(ScrollView).props.style).backgroundColor).toBeUndefined();
   const rowStyle = () => StyleSheet.flatten(tree.root.findByProps({testID: 'player-control-row'}).props.style);
-  expect(rowStyle().backgroundColor).toBe('rgba(0,0,0,0.5)');
+  const viewport = tree.root.findByProps({testID: 'player-control-row-background'});
+  expect(StyleSheet.flatten(viewport.props.style)).toEqual(expect.objectContaining({
+    backgroundColor: 'rgba(0,0,0,0.5)', overflow: 'hidden', borderRadius: 33.6,
+  }));
+  expect(rowStyle().backgroundColor).toBeUndefined();
   expect(rowStyle().flexGrow).toBe(0);
   expect(rowStyle().width).toBeUndefined();
   expect(tree.root.findByType(ScrollView).props.contentContainerStyle.justifyContent).toBe('flex-start');
@@ -146,5 +156,130 @@ it('supports short and hidden labels, all alignments, scaling and a transparent 
   act(() => tree.update(render('hidden', 'center')));
   expect(tree.root.findAllByType(Text)).toHaveLength(0);
   expect(tree.root.findByType(ScrollView).props.contentContainerStyle.justifyContent).toBe('center');
+  act(() => tree.unmount());
+});
+
+
+it('ignores obsolete saved blur settings and keeps the chosen tint', () => {
+  const appearance = normalizePlayerControlStyle({backgroundBlur: 100, backgroundOpacity: 0.4});
+  expect(appearance).not.toHaveProperty('backgroundBlur');
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(<PlayerControlBar ids={['speed']} controls={controls}
+    onEdit={() => {}} getTVFocusProps={() => ({})} appearance={appearance} />);});
+  const viewport = tree.root.findByProps({testID: 'player-control-row-background'});
+  expect(StyleSheet.flatten(viewport.props.style).backgroundColor).toBe('rgba(0,0,0,0.4)');
+  act(() => tree.unmount());
+});
+
+it.each([false, true])('preserves the full top focus border for TV=%s without changing phone clipping', tv => {
+  mockIsTV = tv;
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(<PlayerControlBar top ids={['sleep', 'speed']} controls={controls}
+    appearance={{...defaultPlayerControlStyle(), backgroundOpacity: 0.5}}
+    onEdit={() => {}} getTVFocusProps={() => ({style: {borderWidth: 2.5, borderColor: '#fff'}})} />);});
+  const row = tree.root.findByProps({testID: 'player-top-control-row'});
+  expect(StyleSheet.flatten(row.props.style).overflow).toBe(tv ? 'visible' : 'hidden');
+  expect(StyleSheet.flatten(row.props.style).backgroundColor).toBe('rgba(0,0,0,0.5)');
+  for (const button of tree.root.findAllByType(TouchableOpacity)) {
+    expect(StyleSheet.flatten(button.props.style).borderWidth).toBe(2.5);
+  }
+  act(() => tree.unmount());
+});
+
+
+it('shows both bottom groups only when both contain visible controls', () => {
+  const bottom = (left: PlayerControlId[], right: PlayerControlId[]) => (
+    <PlayerBottomControlBar
+      left={left}
+      right={right}
+      controls={controls}
+      onEdit={jest.fn()}
+      getTVFocusProps={() => ({})}
+    />
+  );
+  let tree!: renderer.ReactTestRenderer;
+
+  act(() => {tree = renderer.create(bottom(['speed'], ['sleep']));});
+  const bars = () => tree.root.findAllByType(PlayerControlBar);
+  expect(bars().map(node => node.props.ids)).toEqual([['speed'], ['sleep']]);
+  expect(bars().every(node => node.props.compact)).toBe(true);
+
+  act(() => tree.update(bottom(['cast'], ['sleep'])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.ids).toEqual(['sleep']);
+  expect(bars()[0].props.compact).toBeFalsy();
+
+  act(() => tree.update(bottom(['speed'], [])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.ids).toEqual(['speed']);
+
+  act(() => tree.update(bottom([], ['cast'])));
+  expect(tree.toJSON()).toBeNull();
+  act(() => tree.unmount());
+});
+
+it.each([
+  ['distributed', 'space-between'],
+  ['center', 'center'],
+  ['left', 'flex-start'],
+  ['right', 'flex-end'],
+] as const)(
+  'aligns split bottom groups together for %s alignment without forcing 50/50 widths',
+  (alignment, expectedJustify) => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(
+        <PlayerBottomControlBar
+          left={['speed']}
+          right={['sleep']}
+          controls={controls}
+          appearance={{...defaultPlayerControlStyle(), alignment}}
+          onEdit={jest.fn()}
+          getTVFocusProps={() => ({})}
+        />,
+      );
+    });
+    const container = tree.root.find(
+      node =>
+        node.type === 'View' &&
+        node.props.testID === 'player-split-bottom-controls',
+    );
+    expect(StyleSheet.flatten(container.props.style)).toMatchObject({
+      flexDirection: 'row',
+      justifyContent: expectedJustify,
+    });
+    const wrappers = container.children as renderer.ReactTestInstance[];
+    expect(wrappers).toHaveLength(2);
+    for (const wrapper of wrappers) {
+      const style = StyleSheet.flatten(wrapper.props.style);
+      expect(style.flexShrink).toBe(1);
+      expect(style.flex).toBeUndefined();
+    }
+    act(() => tree.unmount());
+  },
+);
+
+it('applies separate label styles to the bottom left and right groups', () => {
+  const {normalizePlayerControlStyle} = require('../src/lib/player/controlStyle');
+  // Older saves keep one label style for both groups.
+  expect(normalizePlayerControlStyle({labels: 'short'}).rightLabels).toBe('short');
+  expect(normalizePlayerControlStyle({labels: 'short', rightLabels: 'hidden'}).rightLabels).toBe('hidden');
+  expect(normalizePlayerControlStyle({labels: 'full', rightLabels: 'bad'}).rightLabels).toBe('full');
+});
+
+it('renders the bottom right group with its own label style', () => {
+  const appearance = {...defaultPlayerControlStyle(), labels: 'full' as const, rightLabels: 'hidden' as const};
+  const bottom = (left: PlayerControlId[], right: PlayerControlId[]) => (
+    <PlayerBottomControlBar left={left} right={right} controls={controls} appearance={appearance}
+      onEdit={jest.fn()} getTVFocusProps={() => ({})} />
+  );
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(bottom(['speed'], ['sleep']));});
+  const bars = () => tree.root.findAllByType(PlayerControlBar);
+  expect(bars().map(node => node.props.appearance.labels)).toEqual(['full', 'hidden']);
+  // A lone right group still uses the right label style.
+  act(() => tree.update(bottom([], ['sleep'])));
+  expect(bars()).toHaveLength(1);
+  expect(bars()[0].props.appearance.labels).toBe('hidden');
   act(() => tree.unmount());
 });

@@ -1,4 +1,4 @@
-export type RemoteDeviceType = 'cast' | 'dlna';
+export type RemoteDeviceType = 'cast' | 'dlna' | 'vega-cast';
 
 export interface RemoteDevice {
   id: string;
@@ -34,6 +34,7 @@ export interface RemoteAudioTrack {
 }
 
 export interface RemoteSubtitleTrack {
+  savedSubtitleId?: string;
   id: string;
   index?: number;
   language: string;

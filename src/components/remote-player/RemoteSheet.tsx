@@ -14,6 +14,7 @@ interface RemoteSheetProps {
   title: string;
   onClose: () => void;
   headerRight?: ReactNode;
+  expanded?: boolean;
   children: ReactNode;
   /** False for sheets with sliders, so dragging moves the slider, not the sheet. */
   enableContentPanningGesture?: boolean;
@@ -25,6 +26,7 @@ export const RemoteSheet: React.FC<RemoteSheetProps> = ({
   title,
   onClose,
   headerRight,
+  expanded = false,
   children,
   enableContentPanningGesture = true,
 }) => {
@@ -32,8 +34,8 @@ export const RemoteSheet: React.FC<RemoteSheetProps> = ({
   const sheetRef = useRef<BottomSheet>(null);
 
   useEffect(() => {
-    if (visible) sheetRef.current?.snapToIndex?.(0);
-  }, [visible]);
+    if (visible) sheetRef.current?.snapToIndex?.(expanded ? 1 : 0);
+  }, [visible,expanded]);
 
   return (
     <Modal

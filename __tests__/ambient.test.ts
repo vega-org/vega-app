@@ -1,4 +1,4 @@
-import {getAmbientBars, validAmbientColors, blendAmbientHistory} from '../src/lib/player/ambient';
+import {getAmbientBars, validAmbientColors, blendAmbientHistory, getAmbientSampleInterval} from '../src/lib/player/ambient';
 
 it('limits the glow to letterbox or pillarbox regions', () => {
   expect(getAmbientBars(1920, 1080, 1920, 800, 'contain')).toEqual({top: 140, bottom: 140, left: 0, right: 0});
@@ -23,4 +23,14 @@ it('uses a short history that favors the current frame and catches up quickly', 
   expect(blendAmbientHistory(null, white)).toBe(white);
   expect(blendAmbientHistory(black, white)).toEqual(Array(4).fill('#cccccc'));
   expect(blendAmbientHistory(white, white)).toEqual(white);
+});
+
+it('coordinates sampling with response speed and bounds the capture rate', () => {
+  expect(getAmbientSampleInterval(16)).toBe(33);
+  expect(getAmbientSampleInterval(50)).toBe(57);
+  expect(getAmbientSampleInterval(220)).toBe(250);
+  expect(getAmbientSampleInterval(1000)).toBe(1000);
+  expect(getAmbientSampleInterval(-1)).toBe(33);
+  expect(getAmbientSampleInterval(5000)).toBe(1000);
+  expect(getAmbientSampleInterval(NaN)).toBe(250);
 });

@@ -1,9 +1,9 @@
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
 import {usePlayerProgress} from '../src/lib/hooks/usePlayerSettings';
-import {cacheStorage} from '../src/lib/storage';
+import {watchProgressStorage} from '../src/lib/storage';
 
-jest.mock('../src/lib/storage', () => ({cacheStorage: {setString: jest.fn()}}));
+jest.mock('../src/lib/storage', () => ({watchProgressStorage: {setProgress: jest.fn()}}));
 
 let progress: ReturnType<typeof usePlayerProgress>;
 const onSaved = jest.fn();
@@ -20,7 +20,7 @@ it('flushes progress below the periodic save threshold on exit', () => {
   act(() => progress.handleProgress({currentTime: 3, seekableDuration: 100}));
   expect(onSaved).not.toHaveBeenCalled();
   act(() => tree.unmount());
-  expect(cacheStorage.setString).toHaveBeenCalledWith('episode-1', JSON.stringify({position: 3, duration: 100}));
+  expect(watchProgressStorage.setProgress).toHaveBeenCalledWith('episode-1', 3, 100);
   expect(onSaved).toHaveBeenCalledWith(3, 100);
 });
 
@@ -30,11 +30,11 @@ it('saves the previous episode and resets position before the next episode', () 
   act(() => progress.handleProgress({currentTime: 100, seekableDuration: 200}));
   act(() => progress.handleProgress({currentTime: 102, seekableDuration: 200}));
   act(() => tree.update(<Harness link="episode-2" />));
-  expect(cacheStorage.setString).toHaveBeenLastCalledWith('episode-1', JSON.stringify({position: 102, duration: 200}));
+  expect(watchProgressStorage.setProgress).toHaveBeenLastCalledWith('episode-1', 102, 200);
   expect(progress.videoPositionRef.current).toEqual({position: 0, duration: 0});
   expect(progress.hasProgressRef.current).toBe(false);
   act(() => progress.handleProgress({currentTime: 8, seekableDuration: 300}));
-  expect(cacheStorage.setString).toHaveBeenLastCalledWith('episode-2', JSON.stringify({position: 8, duration: 300}));
+  expect(watchProgressStorage.setProgress).toHaveBeenLastCalledWith('episode-2', 8, 300);
   act(() => tree.unmount());
 });
 

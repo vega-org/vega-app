@@ -11,11 +11,15 @@ import {
 /**
  * Storage keys for settings
  */
+export type VerificationWindowPolicy = 'ask' | 'allow' | 'block';
+
 export enum SettingsKeys {
   // UI preferences
   PRIMARY_COLOR = 'primaryColor',
   IS_CUSTOM_THEME = 'isCustomTheme',
   SHOW_TAB_BAR_LABELS = 'showTabBarLabels',
+  GLASS_TAB_BAR = 'glassTabBar',
+  HIDE_GLASS_TAB_BAR_IN_SUBPAGES = 'hideGlassTabBarInSubpages',
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
   CUSTOM_COLOR = 'customColor',
@@ -29,6 +33,10 @@ export enum SettingsKeys {
   // Update settings
   AUTO_CHECK_UPDATE = 'autoCheckUpdate',
   AUTO_DOWNLOAD = 'autoDownload',
+  UPDATE_CHANNEL = 'updateChannel',
+  SETTINGS_SEARCH_HISTORY = 'settingsSearchHistory',
+  AUTO_UPDATE_PROVIDERS = 'autoUpdateProviders',
+  VERIFICATION_WINDOWS = 'verificationWindows',
 
   // Player settings
   OPEN_VIDEOS_FROM_OTHER_APPS = 'openVideosFromOtherApps',
@@ -38,8 +46,11 @@ export enum SettingsKeys {
   SHOW_PLAYER_EPISODE_SIDEBAR = 'showPlayerEpisodeSidebar',
   AUTO_PLAY_NEXT_EPISODE = 'autoPlayNextEpisode',
   SHOW_SLEEP_TIMER = 'showSleepTimer',
+  SHOW_TIME_REMAINING = 'showTimeRemaining',
   AMBIENT_VIDEO = 'ambientVideo',
   AMBIENT_INTENSITY = 'ambientIntensity',
+  AMBIENT_SPREAD = 'ambientSpread',
+  AMBIENT_RESPONSE = 'ambientResponseMs',
   ENABLE_2X_GESTURE = 'enable2xGesture',
   ENABLE_SWIPE_GESTURE = 'enableSwipeGesture',
   ENABLE_VOLUME_BOOST = 'enableVolumeBoost',
@@ -47,7 +58,11 @@ export enum SettingsKeys {
   BACK_BUFFER_MB = 'backBufferMB',
   SEEK_INTERVAL = 'seekInterval',
   PLAYBACK_SPEED = 'playbackSpeed',
+  DEFAULT_RESIZE_MODE = 'defaultResizeMode',
   PLAYER_CONTROL_LAYOUT = 'playerControlLayout',
+  SHOW_PLAYER_ROTATE = 'showPlayerRotate',
+  PLAYER_AUTO_ROTATE = 'playerAutoRotate',
+  PLAYER_MANUAL_ORIENTATION = 'playerManualOrientation',
   PLAYER_CONTROL_STYLE = 'playerControlStyle',
   HIDDEN_PLAYER_CONTROLS = 'hiddenPlayerControls',
 
@@ -103,6 +118,9 @@ export enum SettingsKeys {
   ALWAYS_CAST_MODE = 'alwaysCastMode',
   ASK_LOCAL_FILE_FIRST = 'askLocalFileFirst',
   TORRENT_FULL_DOWNLOAD = 'torrentFullDownload',
+
+  // VegaSync
+  SYNC_ENABLED = 'syncEnabled',
 }
 
 /**
@@ -129,8 +147,10 @@ const isValidConnectionCount = (value: number | undefined): value is number =>
   (value as number) >= MIN_DOWNLOAD_CONNECTIONS &&
   (value as number) <= MAX_DOWNLOAD_CONNECTIONS;
 
-/** Seek step choices in seconds; 85 skips a typical anime opening. */
-export const SEEK_INTERVAL_OPTIONS = [5, 10, 15, 30, 60, 85] as const;
+/** Seek steps in seconds, from 5 to 90 in increments of 5. */
+export const SEEK_INTERVAL_OPTIONS = [
+  5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90,
+] as const;
 const DEFAULT_SEEK_INTERVAL = 10;
 
 const isValidSeekInterval = (value: number | undefined): value is number =>
@@ -143,6 +163,19 @@ export const PLAYBACK_SPEED_MIN = 0.25;
 export const PLAYBACK_SPEED_MAX = 2;
 export const PLAYBACK_SPEED_STEP = 0.05;
 const DEFAULT_PLAYBACK_SPEED = 1.0;
+
+/** Video fit modes in the order the player button cycles through them. */
+export const PLAYER_RESIZE_MODES = [
+  {mode: 'none', label: 'Fit'},
+  {mode: 'cover', label: 'Cover'},
+  {mode: 'stretch', label: 'Stretch'},
+  {mode: 'contain', label: 'Contain'},
+] as const;
+export type PlayerResizeMode = (typeof PLAYER_RESIZE_MODES)[number]['mode'];
+const DEFAULT_RESIZE_MODE: PlayerResizeMode = 'none';
+
+const isPlayerResizeMode = (value: unknown): value is PlayerResizeMode =>
+  PLAYER_RESIZE_MODES.some(option => option.mode === value);
 
 const isAllowedPlaybackSpeed = (value: unknown): value is number =>
   typeof value === 'number' &&
@@ -166,6 +199,15 @@ const clampBufferMB = (
 };
 
 export class SettingsStorage {
+  getVerificationWindowPolicy(): VerificationWindowPolicy {
+    const value = mainStorage.getString(SettingsKeys.VERIFICATION_WINDOWS);
+    return value === 'allow' || value === 'block' ? value : 'ask';
+  }
+
+  setVerificationWindowPolicy(value: VerificationWindowPolicy): void {
+    mainStorage.setString(SettingsKeys.VERIFICATION_WINDOWS, value);
+  }
+
   isOpenVideosFromOtherAppsEnabled(): boolean {
     return mainStorage.getBool(SettingsKeys.OPEN_VIDEOS_FROM_OTHER_APPS, true);
   }
@@ -202,6 +244,14 @@ export class SettingsStorage {
 
   setTorrentFullDownload(enabled: boolean): void {
     mainStorage.setBool(SettingsKeys.TORRENT_FULL_DOWNLOAD, enabled);
+  }
+
+  isSyncEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.SYNC_ENABLED, true);
+  }
+
+  setSyncEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.SYNC_ENABLED, enabled);
   }
 
   // Theme settings
@@ -276,6 +326,25 @@ export class SettingsStorage {
     mainStorage.setBool(SettingsKeys.SHOW_TAB_BAR_LABELS, show);
   }
 
+  isGlassTabBarEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, false);
+  }
+
+  setGlassTabBarEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.GLASS_TAB_BAR, enabled);
+  }
+
+  hideGlassTabBarInSubpages(): boolean {
+    return mainStorage.getBool(
+      SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES,
+      true,
+    );
+  }
+
+  setHideGlassTabBarInSubpages(hide: boolean): void {
+    mainStorage.setBool(SettingsKeys.HIDE_GLASS_TAB_BAR_IN_SUBPAGES, hide);
+  }
+
   hideDownloadsTab(): boolean {
     return mainStorage.getBool(SettingsKeys.HIDE_DOWNLOADS_TAB, false);
   }
@@ -308,9 +377,33 @@ export class SettingsStorage {
     mainStorage.setBool(SettingsKeys.NOTIFICATIONS_ENABLED, enabled);
   }
 
+  getSettingsSearchHistory(): string[] {
+    return mainStorage.getArray<string>(SettingsKeys.SETTINGS_SEARCH_HISTORY) ?? [];
+  }
+
+  setSettingsSearchHistory(history: string[]): void {
+    mainStorage.setArray(SettingsKeys.SETTINGS_SEARCH_HISTORY, history);
+  }
+
   // Update settings
+  getUpdateChannel(): 'stable' | 'beta' {
+    return mainStorage.getString(SettingsKeys.UPDATE_CHANNEL) === 'beta' ? 'beta' : 'stable';
+  }
+
+  setUpdateChannel(channel: 'stable' | 'beta'): void {
+    mainStorage.setString(SettingsKeys.UPDATE_CHANNEL, channel);
+  }
+
   isAutoCheckUpdateEnabled(): boolean {
     return mainStorage.getBool(SettingsKeys.AUTO_CHECK_UPDATE, true);
+  }
+
+  isProviderAutoUpdateEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.AUTO_UPDATE_PROVIDERS, true);
+  }
+
+  setProviderAutoUpdateEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.AUTO_UPDATE_PROVIDERS, enabled);
   }
 
   setAutoCheckUpdateEnabled(enabled: boolean): void {
@@ -318,7 +411,7 @@ export class SettingsStorage {
   }
 
   isAutoDownloadEnabled(): boolean {
-    return mainStorage.getBool(SettingsKeys.AUTO_DOWNLOAD, false);
+    return mainStorage.getBool(SettingsKeys.AUTO_DOWNLOAD, true);
   }
 
   setAutoDownloadEnabled(enabled: boolean): void {
@@ -383,12 +476,38 @@ export class SettingsStorage {
     if (Number.isFinite(value)) mainStorage.setNumber(SettingsKeys.AMBIENT_INTENSITY, Math.max(0, Math.min(1, value)));
   }
 
+  getAmbientSpread(): number {
+    const value = mainStorage.getNumber(SettingsKeys.AMBIENT_SPREAD);
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0.1, Math.min(3, value)) : 1;
+  }
+
+  setAmbientSpread(value: number): void {
+    if (Number.isFinite(value)) mainStorage.setNumber(SettingsKeys.AMBIENT_SPREAD, Math.max(0.1, Math.min(3, value)));
+  }
+
+  getAmbientResponseMs(): number {
+    const value = mainStorage.getNumber(SettingsKeys.AMBIENT_RESPONSE);
+    return typeof value === 'number' && Number.isFinite(value) ? Math.round(Math.max(16, Math.min(1000, value))) : 220;
+  }
+
+  setAmbientResponseMs(value: number): void {
+    if (Number.isFinite(value)) mainStorage.setNumber(SettingsKeys.AMBIENT_RESPONSE, Math.round(Math.max(16, Math.min(1000, value))));
+  }
+
   showSleepTimer(): boolean {
     return mainStorage.getBool(SettingsKeys.SHOW_SLEEP_TIMER, true);
   }
 
   setShowSleepTimer(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_SLEEP_TIMER, show);
+  }
+
+  isShowTimeRemaining(): boolean {
+    return mainStorage.getBool(SettingsKeys.SHOW_TIME_REMAINING, false);
+  }
+
+  setShowTimeRemaining(show: boolean): void {
+    mainStorage.setBool(SettingsKeys.SHOW_TIME_REMAINING, show);
   }
 
   isEnable2xGestureEnabled(): boolean {
@@ -527,14 +646,33 @@ export class SettingsStorage {
     }
   }
 
+  getPlayerManualOrientation(): 'portrait_up' | 'landscape' {
+    return mainStorage.getString(SettingsKeys.PLAYER_MANUAL_ORIENTATION) === 'portrait_up'
+      ? 'portrait_up'
+      : 'landscape';
+  }
+
+  setPlayerManualOrientation(orientation: 'portrait_up' | 'landscape'): void {
+    mainStorage.setString(SettingsKeys.PLAYER_MANUAL_ORIENTATION, orientation);
+  }
+
+  isPlayerAutoRotateEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.PLAYER_AUTO_ROTATE, false);
+  }
+
+  setPlayerAutoRotateEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.PLAYER_AUTO_ROTATE, enabled);
+  }
+
   getHiddenPlayerControls(): PlayerControlId[] {
     const saved = mainStorage.getArray<string>(SettingsKeys.HIDDEN_PLAYER_CONTROLS) || [];
     const hidden = new Set<PlayerControlId>((Array.isArray(saved) ? saved : []).filter(id =>
-      PLAYER_CONTROL_IDS.includes(id as PlayerControlId) && id !== 'sleep' && id !== 'episodes',
+      PLAYER_CONTROL_IDS.includes(id as PlayerControlId) && id !== 'sleep' && id !== 'episodes' && id !== 'rotate',
     ) as PlayerControlId[]);
-    // These controls already have Preferences switches; keep those keys authoritative.
+    // Preserve the legacy visibility keys used by existing backups and Arrange.
     if (!this.showSleepTimer()) hidden.add('sleep');
     if (!this.showPlayerEpisodeSidebar()) hidden.add('episodes');
+    if (!mainStorage.getBool(SettingsKeys.SHOW_PLAYER_ROTATE, false)) hidden.add('rotate');
     return [...hidden];
   }
 
@@ -542,7 +680,10 @@ export class SettingsStorage {
     const ids = new Set(hidden.filter(id => PLAYER_CONTROL_IDS.includes(id)));
     this.setShowSleepTimer(!ids.has('sleep'));
     this.setShowPlayerEpisodeSidebar(!ids.has('episodes'));
-    mainStorage.setArray(SettingsKeys.HIDDEN_PLAYER_CONTROLS, [...ids].filter(id => id !== 'sleep' && id !== 'episodes'));
+    mainStorage.setBool(SettingsKeys.SHOW_PLAYER_ROTATE, !ids.has('rotate'));
+    mainStorage.setArray(SettingsKeys.HIDDEN_PLAYER_CONTROLS, [...ids].filter(id =>
+      id !== 'sleep' && id !== 'episodes' && id !== 'rotate',
+    ));
   }
 
   setPlayerControlLayout(layout: PlayerControlLayout): void {
@@ -552,6 +693,17 @@ export class SettingsStorage {
   setPlaybackSpeed(speed: number): void {
     if (isAllowedPlaybackSpeed(speed)) {
       mainStorage.setNumber(SettingsKeys.PLAYBACK_SPEED, speed);
+    }
+  }
+
+  getDefaultResizeMode(): PlayerResizeMode {
+    const value = mainStorage.getString(SettingsKeys.DEFAULT_RESIZE_MODE);
+    return isPlayerResizeMode(value) ? value : DEFAULT_RESIZE_MODE;
+  }
+
+  setDefaultResizeMode(mode: PlayerResizeMode): void {
+    if (isPlayerResizeMode(mode)) {
+      mainStorage.setString(SettingsKeys.DEFAULT_RESIZE_MODE, mode);
     }
   }
 

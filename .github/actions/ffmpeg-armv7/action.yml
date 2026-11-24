@@ -1,0 +1,20 @@
+name: Build ARMv7 FFmpegKit
+description: Build and cache the missing 32-bit HTTPS native libraries from pinned source
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      id: ffmpeg
+      with:
+        path: .native/ffmpeg-armv7
+        key: ffmpeg-armv7-8.1.9-469e560b-r27c-${{ hashFiles('scripts/build-ffmpeg-armv7.sh', 'scripts/check-ffmpeg-abis.py') }}
+    - if: steps.ffmpeg.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y autoconf automake libtool pkg-config curl git build-essential yasm nasm gperf texinfo bison ragel python3 unzip zip wget meson ninja-build doxygen cmake autogen autopoint groff gtk-doc-tools libtasn1-bin
+        sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+        "$sdk_root/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'ndk;27.2.12479018'
+        ANDROID_SDK_ROOT="$sdk_root" ANDROID_NDK_ROOT="$sdk_root/ndk/27.2.12479018" bash scripts/build-ffmpeg-armv7.sh
+    - shell: bash
+      run: python3 scripts/check-ffmpeg-abis.py .native/ffmpeg-armv7 --abis armeabi-v7a

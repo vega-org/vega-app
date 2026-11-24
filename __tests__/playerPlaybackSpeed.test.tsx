@@ -8,7 +8,14 @@ jest.mock('../src/lib/storage', () => ({
   settingsStorage: {
     getPlaybackSpeed: jest.fn(() => 1.5),
     setPlaybackSpeed: jest.fn(),
+    getDefaultResizeMode: jest.fn(() => 'cover'),
   },
+  PLAYER_RESIZE_MODES: [
+    {mode: 'none', label: 'Fit'},
+    {mode: 'cover', label: 'Cover'},
+    {mode: 'stretch', label: 'Stretch'},
+    {mode: 'contain', label: 'Contain'},
+  ],
 }));
 
 let settings: ReturnType<typeof usePlayerSettings>;
@@ -48,4 +55,19 @@ it('does not save temporary rate changes such as the 2x hold', () => {
   expect(settings.playbackRate).toBe(2);
   expect(settingsStorage.setPlaybackSpeed).not.toHaveBeenCalled();
   act(() => tree.unmount());
+});
+
+it('starts with the default video fit and cycles without saving it', () => {
+  jest.useFakeTimers();
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {
+    tree = renderer.create(<Harness />);
+  });
+  expect(settings.resizeMode).toBe('cover');
+  act(() => settings.handleResizeMode());
+  expect(settings.resizeMode).toBe('stretch');
+  expect(settings.toastMessage).toBe('Resize Mode: Stretch');
+  act(() => jest.runOnlyPendingTimers());
+  act(() => tree.unmount());
+  jest.useRealTimers();
 });

@@ -1,9 +1,5 @@
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import React from 'react';
 import {Text, View} from 'react-native';
-import type {RootStackParamList} from '../../../App';
-import {getDownloadPlayerParams} from '../../../lib/downloadPlayback';
 import {
   cancelDownload,
   pauseDownload,
@@ -12,7 +8,6 @@ import {
   startQueuedDownloadNow,
 } from '../../../lib/downloadManager';
 import useDownloadsStore, {
-  type DownloadItem,
   selectCurrentDownloads,
 } from '../../../lib/zustand/downloadsStore';
 import {useShallow} from 'zustand/react/shallow';
@@ -29,14 +24,8 @@ const CurrentDownloadsSection = ({
   onFirstActionLayout?: () => void;
 }) => {
   const colors = useM3Colors();
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const downloads = useDownloadsStore(useShallow(selectCurrentDownloads));
 
-  const watchHandler = (item: DownloadItem) => {
-    const params = getDownloadPlayerParams(item);
-    return params ? () => navigation.navigate('Player', params) : undefined;
-  };
 
   if (downloads.length === 0) {
     return null;
@@ -77,7 +66,6 @@ const CurrentDownloadsSection = ({
           onStartNow={() =>
             startQueuedDownloadNow(item.id).catch(console.error)
           }
-          onPlay={watchHandler(item)}
         />
       ))}
     </View>

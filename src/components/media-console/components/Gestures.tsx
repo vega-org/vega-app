@@ -40,6 +40,7 @@ type GesturesProps = {
   showControls: boolean;
 
   seekButtonsEnabled?: boolean;
+  seekEnabled?: boolean;
   disableGesture: boolean;
   baseRate?: number;
   setPlayback: (rate: number) => void;
@@ -322,6 +323,7 @@ const Gestures = ({
   rewindTime = 10,
   showControls = false,
   seekButtonsEnabled = false,
+  seekEnabled = true,
   disableGesture,
   baseRate = 1,
   setPlayback,
@@ -414,7 +416,7 @@ const Gestures = ({
   );
 
   const show2xToast = useCallback(() => {
-    setToastMessage('2× speed');
+    setToastMessage('2Ã— speed');
     toastOpacity.value = withTiming(1, { duration: 150 });
   }, [toastOpacity]);
 
@@ -543,6 +545,14 @@ const Gestures = ({
 
   const handleTap = useCallback(
     (touchX: number, touchY: number, side: 'left' | 'right') => {
+      if (!seekEnabled) {
+        if (tapActionTimeout.current) clearTimeout(tapActionTimeout.current);
+        tapActionTimeout.current = setTimeout(() => {
+          if (tapAnywhereToPause) togglePlayPause();
+          else toggleControls();
+        }, doubleTapTime);
+        return;
+      }
       // Keep the controls timer from interrupting an active multi-tap seek.
       // It is restarted after the accumulated seek has been applied.
       clearControlTimeout();
@@ -627,6 +637,7 @@ const Gestures = ({
       clearControlTimeout,
       onSkipFeedback,
       seekButtonsEnabled,
+      seekEnabled,
     ],
   );
 
@@ -794,7 +805,7 @@ const Gestures = ({
           setDisplayVolume(currentVolume.volume);
           setDisplayBrightness(currentBrightness);
 
-          console.log('Original settings stored:🔥', {
+          console.log('Original settings stored:ðŸ”¥', {
             volume: currentVolume,
             brightness: currentBrightness,
           });

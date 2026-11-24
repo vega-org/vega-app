@@ -5,7 +5,7 @@ import AmbientBackground from '../src/components/media-console/components/Ambien
 
 jest.mock('../src/components/media-console/components/NativeAmbientGlow', () => 'NativeAmbientGlow');
 const colors = ['#112233', '#334455', '#556677', '#778899'];
-const props = {videoView: {current: {} as RN.View}, bars: {top: 80, bottom: 80, left: 0, right: 0}, paused: false, intensity: 0.35};
+const props = {videoView: {current: {} as RN.View}, bars: {top: 80, bottom: 80, left: 0, right: 0}, paused: false, intensity: 0.35, spread: 1, responseMs: 220};
 let listener: (state: RN.AppStateStatus) => void;
 let nativeSample: jest.Mock;
 
@@ -112,5 +112,47 @@ it('draws nothing until native bounds are confirmed and hides stale masks after 
   expect(tree.root.findByType('NativeAmbientGlow' as any).props.bars).toEqual(props.bars);
   act(() => tree.update(<AmbientBackground {...props} paused bars={{top: 0, bottom: 0, left: 90, right: 90}} />));
   expect(Object.values(tree.root.findByType('NativeAmbientGlow' as any).props.bars)).toEqual([0, 0, 0, 0]);
+  act(() => tree.unmount());
+});
+
+it('changes spread and response without restarting captures or changing intensity', async () => {
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(<AmbientBackground {...props} />);});
+  await advance(300);
+  act(() => tree.update(<AmbientBackground {...props} spread={0.25} responseMs={80} />));
+  const glow = tree.root.findByType('NativeAmbientGlow' as any);
+  expect(glow.props.spread).toBe(0.25);
+  expect(glow.props.responseMs).toBe(80);
+  expect(glow.props.intensity).toBe(props.intensity);
+  expect(nativeSample).toHaveBeenCalledTimes(1);
+  await advance(250);
+  expect(nativeSample).toHaveBeenCalledTimes(2);
+  act(() => tree.unmount());
+});
+
+it.each([[16, 33], [50, 57], [220, 250], [1000, 1000]])(
+  'uses response %ims for native smoothing and %ims between completed captures', async (responseMs, interval) => {
+    let tree!: renderer.ReactTestRenderer;
+    act(() => {tree = renderer.create(<AmbientBackground {...props} responseMs={responseMs} />);});
+    await advance(300);
+    expect(tree.root.findByType('NativeAmbientGlow' as any).props.responseMs).toBe(responseMs);
+    expect(nativeSample).toHaveBeenCalledTimes(1);
+    await advance(interval - 1);
+    expect(nativeSample).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(nativeSample).toHaveBeenCalledTimes(2);
+    act(() => tree.unmount());
+  },
+);
+
+it('overrides the fastest setting when capture is expensive', async () => {
+  nativeSample.mockResolvedValue({colors, bars: props.bars, durationMs: 30});
+  let tree!: renderer.ReactTestRenderer;
+  act(() => {tree = renderer.create(<AmbientBackground {...props} responseMs={16} />);});
+  await advance(300);
+  await advance(1499);
+  expect(nativeSample).toHaveBeenCalledTimes(1);
+  await advance(1);
+  expect(nativeSample).toHaveBeenCalledTimes(2);
   act(() => tree.unmount());
 });

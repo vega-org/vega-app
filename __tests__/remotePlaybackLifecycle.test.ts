@@ -1,3 +1,5 @@
+jest.mock('../src/lib/remote/vegaCastService', () => ({vegaCastService: {}}));
+jest.mock('../src/lib/torrentManager', () => ({torrentManager: {}}));
 import {remotePlaybackManager as manager} from '../src/lib/remote/remotePlaybackManager';
 import {remoteDeliveryService as delivery} from '../src/lib/remote/remoteDeliveryService';
 import {dlnaService as dlna} from '../src/lib/remote/dlnaService';

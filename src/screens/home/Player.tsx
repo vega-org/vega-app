@@ -1,4 +1,9 @@
+import {topControlPillStyle} from '../../lib/player/topControlPillStyle';
+import {playbackTimeline, liveTimeLabel, type LiveTimelineEvent} from '../../lib/player/liveTimeline';
+import {findSavedSubtitle, savedSubtitleLabel} from '../../lib/subtitles/savedSubtitles';
+import RemovableSubtitleRow from '../../components/RemovableSubtitleRow';
 import {getPlaybackQuality} from '../../lib/player/playbackQuality';
+import {getStreamDrm} from '../../lib/player/streamDrm';
 import {localContentId} from '../../lib/localContent/library';
 import useLocalContentStore from '../../lib/zustand/localContentStore';
 import PlayerMoreMenu from '../../components/PlayerMoreMenu';
@@ -28,6 +33,7 @@ import {
   Modal,
   UIManager,
   useWindowDimensions,
+  type LayoutChangeEvent,
 } from 'react-native';
 import Animated, {
   FadeIn,
@@ -44,12 +50,10 @@ import {RootStackParamList} from '../../App';
 import {
   cacheStorage,
   settingsStorage,
+  watchProgressStorage,
 } from '../../lib/storage';
-import Orientation, {
-  OrientationLocker,
-  PORTRAIT,
-  LANDSCAPE,
-} from 'react-native-orientation-locker';
+import Orientation from 'react-native-orientation-locker';
+import {getDeviceOrientationGroup, getPlayerOrientation, type ManualPlayerOrientation} from '../../lib/player/playerOrientation';
 import {SystemBars} from 'react-native-edge-to-edge';
 import VideoPlayer from '../../components/media-console';
 import {playPauseRef} from '../../components/media-console/components/PlayPause/PlayPause';
@@ -97,6 +101,7 @@ import {
 import {syncFromSharedFolder} from '../../lib/sync/syncService';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
+import TVFocusPressable from '../../components/tv/TVFocusPressable';
 import useContinueWatchingStore from '../../lib/zustand/continueWatchingStore';
 import useLocalVideoStore from '../../lib/zustand/localVideoStore';
 import useDownloadsStore, {
@@ -105,6 +110,7 @@ import useDownloadsStore, {
 import {RemotePlayerScreen} from '../../components/remote-player';
 import {useRemoteStore} from '../../lib/remote/remoteStore';
 import {remotePlaybackManager} from '../../lib/remote/remotePlaybackManager';
+import {vegaCastService} from '../../lib/remote/vegaCastService';
 import {remoteDeliveryService} from '../../lib/remote/remoteDeliveryService';
 import {
   RemoteAudioTrack,
@@ -123,9 +129,10 @@ import PlayerDelayControl from '../../components/PlayerDelayControl';
 import PlayerSpeedControl from '../../components/PlayerSpeedControl';
 import PlayerSleepControl from '../../components/PlayerSleepControl';
 import PlayerSourceMenu from '../../components/PlayerSourceMenu';
-import PlayerControlBar, {PlayerControl} from '../../components/PlayerControlBar';
+import PlayerControlBar, {PlayerBottomControlBar, PlayerControl} from '../../components/PlayerControlBar';
 import HdrBadge from '../../components/media-console/components/HdrBadge';
 import PlayerControlEditor from '../../components/PlayerControlEditor';
+import {SubtitleQuickStyle} from '../../components/PlayerSubtitleStyleEditor';
 import {
   getTopControlLimit,
   normalizePlayerControlLayout,
@@ -152,6 +159,7 @@ import {useNextEpisodePrefetch} from '../../lib/hooks/useNextEpisodePrefetch';
 
 import {
   NO_PLAYBACK_RETRY,
+  isContainerParsingError,
   decidePlaybackError,
   getReloadStartMs,
   markPlaybackLoaded,
@@ -163,22 +171,11 @@ const readCachedProgress = (link?: string) => {
   if (!link) {
     return {position: 0, duration: 0};
   }
-  try {
-    const cached = cacheStorage.getString(link);
-    if (!cached) {
-      return {position: 0, duration: 0};
-    }
-    const parsed = JSON.parse(cached) as {
-      position?: number;
-      duration?: number;
-    };
-    return {
-      position: parsed.position || 0,
-      duration: parsed.duration || 0,
-    };
-  } catch {
-    return {position: 0, duration: 0};
-  }
+  const progress = watchProgressStorage.getProgress(link);
+  return {
+    position: progress?.position || 0,
+    duration: progress?.duration || 0,
+  };
 };
 
 const getCachedSkips = (keys: (string | undefined)[]): SkipInterval[] => {
@@ -269,6 +266,7 @@ const formatTVTimelineTime = (time: number): string => {
 };
 
 const BOTTOM_CONTROL_ICON_COLOR = 'rgba(255,255,255,0.6)';
+const EditControlsButton = isTV ? TVFocusPressable : TouchableOpacity;
 /** "#RGB" / "#RRGGBB" / "#AARRGGBB" to Android "#AARRGGBB" with the given alpha. */
 const withAlpha = (hex: string, opacity: number) => {
   let rgb = hex.replace('#', '');
@@ -362,6 +360,19 @@ const isCastableStreamUrl = (streamUrl: string, streamType?: string) => {
     return false;
   }
 };
+
+function PlayerViewport({portrait, children}: {
+  portrait: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <SafeAreaView
+      edges={portrait ? ['top', 'right', 'bottom', 'left'] : []}
+      className="bg-black flex-1">
+      <View className="flex-1 relative">{children}</View>
+    </SafeAreaView>
+  );
+}
 
 const goFullScreen = () => {
   SystemBars.setHidden(true);
@@ -626,7 +637,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [syncReady, setSyncReady] = useState(false);
 
   useEffect(() => {
-    if (route.params.localContent) {
+    if (route.params.localContent || !settingsStorage.isSyncEnabled()) {
       setSyncReady(true);
       return;
     }
@@ -679,6 +690,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   const upsertContinueWatching = useContinueWatchingStore(
     state => state.upsertItem,
   );
+  const recordLivePlayback = useContinueWatchingStore(state => state.recordLivePlayback);
   const updateContinueWatchingProgress = useContinueWatchingStore(
     state => state.updateProgress,
   );
@@ -865,9 +877,12 @@ const Player = ({route}: Props): React.JSX.Element => {
     selectedStream,
     setSelectedStream,
     externalSubs,
-    setExternalSubs,
+    savedSubtitles,
+    saveSubtitle,
+    removeSavedSubtitle,
     isLoading: streamLoading,
     error: streamError,
+    refreshLinks,
     switchToNextStream,
   } = useStream({
     activeEpisode,
@@ -905,6 +920,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     resetVideoTracks,
   } = useVideoSettings();
   const isFullScreenRef = useRef(isFullScreen);
+  const playerFocusedRef = useRef(false);
   const syncedContinueWatching = useContinueWatchingStore(state =>
     state.items.find(item => item.id === continueWatchingId),
   );
@@ -1027,6 +1043,11 @@ const Player = ({route}: Props): React.JSX.Element => {
   const playbackRenderKeyRef = useRef('');
   const combinedSkipsRef = useRef<SkipInterval[]>([]);
   const liveTimelineRef = useRef(false);
+  useEffect(() => {
+    playbackTimeRef.current = 0;
+    playbackRenderKeyRef.current = '';
+    setCurrentPlaybackTime(0);
+  }, [activeEpisodeKey]);
   const [settingsCloseFocused, setSettingsCloseFocused] = useState(false);
   const timelineRef = useRef<View>(null);
   const [timelineFocusHandle, setTimelineFocusHandle] = useState<number | null>(
@@ -1037,11 +1058,14 @@ const Player = ({route}: Props): React.JSX.Element => {
     null,
   );
   const videoSurfaceTVRef = useRef<View>(null);
+  const [topControlTVHandle, setTopControlTVHandle] = useState<number | null>(null);
+  const [bottomControlTVHandle, setBottomControlTVHandle] = useState<number | null>(null);
   const preferredMenuRowRef = useRef<View>(null);
   const [editingControls, setEditingControls] = useState(false);
   const [showMoreControls, setShowMoreControls] = useState(false);
   const nativeVideoViewRef = useRef<View>(null);
   const [hdrWidth, setHdrWidth] = useState(0);
+  const [liveBadgeWidth, setLiveBadgeWidth] = useState(0);
   const [decoderMode, setDecoderMode] = useState<'hardware' | 'software'>('hardware');
   const decoderRestartRef = useRef(false);
   const decoderSwitchBusyRef = useRef(false);
@@ -1083,7 +1107,22 @@ const Player = ({route}: Props): React.JSX.Element => {
   useFocusEffect(useCallback(() => {
     setHiddenControls(settingsStorage.getHiddenPlayerControls());
   }, []));
-  const {width: playerWidth} = useWindowDimensions();
+  const {width: playerWidth, height: playerHeight} = useWindowDimensions();
+  const playerIsPortrait = !isTV && playerHeight > playerWidth;
+  const [autoRotate, setAutoRotate] = useState(() => settingsStorage.isPlayerAutoRotateEnabled());
+  const [manualOrientation, setManualOrientation] = useState<ManualPlayerOrientation | null>(() =>
+    autoRotate ? null : settingsStorage.getPlayerManualOrientation(),
+  );
+  const [portraitToolbarTop, setPortraitToolbarTop] = useState(80);
+  const measurePortraitHeader = useCallback((event: LayoutChangeEvent) => {
+    const {y, height} = event.nativeEvent.layout;
+    setPortraitToolbarTop(Math.ceil(y + height + 8));
+  }, []);
+  useFocusEffect(useCallback(() => {
+    const enabled = settingsStorage.isPlayerAutoRotateEnabled();
+    setAutoRotate(enabled);
+    setManualOrientation(enabled ? null : settingsStorage.getPlayerManualOrientation());
+  }, []));
   const fittedControlLayout = useMemo(
     () => normalizePlayerControlLayout(
       controlLayout,
@@ -1136,6 +1175,15 @@ const Player = ({route}: Props): React.JSX.Element => {
     isPlayerLocked,
   ]);
 
+  const [playbackWindow, setPlaybackWindow] = useState(() => playbackTimeline({}));
+  const playbackWindowRef = useRef(playbackWindow);
+  playbackWindowRef.current = playbackWindow;
+  useEffect(() => {
+    const next = playbackTimeline({});
+    playbackWindowRef.current = next;
+    setPlaybackWindow(next);
+  }, [selectedStream?.link]);
+
   const {videoPositionRef, handleProgress, flushProgress, hasProgressRef} =
     usePlayerProgress({
       activeEpisode,
@@ -1185,7 +1233,6 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   const {
     getTVFocusProps,
-    tvFocusedControl,
     showTVControls,
     scrubPosition,
     confirmScrub,
@@ -1194,6 +1241,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   } = usePlayerTVControls({
     playerRef,
     videoPositionRef,
+    timelineRef: playbackWindowRef,
     showSettings,
     setShowSettings,
     showControls,
@@ -1205,6 +1253,27 @@ const Player = ({route}: Props): React.JSX.Element => {
     onSeekNotification: handleSeekNotification,
     remoteSuspended: autoNextVisible || editingControls || showMoreControls,
   });
+
+  const [showTimeRemaining, setShowTimeRemaining] = useState<boolean>(() =>
+    settingsStorage.isShowTimeRemaining(),
+  );
+
+  const handleTimelinePress = useCallback(() => {
+    if (scrubPosition !== null) {
+      confirmScrub();
+    } else if (playbackWindowRef.current.isLive) {
+      if (playbackWindowRef.current.canSeek) {
+        playerRef.current?.seek(playbackWindowRef.current.liveEdge);
+        setIsPaused(false);
+      }
+    } else {
+      setShowTimeRemaining(prev => {
+        const next = !prev;
+        settingsStorage.setShowTimeRemaining(next);
+        return next;
+      });
+    }
+  }, [scrubPosition, confirmScrub]);
 
   const currentEpisodeIndex = useMemo(() => {
     if (!route.params?.episodeList?.length || !activeEpisode) return -1;
@@ -1237,7 +1306,21 @@ const Player = ({route}: Props): React.JSX.Element => {
   });
 
   const handleProgressWithTime = useCallback(
-    (e: {currentTime: number; seekableDuration: number}) => {
+    (e: {currentTime: number; seekableDuration: number} & LiveTimelineEvent) => {
+      const next = playbackTimeline(e, e.seekableDuration);
+      playbackWindowRef.current = next;
+      setPlaybackWindow(previous => previous.isLive === next.isLive && previous.canSeek === next.canSeek && previous.duration === next.duration && previous.liveEdge === next.liveEdge ? previous : next);
+      if (next.isLive) {
+        // Live window positions are not resumable episode progress.
+        if (!isPaused && !route.params.localContent && continueWatchingId && activeEpisode) {
+          recordLivePlayback(continueWatchingId, activeEpisode);
+        }
+        videoPositionRef.current = {position: e.currentTime, duration: next.duration};
+        playbackTimeRef.current = e.currentTime;
+        setCurrentPlaybackTime(e.currentTime);
+        checkSleepTimer();
+        return;
+      }
       handleProgress(e);
       checkSleepTimer();
       prefetchNextEpisode(e.currentTime, e.seekableDuration);
@@ -1256,7 +1339,8 @@ const Player = ({route}: Props): React.JSX.Element => {
         setCurrentPlaybackTime(e.currentTime);
       }
     },
-    [handleProgress, videoPositionRef, checkSleepTimer, prefetchNextEpisode],
+    [handleProgress, videoPositionRef, checkSleepTimer, prefetchNextEpisode, isPaused,
+      route.params.localContent, continueWatchingId, activeEpisode, recordLivePlayback],
   );
 
   // The TV timeline shows the running time, so it needs every progress tick.
@@ -1518,6 +1602,7 @@ const Player = ({route}: Props): React.JSX.Element => {
   // Sync fixes for the current video. Each source can be off by a different
   // amount, so both reset when the stream changes.
   const [subtitleStyle, setSubtitleStyle] = useState(readSubtitleStyle);
+  const [bottomControlHeight, setBottomControlHeight] = useState(44);
   useFocusEffect(useCallback(() => {
     const nextStyle = readSubtitleStyle();
     setSubtitleStyle(previous =>
@@ -1541,8 +1626,9 @@ const Player = ({route}: Props): React.JSX.Element => {
   const canCastStream = useMemo(
     () =>
       !Platform.isTV &&
+      !selectedStream?.drm &&
       isCastableStreamUrl(processedStreamUrl, selectedStream?.type),
-    [processedStreamUrl, selectedStream?.type],
+    [processedStreamUrl, selectedStream?.type, selectedStream?.drm],
   );
   const isLocalOrDownloadedStream = useMemo(
     () =>
@@ -1553,32 +1639,54 @@ const Player = ({route}: Props): React.JSX.Element => {
   );
   const isRemoteActive =
     !Platform.isTV &&
+    !selectedStream?.drm &&
     (Boolean(remoteMediaClient) ||
       Boolean(connectedRemoteDevice) ||
       castRequested ||
       Boolean((route.params as any)?.alwaysCast) ||
       settingsStorage.isAlwaysCastMode());
   const isCasting =
-    !Platform.isTV && (Boolean(remoteMediaClient) || isRemoteActive);
+    !Platform.isTV && !selectedStream?.drm && (Boolean(remoteMediaClient) || isRemoteActive);
   const isRemoteActiveRef = useRef(isRemoteActive);
   isRemoteActiveRef.current = isRemoteActive;
 
-  useEffect(() => {
-    if (Platform.isTV) return;
-    (navigation as any).setOptions({
-      orientation: isRemoteActive ? 'portrait' : 'landscape',
+  const screenOrientation = getPlayerOrientation({
+    isTV,
+    remote: isRemoteActive,
+    autoRotate,
+    manual: manualOrientation,
+  });
+  useFocusEffect(useCallback(() => {
+    navigation.setOptions({
+      orientation: screenOrientation,
       statusBarHidden: !isRemoteActive,
       navigationBarHidden: !isRemoteActive,
       autoHideHomeIndicator: !isRemoteActive,
     });
-    if (isRemoteActive) {
-      Orientation.lockToPortrait();
-      exitFullScreen();
-    } else {
-      Orientation.lockToLandscape();
-      goFullScreen();
-    }
-  }, [isRemoteActive, navigation]);
+  }, [isRemoteActive, navigation, screenOrientation]));
+
+  useFocusEffect(useCallback(() => {
+    if (isTV || isRemoteActive || !autoRotate) return;
+
+    let active = true;
+    let previous: ManualPlayerOrientation | null = null;
+    const onDeviceOrientation = (orientation: string) => {
+      const next = getDeviceOrientationGroup(orientation);
+      if (!next) return;
+      // Auto-rotate resumes when the device is physically turned after a manual rotation.
+      if (previous && previous !== next) setManualOrientation(null);
+      previous = next;
+    };
+    Orientation.addDeviceOrientationListener(onDeviceOrientation);
+    Orientation.getDeviceOrientation(orientation => {
+      if (active && previous === null) onDeviceOrientation(orientation);
+    });
+    return () => {
+      active = false;
+      Orientation.removeDeviceOrientationListener(onDeviceOrientation);
+    };
+  }, [autoRotate, isRemoteActive]));
+
   const [isResolvingStream, setIsResolvingStream] = useState(false);
   const progressIntervalRef = useRef<any>(null);
   const [torrentState, setTorrentState] = useState<string>('');
@@ -1874,14 +1982,26 @@ const Player = ({route}: Props): React.JSX.Element => {
   } | null>(null);
   const reloadStartMs =
     reloadStart?.stream === selectedStream ? reloadStart.ms : undefined;
+  // Stream whose links were last refreshed after its reload failed.
+  const linkRefreshRef = useRef<unknown>(null);
+  const pendingLinkRefreshRef = useRef<{stream: unknown; episodeKey: string} | null>(null);
+  const switchToNextStreamRef = useRef(switchToNextStream);
+  switchToNextStreamRef.current = switchToNextStream;
 
   const handleVideoError = useCallback(
     (e: any) => {
       console.log('PlayerError', e);
 
       if (route.params.localContent) {
-        ToastAndroid.show('Cannot play this local file. Check the file and reselect its folder if access was lost.', ToastAndroid.LONG);
+        ToastAndroid.show(isContainerParsingError(e)
+          ? 'Unable to read the video container.'
+          : 'Cannot play this local file. Check the file and reselect its folder if access was lost.', ToastAndroid.LONG);
         navigation.goBack();
+        return;
+      }
+
+      if ((selectedStreamRef.current?.type === 'local' || isLocalPath(selectedStreamRef.current?.link)) && isContainerParsingError(e)) {
+        ToastAndroid.show('Unable to read the video container. Your saved file was kept.', ToastAndroid.LONG);
         return;
       }
 
@@ -1904,6 +2024,12 @@ const Player = ({route}: Props): React.JSX.Element => {
       }
 
       const stream = selectedStreamRef.current;
+      // Native playback may report another error while extraction is pending.
+      // Let that request finish before deciding whether to switch or close.
+      if (pendingLinkRefreshRef.current?.stream === stream &&
+          pendingLinkRefreshRef.current.episodeKey === activeEpisodeKeyRef.current) {
+        return;
+      }
       if (!isTorrentStream(stream) && !isLocalPath(stream?.link)) {
         const {action, state} = decidePlaybackError(
           playbackRetryRef.current,
@@ -1922,7 +2048,44 @@ const Player = ({route}: Props): React.JSX.Element => {
               prev?.stream === stream ? prev.ms : undefined,
             ),
           }));
-          ToastAndroid.show('Connection lost, retrying', ToastAndroid.SHORT);
+          ToastAndroid.show('Playback interrupted, retrying', ToastAndroid.SHORT);
+          return;
+        }
+        // The reload failed too, so the link has likely expired. Ask the
+        // provider for new links once; the same server then continues from
+        // where it stopped.
+        if (!isContainerParsingError(e) && state.retried && linkRefreshRef.current !== stream) {
+          linkRefreshRef.current = stream;
+          const episodeKey = activeEpisodeKeyRef.current;
+          const pending = {stream, episodeKey};
+          pendingLinkRefreshRef.current = pending;
+          ToastAndroid.show('Getting a new link', ToastAndroid.SHORT);
+          refreshLinks()
+            .catch(() => false)
+            .then(refreshed => {
+              if (
+                refreshed ||
+                activeEpisodeKeyRef.current !== episodeKey ||
+                selectedStreamRef.current !== stream ||
+                !navigation.isFocused()
+              ) {
+                return;
+              }
+              if (!switchToNextStreamRef.current()) {
+                ToastAndroid.show(
+                  'Video could not be played, try again later',
+                  ToastAndroid.SHORT,
+                );
+                navigation.goBack();
+              }
+            })
+            .finally(() => {
+              // An older request must not clear a new episode's pending guard.
+              if (pendingLinkRefreshRef.current === pending) {
+                pendingLinkRefreshRef.current = null;
+              }
+            });
+          setShowControls(true);
           return;
         }
       }
@@ -1942,6 +2105,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       keepPosition,
       markStreamsOnline,
       navigation,
+      refreshLinks,
       route.params.localContent,
       setSelectedStream,
       setShowControls,
@@ -2211,9 +2375,10 @@ const Player = ({route}: Props): React.JSX.Element => {
     (externalSubs || []).forEach((sub: any, i: number) => {
       if (sub?.uri) {
         allSubs.push({
-          id: `ext_${i}_${sub.uri}`,
+          id: sub.savedSubtitleId ? `saved_${sub.savedSubtitleId}` : `ext_${i}_${sub.uri}`,
+          savedSubtitleId: sub.savedSubtitleId,
           language: sub.language || 'und',
-          title: sub.title || sub.language || `Subtitle ${i + 1}`,
+          title: savedSubtitles.find(saved => saved.id === sub.savedSubtitleId)?.title || sub.title || sub.language || `Subtitle ${i + 1}`,
           uri: sub.uri,
           isEmbedded: false,
         });
@@ -2238,6 +2403,7 @@ const Player = ({route}: Props): React.JSX.Element => {
 
     if (Array.isArray(textTracks)) {
       textTracks.forEach((t: any, i: number) => {
+        if (findSavedSubtitle(t, savedSubtitles)) return;
         const lang = t.language && t.language !== 'und' ? t.language : '';
         allSubs.push({
           id: `track_${t.index ?? i}`,
@@ -2249,7 +2415,12 @@ const Player = ({route}: Props): React.JSX.Element => {
     }
 
     const currentSubs = useRemoteStore.getState().subtitleTracks;
-    if (
+    if (currentSubs.length > 0 && (allSubs.some(sub => sub.savedSubtitleId) || currentSubs.some(sub => sub.savedSubtitleId))) {
+      // Receivers keep track ordinals in already-issued URLs. Add cached tracks
+      // at the end and retain the active session's ordering when one is removed.
+      const additions = allSubs.filter(sub => sub.savedSubtitleId && !currentSubs.some(current => current.uri === sub.uri));
+      if (additions.length) useRemoteStore.getState().setSubtitleTracks([...currentSubs, ...additions]);
+    } else if (
       allSubs.length > 0 &&
       (currentSubs.length === 0 || allSubs.length >= currentSubs.length)
     ) {
@@ -2265,6 +2436,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     audioTracks,
     selectedAudioTrackIndex,
     externalSubs,
+    savedSubtitles,
     textTracks,
     selectedTextTrackIndex,
   ]);
@@ -2342,7 +2514,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     // DLNA comes from the store; Cast comes from the live session, so switching
     // Cast devices reloads and the placeholder-then-real-id double load cannot happen.
     const targetDevice: RemoteDevice | null =
-      connectedRemoteDevice?.type === 'dlna'
+      (connectedRemoteDevice?.type === 'dlna' || connectedRemoteDevice?.type === 'vega-cast')
         ? connectedRemoteDevice
         : remoteMediaClient && castDevice
           ? {
@@ -2380,9 +2552,10 @@ const Player = ({route}: Props): React.JSX.Element => {
         externalSubs.forEach((sub: any, i: number) => {
           if (sub?.uri) {
             remoteSubtitles.push({
-              id: `ext_${i}_${sub.uri}`,
+              id: sub.savedSubtitleId ? `saved_${sub.savedSubtitleId}` : `ext_${i}_${sub.uri}`,
+              savedSubtitleId: sub.savedSubtitleId,
               language: sub.language || 'und',
-              title: sub.title || sub.language || `Subtitle ${i + 1}`,
+              title: savedSubtitles.find(saved => saved.id === sub.savedSubtitleId)?.title || sub.title || sub.language || `Subtitle ${i + 1}`,
               uri: sub.uri,
               isEmbedded: false,
             });
@@ -2436,6 +2609,9 @@ const Player = ({route}: Props): React.JSX.Element => {
                 : undefined;
 
         await remotePlaybackManager.startRemotePlayback(targetDevice, {
+          servers:useRemoteStore.getState().servers,
+          serverId:selectedStream?.link,
+          providerStream:selectedStream||undefined,
           sourceUrl: processedStreamUrl,
           sourceType: selectedStream?.type,
           isLocal: Boolean(isLocalOrDownloadedStream),
@@ -2521,63 +2697,27 @@ const Player = ({route}: Props): React.JSX.Element => {
     setToast,
   ]);
 
-  // Enter landscape or portrait (when remote active) and fullscreen on mount & focus
-  useFocusEffect(
-    useCallback(() => {
-      if (isRemoteActive) {
-        Orientation.lockToPortrait();
-        exitFullScreen();
-        return () => {
-          if (!Platform.isTV) {
-            Orientation.lockToPortrait();
-          } else {
-            Orientation.unlockAllOrientations();
-          }
-        };
-      }
-
-      Orientation.lockToLandscape();
-      goFullScreen();
+  useFocusEffect(useCallback(() => {
+    playerFocusedRef.current = true;
+    if (isRemoteActive) {
+      exitFullScreen();
+    } else {
       reapplyFullscreenMode(
         isFullScreenRef.current,
-        () => !isRemoteActiveRef.current && isFullScreenRef.current,
+        () => playerFocusedRef.current && !isRemoteActiveRef.current && isFullScreenRef.current,
       );
-
-      return () => {
-        if (!Platform.isTV) {
-          Orientation.lockToPortrait();
-        } else {
-          Orientation.unlockAllOrientations();
-        }
-        exitFullScreen();
-      };
-    }, [isRemoteActive]),
-  );
-
-  useEffect(() => {
-    if (isRemoteActive) {
-      Orientation.lockToPortrait();
-      exitFullScreen();
-      return () => {
-        if (!Platform.isTV) {
-          Orientation.lockToPortrait();
-        } else {
-          Orientation.unlockAllOrientations();
-        }
-      };
     }
 
-    Orientation.lockToLandscape();
-    goFullScreen();
     return () => {
-      if (!Platform.isTV) {
-        Orientation.lockToPortrait();
-      } else {
+      playerFocusedRef.current = false;
+      if (isTV) {
         Orientation.unlockAllOrientations();
+      } else {
+        Orientation.lockToPortrait();
       }
       exitFullScreen();
     };
-  }, [isRemoteActive]);
+  }, [isRemoteActive]));
 
   useEffect(() => {
     isFullScreenRef.current = isFullScreen;
@@ -2585,13 +2725,14 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   // The portrait remote screen keeps the system bars; only local playback is immersive.
   const applyPlayerSystemBars = useCallback(() => {
+    if (!playerFocusedRef.current) return;
     if (isRemoteActiveRef.current) {
       exitFullScreen();
       return;
     }
     reapplyFullscreenMode(
       isFullScreenRef.current,
-      () => !isRemoteActiveRef.current && isFullScreenRef.current,
+      () => playerFocusedRef.current && !isRemoteActiveRef.current && isFullScreenRef.current,
     );
   }, []);
 
@@ -2852,6 +2993,8 @@ const Player = ({route}: Props): React.JSX.Element => {
     (e: any) => {
       const tracks = e?.textTracks || [];
       setTextTracks(tracks);
+      const selectedSaved = tracks.find((track: any) => track.selected && track.title?.startsWith('vega-saved-subtitle:'));
+      if (selectedSaved) {setSelectedTextTrackIndex(selectedSaved.index); return;}
       if (selectedTextTrackIndexRef.current === 1000 && tracks.length > 0) {
         const downloadedTrack = tracks.find(
           (t: any) =>
@@ -2928,10 +3071,16 @@ const Player = ({route}: Props): React.JSX.Element => {
           .setStreamDuration(torrentHash, Number(e.duration))
           .catch(() => {});
       }
-      const wd = getStartPosition();
+      const nextWindow = playbackTimeline(e as LiveTimelineEvent, Number(e?.duration));
+      playbackWindowRef.current = nextWindow;
+      setPlaybackWindow(nextWindow);
+      const wd = nextWindow.isLive ? 0 : getStartPosition();
       markStreamLoaded();
       // A source opened at its start position is already there.
       const loadedAt = Number(e?.currentTime) || 0;
+      if (nextWindow.isLive && nextWindow.canSeek && !decoderRestart) {
+        playerRef.current?.seek(nextWindow.duration);
+      }
       if (!decoderRestart && wd > 5 && Math.abs(loadedAt - wd) > 2) {
         playerRef.current?.seek(wd);
         resumeAppliedRef.current = true;
@@ -2983,10 +3132,11 @@ const Player = ({route}: Props): React.JSX.Element => {
           minBackBufferMemoryReservePercent: 0.25,
           cacheSizeMB: 0,
         },
-        shouldCache: true,
+        shouldCache: !selectedStream?.drm,
         ...(selectedStream?.type === 'm3u8' && {type: 'm3u8'}),
         ...(selectedStream?.type === 'mpd' && {type: 'mpd'}),
         headers: selectedStream?.headers,
+        drm: getStreamDrm(selectedStream?.drm),
         metadata: {
           title: route.params?.primaryTitle,
           subtitle: activeEpisode?.title,
@@ -3014,8 +3164,6 @@ const Player = ({route}: Props): React.JSX.Element => {
       seekColor: primary,
       showDuration: true,
       toggleResizeModeOnFullscreen: false,
-      fullscreenOrientation: 'landscape' as const,
-      fullscreenAutorotate: true,
       onShowControls: handleShowControls,
       onHideControls: handleHideControls,
       rewindTime: settingsStorage.getSeekInterval(),
@@ -3058,6 +3206,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       selectedStream.link,
       selectedStream.type,
       selectedStream.headers,
+      selectedStream.drm,
       activeEpisode?.title,
       handleProgressWithTime,
       combinedSkips,
@@ -3109,6 +3258,15 @@ const Player = ({route}: Props): React.JSX.Element => {
     },
     [setSelectedStream, activeEpisodeKey, clearLocalVideoAssociation],
   );
+  useEffect(()=>vegaCastService.setServerSelector((server,position)=>{
+    if(useRemoteStore.getState().connectedDevice?.type!=='vega-cast')throw new Error('Vega Cast is not connected');
+    const stream=streamData?.find((item:any)=>item.link===server.id||item.link===server.link);
+    if(!stream)throw new Error('This server is no longer available');
+    videoPositionRef.current={...videoPositionRef.current,position};hasProgressRef.current=true;
+    remoteCastPositionRef.current=position;
+    setSelectedStream(stream);appliedPersistedLocalVideoRef.current=true;
+    if(activeEpisodeKey)clearLocalVideoAssociation(activeEpisodeKey);
+  }),[streamData,setSelectedStream,activeEpisodeKey,clearLocalVideoAssociation,videoPositionRef,hasProgressRef]);
   const handleSelectMenuQuality = useCallback(
     (index: number) => {
       if (index === 1000) {
@@ -3153,10 +3311,19 @@ const Player = ({route}: Props): React.JSX.Element => {
     setShowControls(true);
   }, []);
   const saveControlLayout = useCallback(
-    (layout: PlayerControlLayout, hidden: PlayerControlId[], appearance: PlayerControlStyle, ambient?: {enabled: boolean; intensity: number}) => {
+    (layout: PlayerControlLayout, hidden: PlayerControlId[], appearance: PlayerControlStyle, ambient?: {enabled: boolean; intensity: number; spread: number; responseMs: number}, subtitle?: SubtitleQuickStyle) => {
+      if (subtitle) {
+        settingsStorage.setSubtitleFontSize(subtitle.fontSize);
+        settingsStorage.setSubtitleTextOpacity(subtitle.textOpacity);
+        settingsStorage.setSubtitleOpacity(subtitle.opacity);
+        settingsStorage.setSubtitleBottomPadding(subtitle.paddingBottom);
+        setSubtitleStyle(readSubtitleStyle());
+      }
       if (ambient) {
         settingsStorage.setAmbientVideoEnabled(ambient.enabled);
         settingsStorage.setAmbientIntensity(ambient.intensity);
+        settingsStorage.setAmbientSpread(ambient.spread);
+        settingsStorage.setAmbientResponseMs(ambient.responseMs);
       }
       settingsStorage.setPlayerControlLayout(layout);
       settingsStorage.setHiddenPlayerControls(hidden);
@@ -3164,9 +3331,8 @@ const Player = ({route}: Props): React.JSX.Element => {
       setControlLayout(layout);
       settingsStorage.setPlayerControlStyle(appearance);
       setControlStyle(appearance);
-      closeControlEditor();
     },
-    [closeControlEditor],
+    [],
   );
   const openToolbarTab = (
     tab: 'audio' | 'subtitle' | 'speed' | 'server' | 'sleep',
@@ -3301,6 +3467,19 @@ const Player = ({route}: Props): React.JSX.Element => {
       onPress: handleResizeMode,
     },
     {
+      id: 'rotate',
+      title: playerIsPortrait ? 'Rotate to landscape' : 'Rotate to portrait',
+      label: 'Rotate',
+      icon: 'screen-rotation',
+      visible: !isTV,
+      onPress: () => {
+        const next = playerIsPortrait ? 'landscape' : 'portrait_up';
+        settingsStorage.setPlayerManualOrientation(next);
+        setManualOrientation(next);
+        setShowControls(true);
+      },
+    },
+    {
       id: 'episodes',
       title: 'Episodes',
       label: 'Episodes',
@@ -3315,9 +3494,9 @@ const Player = ({route}: Props): React.JSX.Element => {
       icon: 'skip-next-outline',
       visible:
         hasNextEpisode &&
-        (isTV ||
-          (videoPositionRef.current.duration > 0 &&
-            currentPlaybackTime / videoPositionRef.current.duration > 0.8)),
+        hasProgressRef.current &&
+        videoPositionRef.current.duration > 0 &&
+        videoPositionRef.current.position / videoPositionRef.current.duration > 0.8,
       onPress: handleNextEpisode,
     },
     {
@@ -3332,12 +3511,22 @@ const Player = ({route}: Props): React.JSX.Element => {
   const settingsControl = toolbarControls.find(control => control.id === 'settings')!;
   settingsControl.visible = moreControls.length > 0;
   toolbarControlsRef.current = toolbarControls;
-  const toolbarHeaderInset =
-    fittedControlLayout.top.filter((id) =>
-      toolbarControls.some((control) => control.id === id && control.visible),
-    ).length *
-      (48 * controlStyle.scale) +
-    20 + hdrWidth;
+  const topControlCount = fittedControlLayout.top.filter(id =>
+    toolbarControls.some(control => control.id === id && control.visible),
+  ).length;
+  const toolbarHeaderInset = topControlCount * (24 * controlStyle.scale + 8) +
+    Math.max(0, topControlCount - 1) * 20 * controlStyle.scale + 24 +
+    20 + hdrWidth + (playbackWindow.isLive ? liveBadgeWidth || 64 * controlStyle.scale : 0);
+
+  const subtitleControlsVisible = showControls && !isCasting && !isPlayerLocked &&
+    !showSettings && !showEpisodeSidebar && !editingControls;
+  const playbackSubtitleStyle = {
+    ...subtitleStyle,
+    paddingBottom: subtitleControlsVisible
+      ? Math.max(subtitleStyle.paddingBottom, Math.ceil(10 + bottomControlHeight + 40 * controlStyle.scale))
+      : subtitleStyle.paddingBottom,
+  };
+
 
   // Ask for a local file before touching the network.
   if (localDecision === 'pending') {
@@ -3347,7 +3536,6 @@ const Player = ({route}: Props): React.JSX.Element => {
         className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         {/* Same back arrow as the main player's top-left control */}
         <SafeAreaView
           style={{position: 'absolute', top: 0, left: 0, padding: 8}}>
@@ -3419,7 +3607,6 @@ const Player = ({route}: Props): React.JSX.Element => {
         className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         {/* create ripple effect */}
         <TouchableNativeFeedback
           background={TouchableNativeFeedback.Ripple(
@@ -3452,7 +3639,6 @@ const Player = ({route}: Props): React.JSX.Element => {
       <SafeAreaView className="bg-black flex-1 justify-center items-center">
         <SystemBars hidden={true} />
         <StatusBar translucent={true} hidden={true} />
-        <OrientationLocker orientation={LANDSCAPE} />
         <Text className="text-red-500 text-lg text-center mb-4">
           Failed to load stream. Please try again.
         </Text>
@@ -3479,26 +3665,22 @@ const Player = ({route}: Props): React.JSX.Element => {
     );
   }
 
+  const portraitPlayback = playerIsPortrait && !isRemoteActive;
+  const actionBottom = portraitPlayback
+    ? Math.max(95, Math.ceil(10 + bottomControlHeight + 40 * controlStyle.scale))
+    : 95;
+  const compactSettingsTab = activeTab === 'speed' || activeTab === 'sleep';
   return (
-    <SafeAreaView
-      edges={{
-        right: 'off',
-        top: 'off',
-        left: 'off',
-        bottom: 'off',
-      }}
-      className="bg-black flex-1 relative">
+    <PlayerViewport portrait={portraitPlayback}>
       <SystemBars hidden={!isRemoteActive && isFullScreen} />
       <StatusBar translucent={true} hidden={!isRemoteActive} />
-      {isRemoteActive ? (
-        <OrientationLocker orientation={PORTRAIT} />
-      ) : (
-        <OrientationLocker orientation={LANDSCAPE} />
-      )}
 
       {/* Local or Remote player */}
       {isRemoteActive ? (
         <RemotePlayerScreen
+          savedSubtitles={savedSubtitles}
+          onAddSavedSubtitle={saveSubtitle}
+          onRemoveSavedSubtitle={removeSavedSubtitle}
           title={route.params?.primaryTitle}
           subtitle={activeEpisode?.title || route.params?.secondaryTitle}
           poster={route.params?.poster?.poster}
@@ -3604,7 +3786,7 @@ const Player = ({route}: Props): React.JSX.Element => {
           onSkipPress={handleRemoteSkip}
         />
       ) : processedStreamUrl ? (
-        <VideoPlayer {...videoPlayerProps} nativeVideoViewRef={nativeVideoViewRef} headerStatus={torrentHeaderStatus} headerRightInset={toolbarHeaderInset} playbackSuspended={editingControls} controlScale={controlStyle.scale} seekbarScale={controlStyle.seekbarScale} ambientVideoSize={loadedVideoSize} ambientDisabled={isCasting} />
+        <VideoPlayer {...videoPlayerProps} controlAppearance={controlStyle} subtitleStyle={playbackSubtitleStyle} nativeVideoViewRef={nativeVideoViewRef} headerStatus={torrentHeaderStatus} headerRightInset={portraitPlayback ? 0 : toolbarHeaderInset} onHeaderLayout={portraitPlayback ? measurePortraitHeader : undefined} playbackSuspended={editingControls} controlScale={controlStyle.scale} seekbarScale={controlStyle.seekbarScale} ambientVideoSize={loadedVideoSize} ambientDisabled={isCasting} />
       ) : (
         <View className="flex-1 justify-center items-center">
           <Animated.View style={[loadingContainerStyle]}>
@@ -3663,13 +3845,17 @@ const Player = ({route}: Props): React.JSX.Element => {
         !showEpisodeSidebar &&
         showControls && (
           <>
-            <Pressable
+            <TVFocusPressable
               ref={playPauseTVRef}
+              focusRadius={40 * controlStyle.scale}
+              focusWidth={3}
               onLayout={() =>
                 setPlayPauseTVHandle(findNodeHandle(playPauseTVRef.current))
               }
               nextFocusLeft={playPauseTVHandle ?? undefined}
               nextFocusRight={playPauseTVHandle ?? undefined}
+              nextFocusUp={topControlTVHandle ?? undefined}
+              nextFocusDown={timelineFocusHandle ?? undefined}
               accessibilityRole="button"
               accessibilityLabel={isPaused ? 'Play video' : 'Pause video'}
               hasTVPreferredFocus
@@ -3685,8 +3871,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                 justifyContent: 'center',
                 borderRadius: 40 * controlStyle.scale,
                 borderWidth: 3,
-                borderColor:
-                  tvFocusedControl === 'play_pause' ? primary : 'transparent',
+                borderColor: 'transparent',
                 backgroundColor: 'rgba(0,0,0,0.45)',
                 zIndex: 65,
               }}>
@@ -3695,21 +3880,30 @@ const Player = ({route}: Props): React.JSX.Element => {
                 size={44 * controlStyle.scale}
                 color="white"
               />
-            </Pressable>
-            <Pressable
+            </TVFocusPressable>
+            <TVFocusPressable
               ref={timelineRef}
+              focusWidth={2}
               onLayout={() =>
                 setTimelineFocusHandle(findNodeHandle(timelineRef.current))
               }
               nextFocusLeft={timelineFocusHandle ?? undefined}
               nextFocusRight={timelineFocusHandle ?? undefined}
+              nextFocusUp={playPauseTVHandle ?? undefined}
+              nextFocusDown={bottomControlTVHandle ?? undefined}
               accessibilityRole="adjustable"
-              accessibilityLabel="Video timeline. Left and right preview, select seeks, back cancels."
+              accessibilityLabel={playbackWindow.isLive ? (playbackWindow.canSeek ? "Live DVR timeline. Left and right preview, select seeks or returns to live." : "LIVE. Seeking unavailable.") : "Video timeline. Left and right preview, select seeks, back cancels."}
               accessibilityValue={{
-                text: `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${videoPositionRef.current.duration > 0 ? formatTVTimelineTime(videoPositionRef.current.duration) : 'unknown duration'}`,
+                text: playbackWindow.isLive ? liveTimeLabel(scrubPosition ?? currentPlaybackTime, playbackWindow) : `${formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} of ${
+                  videoPositionRef.current.duration > 0
+                    ? (showTimeRemaining
+                        ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))} remaining`
+                        : `${formatTVTimelineTime(videoPositionRef.current.duration)} total`)
+                    : 'unknown duration'
+                }`,
               }}
               {...getTVFocusProps('timeline')}
-              onPress={confirmScrub}
+              onPress={handleTimelinePress}
               style={{
                 position: 'absolute',
                 left: '10%',
@@ -3718,8 +3912,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                 padding: 12,
                 borderRadius: 12,
                 borderWidth: 2,
-                borderColor:
-                  tvFocusedControl === 'timeline' ? primary : 'transparent',
+                borderColor: 'transparent',
                 backgroundColor: 'rgba(20,20,20,0.65)',
                 zIndex: 65,
               }}>
@@ -3749,16 +3942,20 @@ const Player = ({route}: Props): React.JSX.Element => {
                   }}
                 />
               </View>
+              {!playbackWindow.isLive && (
               <Text style={{color: 'white', fontSize: 14 * controlStyle.scale, marginTop: 6, textAlign: 'center'}}>
-                {formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
-                {videoPositionRef.current.duration > 0
-                  ? formatTVTimelineTime(videoPositionRef.current.duration)
+                {playbackWindow.isLive ? liveTimeLabel(scrubPosition ?? currentPlaybackTime, playbackWindow) : formatTVTimelineTime(scrubPosition ?? currentPlaybackTime)} /{' '}
+                {playbackWindow.isLive ? (playbackWindow.canSeek ? 'Go Live' : 'LIVE') : videoPositionRef.current.duration > 0
+                  ? (showTimeRemaining
+                      ? `-${formatTVTimelineTime(Math.max(0, videoPositionRef.current.duration - (scrubPosition ?? currentPlaybackTime)))}`
+                      : formatTVTimelineTime(videoPositionRef.current.duration))
                   : '--:--'}
                 {scrubPosition !== null
                   ? '  •  Select to seek · Back to cancel'
                   : ''}
               </Text>
-            </Pressable>
+              )}
+            </TVFocusPressable>
           </>
         )}
 
@@ -3775,6 +3972,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       {!isCasting && (
         <LockAnimatedView
           style={[isPlayerLocked ? lockButtonStyle : [controlsTopStyle, controlsOpacityStyle],
+            portraitPlayback && !isPlayerLocked && {top: portraitToolbarTop, right: 12},
             (streamLoading || editingControls) && {display: 'none'}]}
           className="absolute top-3 right-5 z-50"
           pointerEvents={!streamLoading && !editingControls && (isPlayerLocked ? showUnlockButton : showControls) && !showSettings && !showEpisodeSidebar ? 'box-none' : 'none'}>
@@ -3784,25 +3982,54 @@ const Player = ({route}: Props): React.JSX.Element => {
             </TouchableOpacity>
           )}
             <View style={{flexDirection: 'row', alignItems: 'center', display: isPlayerLocked ? 'none' : 'flex'}}>
+              {playbackWindow.isLive && (
+                <TVFocusPressable
+                  {...getTVFocusProps('live')}
+                  disabled={!playbackWindow.canSeek}
+                  accessibilityRole={playbackWindow.canSeek ? 'button' : 'text'}
+                  accessibilityLabel={playbackWindow.canSeek ? 'Live stream. Go Live' : 'Live stream'}
+                  onPress={() => {
+                    const window = playbackWindowRef.current;
+                    if (!window.canSeek) return;
+                    playerRef.current?.seek(window.liveEdge);
+                    setIsPaused(false);
+                    setShowControls(true);
+                  }}
+                  onLayout={event => setLiveBadgeWidth(event.nativeEvent.layout.width + 20 * controlStyle.scale)}
+                  style={{...topControlPillStyle(controlStyle.scale), paddingHorizontal: 16,
+                    marginRight: 20 * controlStyle.scale,
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: `rgba(0,0,0,${controlStyle.backgroundOpacity})`}}>
+                  <View style={{width: 6 * controlStyle.scale, height: 6 * controlStyle.scale,
+                    borderRadius: 3 * controlStyle.scale, backgroundColor: '#ef4444', marginRight: 5 * controlStyle.scale}} />
+                  <Text allowFontScaling={false} style={{color: '#fff', fontSize: 12 * controlStyle.scale,
+                    lineHeight: 16 * controlStyle.scale, includeFontPadding: false, fontWeight: '700'}}>LIVE</Text>
+                </TVFocusPressable>
+              )}
               <HdrBadge videoView={nativeVideoViewRef} source={String(videoPlayerProps.source?.uri || '')}
                 suspended={streamLoading || editingControls || isPlayerLocked} scale={controlStyle.scale} backgroundOpacity={controlStyle.backgroundOpacity}
                 onWidthChange={setHdrWidth} onInteract={() => setShowControls(true)} />
             {toolbarControls.some(control => control.visible) ? (
                 <PlayerControlBar ids={fittedControlLayout.top} controls={toolbarControls} top
+                  nextFocusDown={playPauseTVHandle ?? undefined}
+                  onEntryHandle={setTopControlTVHandle}
                   onEdit={openControlEditor} appearance={controlStyle} getTVFocusProps={getTVFocusProps} />
             ) : (
-              <TouchableOpacity {...getTVFocusProps('edit_controls')} accessibilityRole="button" accessibilityLabel="Edit player controls" onPress={openControlEditor}
+              <EditControlsButton {...getTVFocusProps('edit_controls')} accessibilityRole="button" accessibilityLabel="Edit player controls" onPress={openControlEditor}
                 className="p-2 items-center justify-center rounded-full">
                 <MaterialCommunityIcons name="tune" size={24 * controlStyle.scale} color={BOTTOM_CONTROL_ICON_COLOR} />
-              </TouchableOpacity>
+              </EditControlsButton>
             )}
             </View>
         </LockAnimatedView>
       )}
       {!isCasting && !isPlayerLocked && !showSettings && !showEpisodeSidebar && !editingControls && (
         <NativeAnimated.View pointerEvents={showControls ? 'auto' : 'none'}
-          style={[controlsStyle, {left: '10%', right: '10%', bottom: 10}]} className="absolute">
-          <PlayerControlBar ids={fittedControlLayout.bottom} controls={toolbarControls}
+          onLayout={event => setBottomControlHeight(event.nativeEvent.layout.height)}
+          style={[controlsStyle, {left: portraitPlayback ? 8 : '10%', right: portraitPlayback ? 8 : '10%', bottom: 10}]} className="absolute">
+          <PlayerBottomControlBar left={fittedControlLayout.bottom} right={fittedControlLayout.bottomRight} controls={toolbarControls}
+            nextFocusUp={timelineFocusHandle ?? undefined}
+            onEntryHandle={setBottomControlTVHandle}
             onEdit={openControlEditor} appearance={controlStyle} getTVFocusProps={getTVFocusProps} />
         </NativeAnimated.View>
       )}
@@ -3823,7 +4050,7 @@ const Player = ({route}: Props): React.JSX.Element => {
             controlsOpacityStyle,
             {
               position: 'absolute',
-              bottom: 95,
+              bottom: actionBottom,
               right: 28,
               zIndex: 65,
             },
@@ -3846,7 +4073,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       )}
 
       {autoNextVisible && !isCasting && !streamLoading && (
-        <View style={{position: 'absolute', bottom: 95, right: 28, zIndex: 70}}>
+        <View style={{position: 'absolute', bottom: actionBottom, right: 28, zIndex: 70}}>
           <AutoNextOverlay
             seconds={AUTO_NEXT_COUNTDOWN_SECONDS}
             focusColor={primary}
@@ -3895,9 +4122,10 @@ const Player = ({route}: Props): React.JSX.Element => {
                 isTVSelectable={false}
                 style={{
                   padding: 12,
-                  width: activeTab === 'speed' || activeTab === 'sleep' ? 520 : 640,
-                  maxWidth: '92%',
-                  height: activeTab === 'speed' || activeTab === 'sleep' ? 240 : 330,
+                  width: compactSettingsTab ? 520 : 640,
+                  maxWidth: portraitPlayback ? '96%' : '92%',
+                  maxHeight: '90%',
+                  height: compactSettingsTab ? 240 : portraitPlayback ? Math.min(520, playerHeight * 0.65) : 330,
                   borderTopLeftRadius: 24,
                   borderTopRightRadius: 24,
                   flexDirection: 'row',
@@ -4048,6 +4276,18 @@ const Player = ({route}: Props): React.JSX.Element => {
                     }
                     ListFooterComponent={
                       <>
+                        {savedSubtitles.filter(saved => !textTracks.some(track => findSavedSubtitle(track, [saved]))).map(saved => (
+                          <RemovableSubtitleRow key={saved.id} title={saved.title}
+                            onTVFocus={() => setSettingsCloseFocused(false)}
+                            onRemove={() => {void removeSavedSubtitle(saved.id).catch(error => setToast(error.message, 4000));}}>
+                            <PlayerMenuRow title={languageLabel(saved.language, 'Unknown')} detail={`${saved.title} · Saved`}
+                              icon="subtitles" accentColor={primary} onTVFocus={() => setSettingsCloseFocused(false)}
+                              onPress={() => {
+                                setSelectedTextTrack({type: SelectedTrackType.TITLE, value: savedSubtitleLabel(saved.id)});
+                                setShowSettings(false);
+                              }} />
+                          </RemovableSubtitleRow>
+                        ))}
                         <PlayerMenuRow
                           onTVFocus={() => setSettingsCloseFocused(false)}
                           title="Add external file"
@@ -4064,6 +4304,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                                     'application/ttml+xml',
                                   ],
                                   multiple: false,
+                                  copyToCacheDirectory: true,
                                 },
                               );
 
@@ -4093,33 +4334,41 @@ const Player = ({route}: Props): React.JSX.Element => {
 
                                 const track = {
                                   type: trackType,
-                                  title:
-                                    asset.name && asset.name.length > 20
-                                      ? asset.name.slice(0, 20) + '...'
-                                      : asset.name || 'External Subtitle',
+                                  title: asset.name || 'External Subtitle',
                                   language: 'und',
                                   uri: asset.uri,
                                 };
-                                setExternalSubs((prev: any) => [
-                                  track,
-                                  ...prev,
-                                ]);
+                                await saveSubtitle(track, 'file');
                               }
                             } catch (err) {
-                              console.log(err);
+                              setToast(err instanceof Error ? err.message : 'Could not save subtitle', 4000);
                             }
                           }}
                         />
                         <SearchSubtitles
                           searchQuery={searchQuery}
                           setSearchQuery={setSearchQuery}
-                          onAddSubtitle={track =>
-                            setExternalSubs(prev => [track, ...prev])
-                          }
+                          onAddSubtitle={track => {
+                            void saveSubtitle(track, 'search').catch(error => setToast(error.message || 'Could not save subtitle', 4000));
+                          }}
                         />
                       </>
                     }
-                    renderItem={({item: track}) => (
+                    renderItem={({item: track}) => {
+                      const saved = findSavedSubtitle(track, savedSubtitles);
+                      return <RemovableSubtitleRow title={saved?.title || ''}
+                        onTVFocus={() => setSettingsCloseFocused(false)}
+                        onRemove={saved ? () => {
+                          if (selectedTextTrackIndex === track.index) {
+                            setSelectedTextTrack({type: SelectedTrackType.DISABLED});
+                            setSelectedTextTrackIndex(1000);
+                          } else if (selectedTextTrackIndex !== 1000) {
+                            const current = textTracks.find(item => item.index === selectedTextTrackIndex);
+                            if (current?.title) setSelectedTextTrack({type: SelectedTrackType.TITLE, value: current.title});
+                            if (track.index < selectedTextTrackIndex) setSelectedTextTrackIndex(selectedTextTrackIndex - 1);
+                          }
+                          void removeSavedSubtitle(saved.id).catch(error => setToast(error.message, 4000));
+                        } : undefined}>
                       <PlayerMenuRow
                         onTVFocus={() => setSettingsCloseFocused(false)}
                         ref={
@@ -4128,7 +4377,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                             : undefined
                         }
                         title={languageLabel(track.language, 'Unknown')}
-                        detail={[track.type, track.title]
+                        detail={[saved ? (saved.origin === 'search' ? 'Saved search' : 'Saved file') : track.type, saved?.title || track.title]
                           .filter(Boolean)
                           .join(' · ')}
                         selected={selectedTextTrackIndex === track.index}
@@ -4150,7 +4399,8 @@ const Player = ({route}: Props): React.JSX.Element => {
                           setShowSettings(false);
                         }}
                       />
-                    )}
+                      </RemovableSubtitleRow>;
+                    }}
                   />
                 )}
 
@@ -4238,7 +4488,7 @@ const Player = ({route}: Props): React.JSX.Element => {
                   right: 0,
                   bottom: 0,
                   width: 360,
-                  maxWidth: '80%',
+                  maxWidth: portraitPlayback ? '94%' : '80%',
                   backgroundColor: 'rgba(14, 14, 14, 0.96)',
                   borderLeftWidth: 1,
                   borderColor: 'rgba(255, 255, 255, 0.12)',
@@ -4399,7 +4649,7 @@ const Player = ({route}: Props): React.JSX.Element => {
             </Animated.View>
           </>
         )}
-    </SafeAreaView>
+    </PlayerViewport>
   );
 };
 

@@ -20,6 +20,7 @@ import SearchField, {type SearchFieldRef} from '../components/ui/SearchField';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {TVFocusable, TVFocusGuide} from '../components/tv';
 import {isTV} from '../lib/tv';
+import {useFloatingTabBarInset} from '../components/navigation/FloatingTabBarInsetContext';
 
 
 const MAX_VISIBLE_RESULTS = 15; // Limit number of animated items to prevent excessive callbacks
@@ -98,6 +99,7 @@ const AnimatedContainer = Animated.View;
 
 const Search = () => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const navigation =
     useNavigation<NativeStackNavigationProp<SearchStackParamList>>();
   const [searchText, setSearchText] = useState('');
@@ -391,7 +393,7 @@ const Search = () => {
                 data={searchResults}
                 keyExtractor={searchResultKeyExtractor}
                 renderItem={renderSearchResult}
-                contentContainerStyle={{paddingTop: 4}}
+                contentContainerStyle={{paddingTop: 4, paddingBottom: 16 + floatingTabBarInset}}
                 showsVerticalScrollIndicator={false}
                 removeClippedSubviews={true}
                 maxToRenderPerBatch={10}

@@ -1,3 +1,4 @@
+import {scheduleWhenIdle} from '../../../lib/performance/idleWork';
 import React, {useEffect, useMemo, useState} from 'react';
 import {View} from 'react-native';
 import {MaterialCommunityIcons, MaterialIcons} from '@expo/vector-icons';
@@ -73,7 +74,9 @@ const ProviderSourceManager = ({
     setSources(currentSources);
 
     if (currentSources.length === 0) {
-      setShowAddDialog(true);
+      // Opening a native modal while the stack screen is attaching can lose
+      // its Fabric surface on TV. Wait for the navigation transition to finish.
+      return scheduleWhenIdle(() => setShowAddDialog(true), 300, true);
     }
   }, [visible]);
 
@@ -257,13 +260,13 @@ const ProviderSourceManager = ({
         onRequestRemoveSource={author => setSourceToRemove(author)}
       />
 
-      <AddSourceModal
-        visible={showAddDialog}
+      {showAddDialog && <AddSourceModal
+        visible
         initialValue={prefillValue}
         initialToken={prefillToken}
         onClose={closeAddDialog}
         onAdd={handleConfirmAdd}
-      />
+      />}
 
       <AppDialog
         visible={Boolean(invalidSourceMessage)}

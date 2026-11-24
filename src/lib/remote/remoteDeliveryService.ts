@@ -351,7 +351,7 @@ class RemoteDeliveryService {
 
     // HLS master: play one variant, with its audio rendition as a second input.
     let audioUrl: string | null = null;
-    const master = this.hlsMasters.get(sourceUrl);
+    const master = mode === 'proxy' ? undefined : this.hlsMasters.get(sourceUrl);
     if (master && master.qualities.length > 0) {
       if (!master.audioUrls.has(sourceUrl)) sourceUrl = master.qualities[0].id;
       const url = master.audioUrls.get(sourceUrl)?.[audioTrackIndex];
@@ -455,6 +455,10 @@ class RemoteDeliveryService {
     if (Platform.OS !== 'android' || !VegaRemoteDelivery?.stopForegroundService) return;
     try {
       await VegaRemoteDelivery.stopForegroundService();
+      // Stopping the native service also closes its HTTP server. A subsequent
+      // cast must start a new server rather than reuse the cached dead port.
+      this.serverInfo = null;
+      this.activeSessionId = null;
     } catch (e) {
       console.warn('Failed to stop foreground playback service:', e);
     }

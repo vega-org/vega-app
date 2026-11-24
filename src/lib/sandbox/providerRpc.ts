@@ -150,6 +150,7 @@ const handleCrypto = async (args: any): Promise<unknown> => {
 };
 
 const handleOpenWebView = async (
+  providerValue: string,
   author: string,
   args: any,
   scope?: AbortSignal,
@@ -159,7 +160,7 @@ const handleOpenWebView = async (
     | OpenWebViewOptions
     | undefined;
 
-  const result = await openWebView(url.toString(), options, author, scope);
+  const result = await openWebView(url.toString(), options, author, scope, providerValue);
   return {...result, cookie: result.cookies};
 };
 
@@ -188,7 +189,7 @@ export const handleProviderRpc = async (
       return getBaseUrl(String(args?.providerValue ?? providerValue));
 
     case 'openWebView':
-      return handleOpenWebView(author, args, wafScope);
+      return handleOpenWebView(providerValue, author, args, wafScope);
 
     case 'getCookies':
       return getJarCookieMap(author, validateProviderUrl(args?.url).toString());

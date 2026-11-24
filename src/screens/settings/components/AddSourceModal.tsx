@@ -149,7 +149,7 @@ export const AddSourceModal: React.FC<AddSourceModalProps> = ({
   return (
     <Modal
       visible={visible}
-      animationType="fade"
+      animationType={isTV ? "none" : "fade"}
       transparent
       onRequestClose={handleClose}>
       <KeyboardAvoidingView

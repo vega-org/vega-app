@@ -5,4 +5,6 @@ export default requireNativeComponent<ViewProps & {
   palette: AmbientColors;
   bars: AmbientBars;
   intensity: number;
+  spread: number;
+  responseMs: number;
 }>('VegaAmbientGlow');

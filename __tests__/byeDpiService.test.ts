@@ -16,6 +16,7 @@ jest.mock('../src/lib/storage/StorageService', () => ({
     setArray: jest.fn(),
     delete: jest.fn(),
   },
+  registerStorageClearHook: jest.fn(),
 }));
 
 jest.mock('../src/lib/downloadLocation', () => ({

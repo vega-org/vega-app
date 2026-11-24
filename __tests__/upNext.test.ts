@@ -1,9 +1,11 @@
 import {describe, expect, it} from '@jest/globals';
 import {
+  getContinueWatchingAfterMark,
   getContinueWatchingRow,
   getNextEpisode,
   getUpNextItem,
   isWatched,
+  type ManualWatchContext,
 } from '../src/lib/player/upNext';
 import type {ContinueWatchingItem} from '../src/lib/zustand/continueWatchingStore';
 
@@ -158,5 +160,242 @@ describe('getContinueWatchingRow', () => {
         seasonEnd,
       ]).map(item => item.id),
     ).toEqual(['up-next', 'halfway', 'season-end']);
+  });
+});
+
+describe('getContinueWatchingAfterMark', () => {
+  const season = [1, 2, 3, 4, 5].map(episode);
+
+  const context = (
+    overrides: Partial<ManualWatchContext> = {},
+  ): ManualWatchContext => ({
+    id: 'show',
+    title: 'Show',
+    providerValue: 'vega',
+    infoUrl: 'show',
+    type: 'series',
+    seasonTitle: 'Season 1',
+    seasonEpisodes: season,
+    markedEpisodes: [episode(4)],
+    watched: true,
+    readProgress: () => null,
+    now: 2000,
+    ...overrides,
+  });
+
+  it('advances an existing series entry to the next unwatched episode', () => {
+    const current = entry({position: 300, duration: 1200});
+    expect(getContinueWatchingAfterMark(current, context())).toEqual(
+      entry({
+        episode: episode(5),
+        episodeTitle: 'Episode 5',
+        position: 0,
+        duration: 0,
+        updatedAt: 2000,
+      }),
+    );
+  });
+
+  it('skips already-watched episodes and keeps partial resume progress on the next', () => {
+    const current = entry({
+      episode: episode(2),
+      episodeTitle: 'Episode 2',
+      position: 100,
+      duration: 1200,
+    });
+    const progress = new Map([
+      [episode(3).link, {position: 1, duration: 1}],
+      [episode(4).link, {position: 450, duration: 1200}],
+    ]);
+    const updated = getContinueWatchingAfterMark(
+      current,
+      context({
+        markedEpisodes: [episode(2)],
+        readProgress: link => progress.get(link),
+      }),
+    );
+    expect(updated).toMatchObject({
+      episode: episode(4),
+      episodeTitle: 'Episode 4',
+      position: 450,
+      duration: 1200,
+      updatedAt: 2000,
+    });
+  });
+
+  it('advances after marking previous episodes as watched', () => {
+    const current = entry({
+      episode: episode(1),
+      episodeTitle: 'Episode 1',
+      position: 200,
+      duration: 1200,
+    });
+    const updated = getContinueWatchingAfterMark(
+      current,
+      context({markedEpisodes: season.slice(0, 3)}),
+    );
+    expect(updated).toMatchObject({
+      episode: episode(4),
+      episodeTitle: 'Episode 4',
+      position: 0,
+      duration: 0,
+    });
+  });
+
+  it('creates an entry for a new series when a next unwatched episode exists', () => {
+    const updated = getContinueWatchingAfterMark(
+      undefined,
+      context({markedEpisodes: [episode(1)]}),
+    );
+    expect(updated).toMatchObject({
+      id: 'show',
+      episode: episode(2),
+      episodeTitle: 'Episode 2',
+      position: 0,
+      duration: 0,
+      updatedAt: 2000,
+    });
+  });
+
+  it('does not add a new series when all episodes or the last episode are marked watched', () => {
+    expect(
+      getContinueWatchingAfterMark(
+        undefined,
+        context({markedEpisodes: season}),
+      ),
+    ).toBeUndefined();
+    expect(
+      getContinueWatchingAfterMark(
+        undefined,
+        context({markedEpisodes: [episode(5)]}),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('updates an existing series to the last episode when all episodes are marked watched', () => {
+    const current = entry({
+      episode: episode(2),
+      episodeTitle: 'Episode 2',
+      position: 300,
+      duration: 1200,
+    });
+    expect(
+      getContinueWatchingAfterMark(current, context({markedEpisodes: season})),
+    ).toMatchObject({
+      episode: episode(5),
+      episodeTitle: 'Episode 5',
+      position: 1,
+      duration: 1,
+    });
+  });
+
+  it('does not move Continue Watching backward when an earlier episode is marked watched', () => {
+    const current = entry({
+      episode: episode(4),
+      position: 300,
+      duration: 1200,
+    });
+    expect(
+      getContinueWatchingAfterMark(
+        current,
+        context({markedEpisodes: [episode(1)]}),
+      ),
+    ).toBe(current);
+  });
+
+  it('marks a movie watched so Continue Watching hides it, and resets on unwatched', () => {
+    const movie = entry({
+      type: 'movie',
+      episode: episode(1),
+      episodeTitle: 'Show',
+      position: 600,
+      duration: 7200,
+    });
+    const watchedMovie = getContinueWatchingAfterMark(
+      movie,
+      context({
+        type: 'movie',
+        seasonEpisodes: [episode(1)],
+        markedEpisodes: [episode(1)],
+        watched: true,
+      }),
+    );
+    expect(watchedMovie).toMatchObject({position: 7200, duration: 7200});
+    expect(getContinueWatchingRow([watchedMovie!])).toEqual([]);
+
+    const unwatchedMovie = getContinueWatchingAfterMark(
+      watchedMovie,
+      context({
+        type: 'movie',
+        seasonEpisodes: [episode(1)],
+        markedEpisodes: [episode(1)],
+        watched: false,
+        now: 3000,
+      }),
+    );
+    expect(unwatchedMovie).toMatchObject({position: 0, duration: 0});
+    expect(getContinueWatchingRow([unwatchedMovie!])).toEqual([unwatchedMovie]);
+  });
+
+  it('rewinds to an earlier unwatched episode when the current entry has no active progress', () => {
+    const upNext = entry({
+      episode: episode(5),
+      episodeTitle: 'Episode 5',
+      position: 0,
+      duration: 0,
+    });
+    const rewound = getContinueWatchingAfterMark(
+      upNext,
+      context({markedEpisodes: [episode(4)], watched: false}),
+    );
+    expect(rewound).toMatchObject({
+      episode: episode(4),
+      episodeTitle: 'Episode 4',
+      position: 0,
+      duration: 0,
+    });
+  });
+
+  it('keeps active mid-episode progress when an earlier episode is marked unwatched', () => {
+    const active = entry({
+      episode: episode(5),
+      episodeTitle: 'Episode 5',
+      position: 600,
+      duration: 1200,
+    });
+    expect(
+      getContinueWatchingAfterMark(
+        active,
+        context({markedEpisodes: [episode(1)], watched: false}),
+      ),
+    ).toBe(active);
+  });
+
+  it('resets to the first episode when all episodes are marked unwatched', () => {
+    const current = entry({
+      episode: episode(4),
+      position: 600,
+      duration: 1200,
+    });
+    expect(
+      getContinueWatchingAfterMark(
+        current,
+        context({markedEpisodes: season, watched: false}),
+      ),
+    ).toMatchObject({
+      episode: episode(1),
+      episodeTitle: 'Episode 1',
+      position: 0,
+      duration: 0,
+    });
+  });
+
+  it('does not add a show when marking unwatched', () => {
+    expect(
+      getContinueWatchingAfterMark(
+        undefined,
+        context({markedEpisodes: [episode(1)], watched: false}),
+      ),
+    ).toBeUndefined();
   });
 });

@@ -1,4 +1,5 @@
 import {throwIfProviderAborted} from '../sandbox/abort';
+import {getStreamDrm} from '../player/streamDrm';
 import {ToastAndroid} from 'react-native';
 import axios from 'axios';
 import {headers as commonHeaders} from '../providers/headers';
@@ -70,6 +71,7 @@ export class ProviderManager {
     for (const key of Array.from(this.settingsSchemaCache.keys())) {
       if (key.endsWith(`:${providerValue}`)) {
         this.settingsSchemaCache.delete(key);
+        this.settingsActionModules.delete(key);
       }
     }
   }
@@ -355,9 +357,11 @@ export class ProviderManager {
           Array.isArray(streams) ? streams.length : 0
         } streams in ${Date.now() - startedAt}ms`,
       );
+      const validatedStreams = this.requireArray<Stream>(streams, providerValue, 'getStream');
+      for (const stream of validatedStreams) getStreamDrm(stream.drm);
       return this.withJarCookies(
         getStreamModule.author,
-        this.requireArray<Stream>(streams, providerValue, 'getStream'),
+        isDownload ? validatedStreams.filter(stream => !stream.drm) : validatedStreams,
       );
     } catch (error) {
       console.error('Error in stream function:', error);
@@ -397,10 +401,12 @@ export class ProviderManager {
     url,
     providerValue,
     signal,
+    silent = false,
   }: {
     url: string;
     providerValue: string;
     signal?: AbortSignal;
+    silent?: boolean;
   }): Promise<EpisodeLink[]> => {
     throwIfProviderAborted(signal);
     const getEpisodeLinksModule = this.getModule(providerValue, 'episodes');
@@ -431,9 +437,25 @@ export class ProviderManager {
         error,
         `Failed to get episodes from provider: ${providerValue}`,
       );
-      ToastAndroid.show(errorMessage, ToastAndroid.LONG);
+      if (!silent) {
+        ToastAndroid.show(errorMessage, ToastAndroid.LONG);
+      }
       throw new Error(errorMessage);
     }
+  };
+
+  private settingsActionModules = new Map<string, ProviderCode>();
+
+  runSettingsAction = async ({providerValue, sourceAuthor, key}: {
+    providerValue: string; sourceAuthor?: string; key: string;
+  }): Promise<void> => {
+    const schema = await this.getSettingsSchema({providerValue, sourceAuthor});
+    if (!schema.some(field => field.type === 'button' && field.key === key)) {
+      throw new Error('Unknown provider settings action');
+    }
+    const module = this.settingsActionModules.get(`${sourceAuthor || ''}:${providerValue}`);
+    if (!module) throw new Error('Provider settings module is unavailable');
+    await this.executeModule(module, providerValue, 'onSettingsAction', {key});
   };
 
   getSettingsSchema = async ({
@@ -504,6 +526,7 @@ export class ProviderManager {
       return [];
     }
 
+    this.settingsActionModules.set(`${sourceAuthor || ''}:${providerValue}`, {code: settingsModule, author: providerAuthor(settingsAuthor)});
     try {
       const raw = await this.executeModule<unknown>(
         {code: settingsModule, author: providerAuthor(settingsAuthor)},

@@ -1,0 +1,140 @@
+name: Action build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: action-build-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: nightly
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    env:
+      CI: '1'
+      EXPO_TV: '1'
+      EXPO_NO_TELEMETRY: '1'
+      MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      MYAPP_UPLOAD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      PROXY_API_URL: ${{ secrets.PROXY_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default includes the retired SDK package "tools".
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install and verify Android CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager --install 'cmake;3.22.1' && "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --version; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo 'Android CMake installation failed after three attempts.' >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - uses: ./.github/actions/ffmpeg-armv7
+
+      - name: Load nightly signing credentials
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MYAPP_UPLOAD_STORE_FILE="$RUNNER_TEMP/action-build.keystore"
+          printf 'MYAPP_UPLOAD_STORE_FILE=%s\n' "$MYAPP_UPLOAD_STORE_FILE" >> "$GITHUB_ENV"
+          : "${KEYSTORE_BASE64:?Missing nightly KEYSTORE_BASE64 secret}"
+          : "${MYAPP_UPLOAD_STORE_PASSWORD:?Missing nightly KEYSTORE_PASSWORD secret}"
+          : "${MYAPP_UPLOAD_KEY_ALIAS:?Missing nightly KEY_ALIAS secret}"
+          : "${MYAPP_UPLOAD_KEY_PASSWORD:?Missing nightly KEY_PASSWORD secret}"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MYAPP_UPLOAD_STORE_FILE"
+          chmod 600 "$MYAPP_UPLOAD_STORE_FILE"
+          mkdir -p "$RUNNER_TEMP/action-build-files"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate TV APK project
+        env:
+          APP_VARIANT: tv
+        run: npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
+
+      - name: Build signed TV APK (com.vega)
+        env:
+          APP_VARIANT: tv
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:assembleRelease --build-cache --no-daemon --max-workers=1 --no-parallel --console=plain --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC' \
+            -Pkotlin.compiler.execution.strategy=in-process
+          cd ..
+          python3 scripts/check-tv-device-support.py
+          python3 scripts/check-ffmpeg-abis.py android/app/build/outputs/apk/release/*.apk
+          node scripts/collect-action-build.cjs apk "$RUNNER_TEMP/action-build-files/vega-tv.apk"
+
+      - name: Generate Play Store TV project
+        env:
+          APP_VARIANT: playstore
+        run: npm run build:sandbox && npx expo prebuild --platform android --clean --no-install
+
+      - name: Build signed Play Store TV AAB (vega.app)
+        env:
+          APP_VARIANT: playstore
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:bundleRelease --build-cache --no-daemon --max-workers=1 --no-parallel --console=plain --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC' \
+            -Pkotlin.compiler.execution.strategy=in-process
+          cd ..
+          python3 scripts/check-tv-device-support.py
+          python3 scripts/check-ffmpeg-abis.py android/app/build/outputs/bundle/release/*.aab
+          node scripts/collect-action-build.cjs aab "$RUNNER_TEMP/action-build-files/vega-tv-playstore.aab"
+
+      # No Actions artifact upload: binaries stay in the draft release only.
+      - name: Replace the Action build draft assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require('./scripts/update-action-build-release.cjs')({
+              github, context, core,
+              artifactDirectory: `${process.env.RUNNER_TEMP}/action-build-files`,
+            });
+
+      - name: Remove signing file
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/action-build.keystore"

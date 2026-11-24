@@ -9,18 +9,21 @@ import * as Crypto from 'expo-crypto';
 import {DeviceEventEmitter, NativeModules} from 'react-native';
 import {remoteDeliveryService} from './remoteDeliveryService';
 import {dlnaService} from './dlnaService';
+import {vegaCastService} from './vegaCastService';
 import {useRemoteStore} from './remoteStore';
 import {
   RemoteAudioTrack,
   RemoteDevice,
   RemotePlaybackStatus,
   RemoteQuality,
+  RemoteServer,
   RemoteSubtitleTrack,
 } from './types';
 import {isTV} from '../tv';
 import {getCookieHeader} from '../services/cookieManager';
 import {mainStorage} from '../storage/StorageService';
 import {torrentManager} from '../torrentManager';
+import type {Stream} from '../providers/types';
 
 const CAST_HLS_KEY = 'remote.castHlsOutput';
 const VOLUME_KEYS_KEY = 'remote.volumeKeys';
@@ -50,6 +53,9 @@ interface AmbiguousSessionPair {
 }
 
 export interface RemoteMediaPayload {
+  servers?:RemoteServer[];
+  serverId?:string;
+  providerStream?:Stream;
   sourceUrl: string;
   sourceType?: string;
   isLocal?: boolean;
@@ -285,7 +291,7 @@ class RemotePlaybackManager {
    */
   async connectCast(deviceId: string): Promise<void> {
     const current = useRemoteStore.getState().connectedDevice;
-    if (current?.type === 'dlna') {
+    if (current?.type === 'dlna' || current?.type === 'vega-cast') {
       await this.stop();
     }
     this.clearEnding();
@@ -303,6 +309,26 @@ class RemotePlaybackManager {
     this.clearEnding();
     useRemoteStore.getState().setErrorMessage(undefined);
     useRemoteStore.getState().setConnectedDevice(device);
+  }
+
+  async connectVegaCast(receiverId:string):Promise<void> {
+    const current=useRemoteStore.getState().connectedDevice;
+    if(current)await this.stop();
+    const session=await GoogleCast.getSessionManager().getCurrentCastSession().catch(()=>null);
+    if(session)await GoogleCast.getSessionManager().endCurrentSession(true);
+    this.clearEnding();await vegaCastService.connect(receiverId);
+  }
+
+  private async loadVegaCast(device:RemoteDevice,payload:RemoteMediaPayload):Promise<void> {
+    this.activePayload=payload;this.lastRequest={device,payload};this.ending=false;
+    try {await vegaCastService.load(payload);}
+    catch(error){
+      if(this.activePayload===payload&&useRemoteStore.getState().connectedDevice?.id===device.id){
+        useRemoteStore.getState().setStatus('error');
+        useRemoteStore.getState().setErrorMessage(error instanceof Error?error.message:'Vega Cast playback failed');
+      }
+      throw error;
+    }
   }
 
   private detectAndHandleCastReceiverSeek(
@@ -374,8 +400,22 @@ class RemotePlaybackManager {
   }
 
   /** Single mapping from Cast receiver state to the remote store. */
+  private lastCastDiagnosticKey = '';
+
   handleCastStatus(status: MediaStatus | null, sourceLabel?: string): void {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return;
     if (!status || this.ending) return;
+    const diagnosticKey = JSON.stringify([this.currentSessionId, status.playerState, status.idleReason]);
+    if (diagnosticKey !== this.lastCastDiagnosticKey) {
+      this.lastCastDiagnosticKey = diagnosticKey;
+      console.info('[CastStatus] transition', {
+        sessionId: this.currentSessionId,
+        playerState: status.playerState, idleReason: status.idleReason,
+        position: status.streamPosition, contentType: status.mediaInfo?.contentType,
+        timelineOffset: this.timelineOffset, sourceDuration: this.sourceDuration,
+        changingAudio: this.changingAudio,
+      });
+    }
 
     const supportedCmds =
       typeof status.supportedMediaCommands === 'number'
@@ -444,13 +484,16 @@ class RemotePlaybackManager {
     )
       return;
     if (status.idleReason === MediaPlayerIdleReason.ERROR) {
-      console.warn('Chromecast receiver playback failed', {
+      const failedSessionId = this.currentSessionId;
+      console.warn('[CastStatus] receiver playback failed', {
+        sessionId: failedSessionId, idleReason: status.idleReason, position: status.streamPosition,
         contentType: status.mediaInfo?.contentType,
       });
       store.setStatus('error');
       store.cancelSeek();
       this.getLastDeliveryError().then(deliveryError => {
-        if (this.ending) return;
+        if (this.ending || this.currentSessionId !== failedSessionId) return;
+        console.warn('[CastStatus] delivery diagnosis', {sessionId: failedSessionId, deliveryError: deliveryError?.replace(/https?:\/\/\S+/g, '[media URL]').slice(0, 240) || 'none recorded'});
         useRemoteStore
           .getState()
           .setErrorMessage(
@@ -487,6 +530,11 @@ class RemotePlaybackManager {
    * works whatever the receiver supports. Restores the old delays on failure.
    */
   async applyDelays(subtitleDelayMs: number, audioDelayMs: number): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast'){
+      const store=useRemoteStore.getState();
+      if(audioDelayMs!==store.audioDelayMs)throw new Error('Audio delay adjustment is not available on this receiver');
+      await vegaCastService.command('SUBTITLE_DELAY',subtitleDelayMs/1000);store.setDelays(subtitleDelayMs,audioDelayMs);return;
+    }
     if (isTV || !this.lastRequest) return;
     const store = useRemoteStore.getState();
     const previous = {sub: store.subtitleDelayMs, audio: store.audioDelayMs};
@@ -535,6 +583,9 @@ class RemotePlaybackManager {
     device: RemoteDevice,
     payload: RemoteMediaPayload,
   ): Promise<void> {
+    if(device.type==='vega-cast'){
+      return this.loadVegaCast(device,payload);
+    }
     return this.queueLoad(device, payload, false);
   }
 
@@ -544,6 +595,9 @@ class RemotePlaybackManager {
     payload: RemoteMediaPayload,
     keepDelays: boolean,
   ): Promise<void> {
+    if(device.type==='vega-cast'){
+      return this.loadVegaCast(device,payload);
+    }
     if (isTV) return Promise.resolve();
     this.cancelQueuedSeek();
     const operationToken = ++this.loadGeneration;
@@ -1139,7 +1193,7 @@ class RemotePlaybackManager {
     // Read the receiver level after a pause, since the TV remote may have
     // changed it; quick repeated presses build on the last target instead.
     if (Date.now() - this.lastVolumeKeyAt > 1500) {
-      await this.refreshVolume();
+      if(useRemoteStore.getState().connectedDevice?.type!=='vega-cast')await this.refreshVolume();
       const {volume, isMuted} = useRemoteStore.getState();
       this.volumeKeyTarget = isMuted ? 0 : volume;
     }
@@ -1453,6 +1507,7 @@ class RemotePlaybackManager {
   }
 
   async setActiveSubtitleTrack(trackId?: string): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.command('SUBTITLE',trackId==null?-1:Number(trackId));
     if (this.changingAudio)
       throw new Error('A remote track change or seek is already in progress');
     const operationToken = this.loadGeneration;
@@ -1773,10 +1828,12 @@ class RemotePlaybackManager {
    * must be copies in the app cache; the phone server serves nothing else.
    */
   async addExternalSubtitle(track: {
+    savedSubtitleId?: string;
     uri: string;
     title?: string;
     language?: string;
   }): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.addExternalSubtitle(track.uri);
     if (!isServableExternalSubtitle(track.uri))
       throw new Error('This subtitle file cannot be sent to the receiver');
     const store = useRemoteStore.getState();
@@ -1791,6 +1848,7 @@ class RemotePlaybackManager {
         {
           id,
           uri: track.uri,
+          savedSubtitleId: track.savedSubtitleId,
           title: track.title,
           language: track.language || 'und',
           isEmbedded: false,
@@ -1873,6 +1931,7 @@ class RemotePlaybackManager {
     track: RemoteAudioTrack,
     seekPosition?: number,
   ): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.command('AUDIO',Number(track.id));
     return this.reloadRemuxedStream(track, seekPosition);
   }
 
@@ -2253,6 +2312,11 @@ class RemotePlaybackManager {
     quality: RemoteQuality,
     newSourceUrl?: string,
   ): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast'){
+      if(!this.activePayload||!newSourceUrl)throw new Error('Choose a resolved stream first');
+      this.activePayload={...this.activePayload,sourceUrl:newSourceUrl,initialPosition:useRemoteStore.getState().currentTime};
+      return this.loadVegaCast(useRemoteStore.getState().connectedDevice!,this.activePayload);
+    }
     if (isTV || !this.activePayload) return;
 
     const device = useRemoteStore.getState().connectedDevice;
@@ -2293,6 +2357,7 @@ class RemotePlaybackManager {
   }
 
   async play(): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.command('PLAY');
     const status = useRemoteStore.getState().status;
     if (status === 'loading' || status === 'buffering' || status === 'error' || status === 'idle') return;
     const device = useRemoteStore.getState().connectedDevice;
@@ -2312,6 +2377,7 @@ class RemotePlaybackManager {
   }
 
   async pause(): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.command('PAUSE');
     const device = useRemoteStore.getState().connectedDevice;
     if (!device) return;
 
@@ -2367,6 +2433,7 @@ class RemotePlaybackManager {
    * into one reload at the last target instead of several racing loads.
    */
   seek(seconds: number): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.command('SEEK',seconds);
     if (!Number.isFinite(seconds)) return Promise.resolve();
     if (!this.activeRemux) return this.seekNow(seconds);
     useRemoteStore
@@ -2484,6 +2551,7 @@ class RemotePlaybackManager {
 
   /** Reads the receiver volume into the store; false when it cannot be read. */
   async refreshVolume(): Promise<boolean> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast'){await vegaCastService.command('GET_STATE');return true;}
     const device = useRemoteStore.getState().connectedDevice;
     // A Chromecast session can outlive the cast screen, so no device in the
     // store still means a session may be open.
@@ -2511,6 +2579,7 @@ class RemotePlaybackManager {
   }
 
   async setVolume(volume: number): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')return vegaCastService.setVolume(volume);
     const device = useRemoteStore.getState().connectedDevice;
     if (!device && !this.castSessionActive) return;
     volume = Math.min(1, Math.max(0, volume));
@@ -2855,6 +2924,7 @@ class RemotePlaybackManager {
   }
 
   stop(): Promise<void> {
+    console.info('[CastStatus] stop requested', {sessionId: this.currentSessionId});
     this.pendingRetirements.clear();
     this.lastReceiverUri = '';
     this.cancelQueuedSeek();
@@ -2866,6 +2936,7 @@ class RemotePlaybackManager {
   }
 
   private async stopPlayback(): Promise<void> {
+    if(useRemoteStore.getState().connectedDevice?.type==='vega-cast')await vegaCastService.disconnect(true);
     if (this.seekTimer) clearTimeout(this.seekTimer);
     this.seekRequestId++;
     useRemoteStore.getState().cancelSeek();

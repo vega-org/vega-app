@@ -2,9 +2,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Modal,
   View,
-  ActivityIndicator,
   BackHandler,
-  StyleSheet,
 } from 'react-native';
 import {WebView, WebViewMessageEvent} from 'react-native-webview';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -23,6 +21,7 @@ import {
   getJarCookieHeader,
   storeJarCookies,
 } from '../lib/sandbox/providerCookieJar';
+import {dismissWafOperations} from '../lib/services/wafSession';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import AppText from './ui/Text';
 import TVTouchable from './tv/TVTouchable';
@@ -35,7 +34,6 @@ const WafWebViewDialog = () => {
   const remove = useWafStore(state => state.remove);
   const {primary, onPrimary} = useM3Colors();
 
-  const [loading, setLoading] = useState(true);
   // The WebView mounts only after the site's native cookies are swapped for
   // the requesting author's, so it never sees another author's session.
   const [prepared, setPrepared] = useState(false);
@@ -58,7 +56,6 @@ const WafWebViewDialog = () => {
     settledRef.current = false;
     pendingResolveRef.current = false;
     htmlRef.current = '';
-    setLoading(true);
     setPrepared(false);
     webViewReadyRef.current = false;
     initialCookieValuesRef.current = {};
@@ -89,12 +86,19 @@ const WafWebViewDialog = () => {
 
   // Resolve the active request with the captured page response + cookies.
   const finalizeResolve = useCallback(
-    async (req: WafRequest) => {
+    async (req: WafRequest, dismiss?: boolean) => {
       if (fallbackTimerRef.current) {
         clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
       }
       try {
+        // Before preparation, the shared native jar may still belong to the
+        // previous author. Never save that session into this author's jar.
+        if (dismiss !== undefined && !webViewReadyRef.current) {
+          if (dismiss) useWafStore.getState().cancelAll();
+          else req.reject(new Error('WAF_DIALOG_CANCELLED'));
+          return;
+        }
         const [cookieObjects, cookieMap] = await Promise.all([
           getCookieObjects(req.url),
           getCookies(req.url),
@@ -135,9 +139,13 @@ const WafWebViewDialog = () => {
           userAgent,
           expires: expiresAt || undefined,
         };
-        req.resolve(result);
+        if (dismiss === true) useWafStore.getState().cancelAll();
+        else if (dismiss === false) req.reject(new Error('WAF_DIALOG_CANCELLED'));
+        else req.resolve(result);
       } catch (e) {
-        req.reject(
+        if (dismiss === true) useWafStore.getState().cancelAll();
+        else req.reject(
+          dismiss === false ? new Error('WAF_DIALOG_CANCELLED') :
           e instanceof Error ? e : new Error('Failed to read page response'),
         );
       } finally {
@@ -159,13 +167,11 @@ const WafWebViewDialog = () => {
       clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
     }
-    if (all) useWafStore.getState().cancelAll();
-    else request.reject(new Error('WAF_DIALOG_CANCELLED'));
-    const id = request.id;
-    clearSiteCookies(request.url)
-      .catch(() => {})
-      .finally(() => remove(id));
-  }, [request, remove]);
+    // Block further prompts immediately, then save cookies before waking the
+    // waiting HTTP requests. A challenge may have finished just before X.
+    if (all) dismissWafOperations();
+    finalizeResolve(request, all);
+  }, [request, finalizeResolve]);
 
   const resolveWithPage = useCallback(() => {
     if (!request || settledRef.current) {
@@ -313,9 +319,7 @@ const WafWebViewDialog = () => {
                   : GRAB_HTML_JS
               }
               onMessage={onMessage}
-              onLoadStart={() => setLoading(true)}
               onLoadEnd={() => {
-                setLoading(false);
                 if (request.injectedJavaScript) {
                   webViewRef.current?.injectJavaScript(
                     `${request.injectedJavaScript};\n true;`,
@@ -325,13 +329,6 @@ const WafWebViewDialog = () => {
               }}
             />
             ) : null}
-            {loading && (
-              <View
-                style={StyleSheet.absoluteFill}
-                className="items-center justify-center bg-black/30">
-                <ActivityIndicator size="large" color={primary} />
-              </View>
-            )}
           </View>
 
           {/* Footer */}

@@ -1,3 +1,4 @@
+import {openExternalApp, usesExternalApp} from '../lib/externalApps';
 import {applyProviderEpisodeMetadata} from '../lib/providerEpisodeMetadata';
 import useMetadataOverrideStore, {metadataOverrideKey} from '../lib/zustand/metadataOverrideStore';
 import React, {
@@ -12,7 +13,6 @@ import {
   TouchableOpacity,
   ToastAndroid,
   FlatList,
-  Image,
   ScrollView,
   BackHandler,
   findNodeHandle,
@@ -30,12 +30,11 @@ import Animated, {
   withTiming,
   cancelAnimation,
 } from 'react-native-reanimated';
-import * as IntentLauncher from 'expo-intent-launcher';
 import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {EpisodeLink, Link} from '../lib/providers/types';
 import {RootStackParamList} from '../App';
 import Downloader from './Downloader';
-import {cacheStorage, mainStorage, settingsStorage} from '../lib/storage';
+import {cacheStorage, mainStorage, settingsStorage, watchProgressStorage} from '../lib/storage';
 import {ifExists} from '../lib/file/ifExists';
 import {isTV} from '../lib/tv';
 import {useEpisodes, useStreamData} from '../lib/hooks/useEpisodes';
@@ -46,14 +45,15 @@ import {
   createDirectDownloadId,
   createSeriesDownloadId,
 } from '../lib/downloadId';
+import {findEpisodeDownload} from '../lib/downloadLibrary';
 import useDownloadsStore from '../lib/zustand/downloadsStore';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import MaterialDialogSurface from './ui/MaterialDialogSurface';
 import LoadingIndicator from './ui/LoadingIndicator';
 import {LEGACY_TERTIARY_BACKGROUND} from '../theme/seeds';
 import Text from './ui/Text';
-import EpisodeRowContent, {getValidImageUri} from './EpisodeRowContent';
-import {setSyncedEpisodeProgress} from '../lib/sync/syncService';
+import EpisodeRowContent from './EpisodeRowContent';
+import EpisodeDetailsDialog from './EpisodeDetailsDialog';
 import {episodesUpTo, markEpisodesWatched} from '../lib/utils/episodeProgress';
 import {TVFocusable, TVFocusGuide, TVTouchable} from './tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
@@ -122,11 +122,7 @@ interface LastPlayed {
 }
 
 const readProgress = (link: string): {position?: number; duration?: number} => {
-  try {
-    return JSON.parse(cacheStorage.getString(link) || '{}');
-  } catch {
-    return {};
-  }
+  return watchProgressStorage.getProgress(link) || {};
 };
 
 interface StickyMenuState {
@@ -157,44 +153,7 @@ const launchExternalPlayer = async (
   headers?: Record<string, string>,
   title?: string,
 ) => {
-  const intentParams: any = {
-    data: streamUrl,
-    type: 'video/*',
-    flags: 1,
-  };
-
-  const extra: Record<string, any> = {};
-
-  if (title) {
-    extra.title = title;
-    extra['android.intent.extra.TITLE'] = title;
-  }
-
-  if (headers && Object.keys(headers).length > 0) {
-    Object.assign(extra, headers);
-    extra['android.media.intent.extra.HTTP_HEADERS'] = headers;
-    extra.headers = headers;
-
-    const headersArray = Object.entries(headers).map(
-      ([key, val]) => `${key}: ${val}`,
-    );
-    extra.headers_array = headersArray;
-
-    const referer = headers['Referer'] || headers['referer'];
-    if (referer) {
-      extra['android.intent.extra.REFERRER'] = referer;
-      extra['android.intent.extra.REFERRER_NAME'] = referer;
-    }
-  }
-
-  if (Object.keys(extra).length > 0) {
-    intentParams.extra = extra;
-  }
-
-  await IntentLauncher.startActivityAsync(
-    'android.intent.action.VIEW',
-    intentParams,
-  );
+  await openExternalApp('player', streamUrl, 'video/*', headers, title);
 };
 
 const getOriginalLinkIndex = <T extends {link: string}>(
@@ -221,6 +180,7 @@ interface EpisodeCardRowProps {
   onShowDetailsPressIn?: () => void;
   onShowDetails?: () => void;
   detailsPreferred?: boolean;
+  thumbnail?: React.ReactNode;
   downloadComponent?: React.ReactNode;
   /** Replaces the download button while selecting episodes. */
   selectionMark?: React.ReactNode;
@@ -228,7 +188,7 @@ interface EpisodeCardRowProps {
   selected?: boolean;
 }
 
-const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
+export const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
   item,
   index,
   isCompleted,
@@ -243,6 +203,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
   onShowDetails,
   detailsPreferred,
   downloadComponent,
+  thumbnail,
   selectionMark,
   selected,
 }) => {
@@ -293,6 +254,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
               title={displayTitle}
               description={item.description}
               image={item.image}
+            thumbnail={thumbnail}
               accentColor={primary}
               textColor={CONTROL_TEXT}
               mutedTextColor={CONTROL_TEXT_MUTED}
@@ -354,6 +316,7 @@ const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
             title={displayTitle}
             description={item.description}
             image={item.image}
+            thumbnail={thumbnail}
             accentColor={primary}
             textColor={CONTROL_TEXT}
             mutedTextColor={CONTROL_TEXT_MUTED}
@@ -593,12 +556,6 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     setRestoreDetailsLink(episodeDetails?.link ?? null);
     setEpisodeDetails(null);
   }, [episodeDetails?.link]);
-  const [episodeDetailsImageFailed, setEpisodeDetailsImageFailed] =
-    useState(false);
-
-  useEffect(() => {
-    setEpisodeDetailsImageFailed(false);
-  }, [episodeDetails?.image]);
 
   useEffect(() => {
     if (!isTV || !episodeDetails) return;
@@ -733,13 +690,13 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         direct ? createDirectDownloadId : createSeriesDownloadId
       )(metaTitle, activeSeason.title, index);
       const downloads = Object.values(useDownloadsStore.getState().downloads);
-      const existing = downloads.find(
-        item =>
-          !item.isSubtitle &&
-          (item.id === downloadId ||
-            (item.infoUrl === routeParams.link &&
-              item.sourceLink === episode.link)),
-      );
+      const existing = findEpisodeDownload(downloads, {
+        downloadId,
+        infoUrl: routeParams.link,
+        link: episode.link,
+        seasonTitle: activeSeason.title,
+        episodeName: episode.title,
+      });
       if (
         existing &&
         (existing.status === 'completed' ||
@@ -755,7 +712,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           episodeName: episode.title,
           seasonTitle: activeSeason.title,
           episodeIndex: index,
-          mediaType: direct && !isTV && (item as any).type !== 'series' ? 'movie' : 'series',
+          mediaType: type === 'movie' ? 'movie' : 'series',
           imdbId,
           poster: poster.poster,
           background: poster.background,
@@ -766,7 +723,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           skip: item.skip || (item as any).skips,
           fileName:
             direct &&
-            (item as any).type !== 'series' &&
+            type === 'movie' &&
             (activeSeason.directLinks?.length || 0) <= 1
               ? createDesktopCompatibleFileName(metaTitle, 'movie')
               : createDesktopCompatibleFileName(
@@ -784,6 +741,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       activeSeason,
       episodeList,
       validEpisodes,
+      type,
       metaTitle,
       routeParams.link,
       imdbId,
@@ -801,12 +759,19 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   });
 
   // Memoized completion checker
-  const isCompleted = useCallback((link: string) => {
-    const watchProgress = JSON.parse(cacheStorage.getString(link) || '{}');
-    const percentage =
-      (watchProgress?.position / watchProgress?.duration) * 100;
-    return percentage > 85;
-  }, []);
+  // Watch progress lives in storage, not React state. Bumping this re-renders
+  // every row after progress changes (mark watched, return from player).
+  const [progressVersion, setProgressVersion] = useState(0);
+  const isCompleted = useCallback(
+    (link: string) => {
+      const watchProgress = watchProgressStorage.getProgress(link);
+      if (!watchProgress || !watchProgress.duration) return false;
+      const percentage =
+        (watchProgress.position / watchProgress.duration) * 100;
+      return percentage > 85;
+    },
+    [progressVersion],
+  );
 
   // Memoized toggle sort order
   const toggleSortOrder = useCallback(() => {
@@ -814,6 +779,21 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     setSortOrder(newOrder);
     mainStorage.setString(episodeSortOrderKey, newOrder);
   }, [episodeSortOrderKey, sortOrder]);
+
+  // activeSeason starts from a cached copy. When LinkList refreshes, swap in
+  // the fresh season with the same title so new episodes and links show up.
+  useEffect(() => {
+    setActiveSeason(current => {
+      const fresh =
+        LinkList.find(link => link.title === current.title) || LinkList[0];
+      if (!fresh || fresh === current) return current;
+      cacheStorage.setString(
+        `ActiveSeason${metaTitle + providerValue}`,
+        JSON.stringify(fresh),
+      );
+      return fresh;
+    });
+  }, [LinkList, metaTitle, providerValue]);
 
   // Memoized season change handler
   const handleSeasonChange = useCallback(
@@ -921,7 +901,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         episodeData[linkIndex]?.title
       ).replaceAll(/[^a-zA-Z0-9]/g, '_');
 
-      const externalPlayer = settingsStorage.getBool('useExternalPlayer');
+      const externalPlayer = usesExternalApp('player');
       const dwFile = await ifExists(file);
 
       const downloadIndex = getOriginalLinkIndex(episodeList, link, linkIndex);
@@ -930,21 +910,23 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         seasonTitle,
         downloadIndex,
       );
-      const localDownload =
-        useDownloadsStore.getState().downloads[downloadId];
+      const localDownload = findEpisodeDownload(
+        Object.values(useDownloadsStore.getState().downloads),
+        {
+          downloadId,
+          infoUrl: routeParams.link,
+          link,
+          seasonTitle,
+          episodeName: episodeData[linkIndex]?.title,
+        },
+      );
       const localPath =
         (localDownload?.status === 'completed' && localDownload?.filePath) ||
         dwFile;
 
       if (externalPlayer && !cast) {
         if (localPath) {
-          await IntentLauncher.startActivityAsync(
-            'android.intent.action.VIEW',
-            {
-              data: localPath,
-              type: 'video/*',
-            },
-          );
+          await launchExternalPlayer(localPath, undefined, primaryTitle);
           return;
         }
         handleExternalPlayer(link, playbackType);
@@ -989,90 +971,6 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     [],
   );
 
-  // Memoized mark as watched handler
-  const markAsWatched = useCallback(() => {
-    if (stickyMenu.link) {
-      cacheStorage.setString(
-        stickyMenu.link,
-        JSON.stringify({
-          position: 1,
-          duration: 1,
-        }),
-      );
-      const episode = [
-        ...episodeList,
-        ...(activeSeason.directLinks || []),
-      ].find(item => item.link === stickyMenu.link);
-      if (episode) {
-        setSyncedEpisodeProgress({
-          episode,
-          title: metaTitle,
-          poster: poster.poster,
-          background: poster.background,
-          provider: providerValue,
-          infoUrl: routeParams.link,
-          type,
-          position: 1,
-          duration: 1,
-          seasonTitle: activeSeason.title,
-        });
-      }
-      setStickyMenu({active: false});
-    }
-  }, [
-    activeSeason.directLinks,
-    episodeList,
-    metaTitle,
-    poster.background,
-    poster.poster,
-    providerValue,
-    routeParams.link,
-    stickyMenu.link,
-    type,
-  ]);
-
-  // Memoized mark as unwatched handler
-  const markAsUnwatched = useCallback(() => {
-    if (stickyMenu.link) {
-      cacheStorage.setString(
-        stickyMenu.link,
-        JSON.stringify({
-          position: 0,
-          duration: 1,
-        }),
-      );
-      const episode = [
-        ...episodeList,
-        ...(activeSeason.directLinks || []),
-      ].find(item => item.link === stickyMenu.link);
-      if (episode) {
-        setSyncedEpisodeProgress({
-          episode,
-          title: metaTitle,
-          poster: poster.poster,
-          background: poster.background,
-          provider: providerValue,
-          infoUrl: routeParams.link,
-          type,
-          position: 0,
-          duration: 1,
-          seasonTitle: activeSeason.title,
-        });
-      }
-      setStickyMenu({active: false});
-    }
-  }, [
-    activeSeason.directLinks,
-    episodeList,
-    metaTitle,
-    poster.background,
-    poster.poster,
-    providerValue,
-    routeParams.link,
-    stickyMenu.link,
-    type,
-  ]);
-
   // The long-pressed episode's list, in episode order (not the sort order).
   const stickyMenuEpisodes = useMemo(() => {
     const link = stickyMenu.link;
@@ -1096,7 +994,9 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           seasonTitle: activeSeason.title,
         },
         syncEpisode,
+        seasonEpisodes: stickyMenuEpisodes,
       });
+      setProgressVersion(version => version + 1);
       setStickyMenu({active: false});
     },
     [
@@ -1106,9 +1006,56 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       poster.poster,
       providerValue,
       routeParams.link,
+      stickyMenuEpisodes,
       type,
     ],
   );
+
+  // Memoized mark as watched handler
+  const markAsWatched = useCallback(() => {
+    if (!stickyMenu.link) return;
+    const episode =
+      stickyMenuEpisodes.find(item => item.link === stickyMenu.link) ||
+      [...episodeList, ...(activeSeason.directLinks || [])].find(
+        item => item.link === stickyMenu.link,
+      );
+    if (episode) {
+      markEpisodes([episode], true, episode);
+    } else {
+      watchProgressStorage.setProgress(stickyMenu.link, 1, 1);
+      setProgressVersion(version => version + 1);
+      setStickyMenu({active: false});
+    }
+  }, [
+    activeSeason.directLinks,
+    episodeList,
+    markEpisodes,
+    stickyMenu.link,
+    stickyMenuEpisodes,
+  ]);
+
+  // Memoized mark as unwatched handler
+  const markAsUnwatched = useCallback(() => {
+    if (!stickyMenu.link) return;
+    const episode =
+      stickyMenuEpisodes.find(item => item.link === stickyMenu.link) ||
+      [...episodeList, ...(activeSeason.directLinks || [])].find(
+        item => item.link === stickyMenu.link,
+      );
+    if (episode) {
+      markEpisodes([episode], false, episode);
+    } else {
+      watchProgressStorage.setProgress(stickyMenu.link, 0, 1);
+      setProgressVersion(version => version + 1);
+      setStickyMenu({active: false});
+    }
+  }, [
+    activeSeason.directLinks,
+    episodeList,
+    markEpisodes,
+    stickyMenu.link,
+    stickyMenuEpisodes,
+  ]);
 
   const markPreviousAsWatched = useCallback(() => {
     if (stickyMenu.link) {
@@ -1425,7 +1372,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
               providerValue={providerValue}
               link={item.link}
               type={type}
-              mediaType={isTV ? 'series' : item?.type === 'series' ? 'series' : 'movie'}
+              mediaType={type === 'movie' ? 'movie' : 'series'}
               showName={metaTitle}
               seasonTitle={activeSeason.title}
               episodeName={item.title}
@@ -1446,7 +1393,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
                   : metaTitle + ' ' + item.title
               }
               fileName={
-                item?.type === 'series' ||
+                type !== 'movie' ||
                 (activeSeason?.directLinks &&
                   activeSeason.directLinks.length > 1)
                   ? createDesktopCompatibleFileName(
@@ -1537,9 +1484,13 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     };
   }, [lastPlayedKey, continueItems, routeParams.link, providerValue]);
   const [lastPlayed, setLastPlayed] = useState<LastPlayed | null>(readLastPlayed);
+  useEffect(() => {
+    setLastPlayed(readLastPlayed());
+  }, [readLastPlayed]);
   useFocusEffect(
     useCallback(() => {
       setLastPlayed(readLastPlayed());
+      setProgressVersion(version => version + 1);
     }, [readLastPlayed]),
   );
   const [pendingResume, setPendingResume] = useState<string | null>(null);
@@ -1557,6 +1508,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       : undefined;
 
   const resumeTarget = useMemo((): (ResumeTarget & {link?: string}) | null => {
+    if (progressVersion < 0) return null;
     if (lastPlayed && lastSeason) {
       // Last episode is in another season: switch to it on press.
       return {
@@ -1573,7 +1525,14 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       const {position = 0, duration = 0} = readProgress(item.link);
       const fraction = duration > 0 ? position / duration : 0;
       if (fraction > 0.85) {
-        const next = seasonItems[index + 1];
+        const next = seasonItems.slice(index + 1).find(candidate => {
+          const progress = readProgress(candidate.link);
+          return !(
+            progress.duration &&
+            progress.position !== undefined &&
+            progress.position / progress.duration > 0.85
+          );
+        });
         return next ? {mode: 'next', title: next.title, link: next.link} : null;
       }
       return {
@@ -1581,14 +1540,15 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         title: item.title,
         link: item.link,
         progress: fraction || undefined,
-        remainingSeconds: duration > 0 ? duration - position : undefined,
+        remainingSeconds:
+          duration > 1 && position > 0 ? duration - position : undefined,
       };
     }
     if (seasonItems.length > 1) {
       return {mode: 'start', title: seasonItems[0].title, link: seasonItems[0].link};
     }
     return null;
-  }, [lastPlayed, lastSeason, seasonItems]);
+  }, [lastPlayed, lastSeason, progressVersion, seasonItems]);
 
   const playLink = useCallback(
     (link: string) => {
@@ -1685,8 +1645,12 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     );
   }
 
-  // Show error state
-  if (episodeError) {
+  // Show error state only when no cached episodes or direct links are available
+  if (
+    episodeError &&
+    validEpisodes.length === 0 &&
+    validDirectLinks.length === 0
+  ) {
     return (
       <View className="p-4">
         <Text className="text-red-500 text-center">
@@ -1770,6 +1734,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
             data={filteredAndSortedEpisodes}
             keyExtractor={(item, index) => `episode-${item.link}-${index}`}
             renderItem={renderEpisodeItem}
+            extraData={progressVersion}
             maxToRenderPerBatch={10}
             windowSize={10}
             removeClippedSubviews={!isTV}
@@ -1783,6 +1748,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
               data={filteredAndSortedDirectLinks}
               keyExtractor={(item, index) => `direct-${item.link}-${index}`}
               renderItem={renderDirectLinkItem}
+              extraData={progressVersion}
               maxToRenderPerBatch={10}
               windowSize={10}
               removeClippedSubviews={!isTV}
@@ -1816,108 +1782,13 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         </View>
       )}
 
-      <MaterialDialogSurface
+      <EpisodeDetailsDialog
         visible={episodeDetails !== null}
+        title={episodeDetails?.title ?? ''}
+        description={episodeDetails?.description ?? ''}
+        image={episodeDetails?.image}
         onDismiss={closeEpisodeDetails}
-        style={{padding: 0}}>
-        {episodeDetails ? (
-          <>
-            {getValidImageUri(episodeDetails.image) &&
-            !episodeDetailsImageFailed ? (
-              <Image
-                source={{uri: getValidImageUri(episodeDetails.image)}}
-                resizeMode="cover"
-                resizeMethod="resize"
-                onError={() => setEpisodeDetailsImageFailed(true)}
-                style={{aspectRatio: 16 / 9, width: '100%'}}
-              />
-            ) : (
-              <View
-                style={{
-                  alignItems: 'center',
-                  aspectRatio: 16 / 9,
-                  backgroundColor: colors.surfaceContainerHighest,
-                  justifyContent: 'center',
-                  width: '100%',
-                }}>
-                <MaterialCommunityIcons
-                  name="image-off-outline"
-                  size={44}
-                  color={colors.onSurfaceVariant}
-                />
-              </View>
-            )}
-            <View style={{padding: 20}}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 8,
-                }}>
-                <Text
-                  role="titleLarge"
-                  style={{
-                    color: colors.onSurface,
-                    fontWeight: '700',
-                    flex: 1,
-                    marginRight: 8,
-                  }}>
-                  {episodeDetails.title}
-                </Text>
-                {isTV && (
-                  <TVFocusable
-                    hasTVPreferredFocus={true}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close"
-                    borderRadius={18}
-                    focusScale={1}
-                    focusBorderColor={focusBorderColor}
-                    onPress={closeEpisodeDetails}
-                    style={{padding: 4}}>
-                    <MaterialCommunityIcons
-                      name="close"
-                      size={24}
-                      color="#CCCCCC"
-                    />
-                  </TVFocusable>
-                )}
-              </View>
-              <ScrollView style={{maxHeight: 230}} showsVerticalScrollIndicator={false}>
-                <Text
-                  role="bodyMedium"
-                  style={{
-                    color: colors.onSurfaceVariant,
-                    lineHeight: 22,
-                    marginTop: 4,
-                  }}>
-                  {episodeDetails.description}
-                </Text>
-              </ScrollView>
-              {isTV && (
-                <TVFocusable
-                  accessibilityRole="button"
-                  accessibilityLabel="Close episode details"
-                  borderRadius={14}
-                  focusScale={1}
-                  focusBorderColor={focusBorderColor}
-                  onPress={closeEpisodeDetails}
-                  style={{
-                    marginTop: 16,
-                    paddingVertical: 12,
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    borderRadius: 14,
-                    alignItems: 'center',
-                  }}>
-                  <Text style={{color: '#FFFFFF', fontWeight: '600', fontSize: 15}}>
-                    Close
-                  </Text>
-                </TVFocusable>
-              )}
-            </View>
-          </>
-        ) : null}
-      </MaterialDialogSurface>
+      />
 
       <MaterialDialogSurface
         visible={showServerModal}

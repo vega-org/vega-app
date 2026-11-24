@@ -370,6 +370,21 @@ class RemoteDeliveryModule(
         }
     }
 
+    private fun executeMediaRequest(client: OkHttpClient, request: Request): OkHttpResponse {
+        try {
+            return client.newCall(request).execute()
+        } catch (error: java.net.ProtocolException) {
+            if (!error.message.orEmpty().contains("Unexpected status line", ignoreCase = true)) throw error
+            // Do not reuse a possibly desynchronized HTTP/1 connection. Only
+            // replay a GET/HEAD before headers/body have reached the receiver.
+            if (request.method !in listOf("GET", "HEAD")) throw error
+            val fresh = client.newBuilder()
+                .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
+                .build()
+            return fresh.newCall(request.newBuilder().header("Connection", "close").build()).execute()
+        }
+    }
+
     private val hlsClient: OkHttpClient by lazy {
         (DohOkHttpFactory.instance?.createNewNetworkModuleClient() ?: OkHttpClient())
             .newBuilder()
@@ -383,7 +398,10 @@ class RemoteDeliveryModule(
             android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
         )
         val port = server?.listeningPort ?: 0
-        return "http://127.0.0.1:$port/hls/$sessionId/$encoded/" + if (playlist) "index.m3u8" else "seg.ts"
+        // Browser receivers need LAN URLs for every rendition, segment and key.
+        // Internal FFmpeg inputs keep their existing loopback delivery path.
+        val host = if (sessions[sessionId]?.mode == "proxy") getLocalIpAddress() else "127.0.0.1"
+        return "http://$host:$port/hls/$sessionId/$encoded/" + if (playlist) "index.m3u8" else "seg.ts"
     }
 
     private fun rewritePlaylist(sessionId: String, body: String, base: okhttp3.HttpUrl): String {
@@ -439,7 +457,7 @@ class RemoteDeliveryModule(
             rangeHeader, session.hlsSegmentPrefixes[target] ?: 0
         ))
         RemoteSourceFailures.noteHlsRead()
-        val upstream = hlsClient.newCall(builder.build()).execute()
+        val upstream = executeMediaRequest(hlsClient, builder.build())
         if (!upstream.isSuccessful) {
             RemoteSourceFailures.record(target, upstream.code, upstream.header("Retry-After"))
             val retryAfter = upstream.header("Retry-After")
@@ -538,7 +556,7 @@ class RemoteDeliveryModule(
             val isRemoteHls = !isLocal && sourceUrl.contains(".m3u8", ignoreCase = true)
             // HLS has no container duration; sum the media playlist's #EXTINF values.
             // Probe even when JS passed a duration: it may be a stale store value.
-            val resolvedDuration = if (isRemoteHls) {
+            val resolvedDuration = if (isRemoteHls && mode != "proxy") {
                 val durationKey = metadataKey(sourceUrl, headers)
                 val probed = if (vodHlsSources.contains(sourceUrl)) {
                     hlsDurations.get(durationKey) { hlsPlaylistDuration(sourceUrl, headers) }
@@ -558,6 +576,7 @@ class RemoteDeliveryModule(
                     isLocal = isLocal,
                     headers = headers,
                     audioTrackIndex = audioTrackIndex,
+                    diagnosticId = sessionId,
                     audioCodec = audioCodec,
                     durationSeconds = resolvedDuration,
                     totalSizeBytes = totalSizeBytes.toLong(),
@@ -627,6 +646,9 @@ class RemoteDeliveryModule(
                 }
                 "hls" -> "http://$lanIp:$port/hlsout/$sessionId/index.m3u8"
                 "progressive" -> "http://$lanIp:$port/dlna/$sessionId/stream.mp4"
+                "proxy" -> if (isRemoteHls || mimeType.contains("mpegurl", ignoreCase = true)) {
+                    hlsProxyUrl(sessionId, sourceUrl, playlist = true)
+                } else "http://$lanIp:$port/proxy/$sessionId/stream"
                 else -> "http://$lanIp:$port/proxy/$sessionId/stream"
             }
             // Full URL for manual testing: adb logcat -s RemoteDeliveryModule
@@ -691,6 +713,7 @@ class RemoteDeliveryModule(
 
     @ReactMethod
     fun unregisterSession(sessionId: String, promise: Promise) {
+        VegaLog.i(TAG, "Delivery unregister requested session=$sessionId graceMs=8000")
         Thread {
             try {
                 Thread.sleep(8_000)
@@ -733,7 +756,7 @@ class RemoteDeliveryModule(
     private data class Vint(val value: Long, val length: Int)
 
     private fun readVint(bytes: ByteArray, offset: Int): Vint? {
-        if (offset >= bytes.size) return null
+        if (offset < 0 || offset >= bytes.size) return null
         val firstByte = bytes[offset].toInt() and 0xFF
         if (firstByte == 0) return null
         var mask = 0x80
@@ -742,7 +765,7 @@ class RemoteDeliveryModule(
             mask = mask ushr 1
             len++
         }
-        if (len > 8 || offset + len > bytes.size) return null
+        if (len > 8 || len > bytes.size - offset) return null
         var rawVal = 0L
         for (i in 0 until len) {
             rawVal = (rawVal shl 8) or ((bytes[offset + i].toInt() and 0xFF).toLong())
@@ -751,7 +774,7 @@ class RemoteDeliveryModule(
     }
 
     private fun readVintDataSize(bytes: ByteArray, offset: Int): Vint? {
-        if (offset >= bytes.size) return null
+        if (offset < 0 || offset >= bytes.size) return null
         val firstByte = bytes[offset].toInt() and 0xFF
         if (firstByte == 0) return null
         var mask = 0x80
@@ -760,7 +783,7 @@ class RemoteDeliveryModule(
             mask = mask ushr 1
             len++
         }
-        if (len > 8 || offset + len > bytes.size) return null
+        if (len > 8 || len > bytes.size - offset) return null
         var valNoMask = (firstByte and mask.inv()).toLong()
         for (i in 1 until len) {
             valNoMask = (valNoMask shl 8) or ((bytes[offset + i].toInt() and 0xFF).toLong())
@@ -842,7 +865,7 @@ class RemoteDeliveryModule(
                 val sizeInfo = readVintDataSize(bytes, iOff)
                 if (sizeInfo != null) {
                     iOff += sizeInfo.length
-                    val infoEnd = Math.min((iOff + sizeInfo.value).toInt(), bytes.size)
+                    val infoEnd = EbmlBounds.end(iOff, sizeInfo.value, bytes.size)
                     var timecodeScale = 1_000_000L
                     var rawDuration = 0.0
                     while (iOff < infoEnd) {
@@ -850,13 +873,13 @@ class RemoteDeliveryModule(
                         iOff += elemId.length
                         val elemSize = readVintDataSize(bytes, iOff) ?: break
                         iOff += elemSize.length
-                        val dataLen = Math.min(elemSize.value.toInt(), bytes.size - iOff)
+                        val dataLen = EbmlBounds.end(iOff, elemSize.value, infoEnd) - iOff
                         if (elemId.value == 0x2AD7B1L) {
                             timecodeScale = readUint(bytes, iOff, dataLen).takeIf { it > 0 } ?: 1_000_000L
                         } else if (elemId.value == 0x4489L) {
                             rawDuration = readFloat(bytes, iOff, dataLen)
                         }
-                        iOff += elemSize.value.toInt()
+                        iOff = EbmlBounds.end(iOff, elemSize.value, infoEnd)
                     }
                     if (rawDuration > 0.0) {
                         durationSeconds = (rawDuration * timecodeScale) / 1_000_000_000.0
@@ -897,7 +920,7 @@ class RemoteDeliveryModule(
         var offset = tracksOffset + 4
         val sizeInfo = readVintDataSize(bytes, offset) ?: return null
         offset += sizeInfo.length
-        val tracksEnd = Math.min((offset + sizeInfo.value).toInt(), bytes.size)
+        val tracksEnd = EbmlBounds.end(offset, sizeInfo.value, bytes.size)
 
         val rawTracks = mutableListOf<RawTrack>()
 
@@ -906,7 +929,7 @@ class RemoteDeliveryModule(
             offset += elemId.length
             val elemSize = readVintDataSize(bytes, offset) ?: break
             offset += elemSize.length
-            val nextElem = Math.min((offset + elemSize.value).toInt(), bytes.size)
+            val nextElem = EbmlBounds.end(offset, elemSize.value, tracksEnd)
 
             if (elemId.value == 0xAEL) { // TrackEntry
                 val track = RawTrack()
@@ -916,7 +939,9 @@ class RemoteDeliveryModule(
                     entryOff += subId.length
                     val subSize = readVintDataSize(bytes, entryOff) ?: break
                     entryOff += subSize.length
-                    val dataLen = Math.min(subSize.value.toInt(), bytes.size - entryOff)
+                    val dataLen = EbmlBounds.end(entryOff, subSize.value, nextElem) - entryOff
+                    // A scalar/string extending beyond this prefix is not a complete value.
+                    if (subSize.value > dataLen && subId.value != 0xE0L && subId.value != 0xE1L) break
 
                     when (subId.value) {
                         0xD7L -> track.number = readUint(bytes, entryOff, dataLen).toInt()
@@ -932,7 +957,7 @@ class RemoteDeliveryModule(
                                 vOff += vId.length
                                 val vSize = readVintDataSize(bytes, vOff) ?: break
                                 vOff += vSize.length
-                                val vdLen = Math.min(vSize.value.toInt(), vEnd - vOff)
+                                val vdLen = EbmlBounds.end(vOff, vSize.value, vEnd) - vOff
                                 if (vId.value == 0xB0L) track.width = readUint(bytes, vOff, vdLen).toInt()
                                 if (vId.value == 0xBAL) track.height = readUint(bytes, vOff, vdLen).toInt()
                                 vOff += vdLen
@@ -946,7 +971,7 @@ class RemoteDeliveryModule(
                                 aOff += aId.length
                                 val aSize = readVintDataSize(bytes, aOff) ?: break
                                 aOff += aSize.length
-                                val adLen = Math.min(aSize.value.toInt(), aEnd - aOff)
+                                val adLen = EbmlBounds.end(aOff, aSize.value, aEnd) - aOff
                                 if (aId.value == 0x9FL) track.channels = readUint(bytes, aOff, adLen).toInt()
                                 aOff += adLen
                             }
@@ -1090,7 +1115,7 @@ class RemoteDeliveryModule(
 
             if (bytes == null || bytes.size < 64) null else parseEbmlTracks(bytes)
         } catch (e: Exception) {
-            VegaLog.w(TAG, "tryInspectMkvTracks failed: ${e.message}")
+            VegaLog.w(TAG, "MKV inspection fallback: ${e.javaClass.simpleName}: ${e.message?.take(160)}")
             null
         }
     }
@@ -1772,7 +1797,7 @@ class RemoteDeliveryModule(
                 requestBuilder.header("Range", rangeHeader)
             }
 
-            val okResponse = httpClient.newCall(requestBuilder.build()).execute()
+            val okResponse = executeMediaRequest(httpClient, requestBuilder.build())
             val responseStatus = Response.Status.lookup(okResponse.code) ?: Response.Status.INTERNAL_ERROR
             val body = okResponse.body
             val inputStream = body?.byteStream() ?: ByteArrayInputStream(ByteArray(0))

@@ -1,3 +1,4 @@
+import {openExternalApp as launchDownloadApp, usesExternalApp} from '../lib/externalApps';
 import React, { useEffect, useState } from 'react';
 import { View, TouchableOpacity, ToastAndroid, Pressable, UIManager, findNodeHandle } from 'react-native';
 import { ifExists } from '../lib/file/ifExists';
@@ -7,7 +8,6 @@ import { Stream, SkipInterval } from '../lib/providers/types';
 import Svg, { Circle, Path } from 'react-native-svg';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import useContentStore from '../lib/zustand/contentStore';
-import * as IntentLauncher from 'expo-intent-launcher';
 import { cancelDownload } from '../lib/downloadManager';
 import { downloadManager } from '../lib/downloader';
 import DownloadBottomSheet from './DownloadBottomSheet';
@@ -28,6 +28,7 @@ import {
   createSubtitleFileName,
   isSubtitleDownloadItem,
 } from '../lib/downloadId';
+import { findEpisodeDownload } from '../lib/downloadLibrary';
 import useDownloadsStore, {
   CURRENT_DOWNLOAD_STATUSES,
 } from '../lib/zustand/downloadsStore';
@@ -187,18 +188,14 @@ const DownloadComponent = ({
   const focusBorderColor = useTVFocusBorderColor(primary);
   const provider = useContentStore(state => state.provider);
 
-  const videoDownload = useDownloadsStore(
-    state =>
-      (state.downloads[downloadId] &&
-        !isSubtitleDownloadItem(state.downloads[downloadId])
-        ? state.downloads[downloadId]
-        : null) ||
-      Object.values(state.downloads).find(
-        item =>
-          !isSubtitleDownloadItem(item) &&
-          item.infoUrl === infoUrl &&
-          item.sourceLink === link,
-      ),
+  const videoDownload = useDownloadsStore(state =>
+    findEpisodeDownload(Object.values(state.downloads), {
+      downloadId,
+      infoUrl,
+      link,
+      seasonTitle,
+      episodeName,
+    }),
   );
 
   // useShallow: the filter returns a new array on every store change, which
@@ -456,7 +453,7 @@ const DownloadComponent = ({
 
   const fetchAndOpenSheet = async (isLongPress = false) => {
     const isAlwaysExternal =
-      settingsStorage.getBool('alwaysExternalDownloader') === true;
+      usesExternalApp('downloader');
     const shouldUseQuickDownload =
       Boolean(quickDownload) &&
       !isLongPress &&
@@ -516,50 +513,10 @@ const DownloadComponent = ({
     headers?: Record<string, string>,
   ) => {
     try {
-      const isTorrent =
-        targetType === 'torrent' || targetLink.startsWith('magnet:');
-      const intentParams: any = {
-        data: targetLink,
-        flags: 1,
-      };
-
-      if (!isTorrent) {
-        intentParams.type = 'application/octet-stream';
-      }
-
-      if (headers && Object.keys(headers).length > 0) {
-        const extra: Record<string, any> = {
-          ...headers,
-          headers: headers,
-          'android.media.intent.extra.HTTP_HEADERS': headers,
-        };
-
-        const referer = headers['Referer'] || headers['referer'];
-        if (referer) {
-          extra['android.intent.extra.REFERRER'] = referer;
-          extra['android.intent.extra.REFERRER_NAME'] = referer;
-        }
-
-        intentParams.extra = extra;
-      }
-
-      await IntentLauncher.startActivityAsync(
-        'android.intent.action.VIEW',
-        intentParams,
-      );
+      const torrent = targetType === 'torrent' || targetLink.startsWith('magnet:');
+      await launchDownloadApp('downloader', targetLink, torrent ? null : 'application/octet-stream', headers);
     } catch (error) {
-      console.log('Error opening with application/octet-stream:', error);
-      try {
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: targetLink,
-        });
-      } catch (fallbackError) {
-        console.log('Fallback intent error:', fallbackError);
-        ToastAndroid.show(
-          'No app found to handle this download',
-          ToastAndroid.SHORT,
-        );
-      }
+      ToastAndroid.show(error instanceof Error ? error.message : 'Could not open downloader', ToastAndroid.LONG);
     }
   };
 
@@ -731,6 +688,7 @@ const DownloadComponent = ({
         downloadedSubtitles={downloadedSubsList}
         isSubDownloaded={isSubDownloaded}
         onDeleteSub={deleteSubtitleDownload}
+        subtitleSearchQuery={imdbId || showName || title}
         onPressVideo={(server: Stream) => {
           downloadSingleVideoStream(server);
         }}
@@ -755,7 +713,7 @@ const DownloadComponent = ({
             sourceLink: link,
             url: sub.link,
             fileName: createSubtitleFileName(fileName, sub.title),
-            fileType: sub.type,
+            fileType: sub.type === 'text/vtt' ? 'vtt' : 'srt',
             deleteDownload: () => deleteSubtitleDownload(sub.title),
           });
         }}

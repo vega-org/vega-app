@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+@@ -104,7 +104,13 @@
+         Log.d(TAG, "Using video encoder factory: " + encoderFactory.getClass().getCanonicalName());
+         Log.d(TAG, "Using video decoder factory: " + decoderFactory.getClass().getCanonicalName());
+ 
++        // ConnectivityManager excludes a phone's own tethering interface.
++        // Enumerate OS interfaces so encrypted data channels can reach hotspot
++        // clients as well as ordinary Wi-Fi peers.
++        PeerConnectionFactory.Options factoryOptions = new PeerConnectionFactory.Options();
++        factoryOptions.disableNetworkMonitor = true;
+         mFactory = PeerConnectionFactory.builder()
++                             .setOptions(factoryOptions)
+                            .setAudioDeviceModule(adm)
+                            .setVideoEncoderFactory(encoderFactory)
+                            .setVideoDecoderFactory(decoderFactory)

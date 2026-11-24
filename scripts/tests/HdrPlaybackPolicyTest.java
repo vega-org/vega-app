@@ -3,19 +3,26 @@ public class HdrPlaybackPolicyTest {
   static void check(boolean v) { if (!v) throw new AssertionError(); }
   public static void main(String[] args) {
     HdrPlaybackPolicy p = HdrPlaybackPolicy.INSTANCE;
-    check(p.dolbyDecoderActive(true,true,"c2.dolby.decoder.hevc",true,true));
-    check(p.dolbyDecoderActive(true,true,"OMX.DOLBY.decoder",true,true));
-    check(!p.dolbyDecoderActive(false,true,"c2.dolby.decoder.hevc",true,true));
-    check(!p.dolbyDecoderActive(true,false,"c2.dolby.decoder.hevc",true,true));
-    check(!p.dolbyDecoderActive(true,true,"c2.qti.hevc.decoder",true,true));
-    check(!p.dolbyDecoderActive(true,true,"c2.dolby.decoder.hevc",false,true));
-    check(!p.dolbyDecoderActive(true,true,"c2.dolby.decoder.hevc",true,false));
+    // Advertised DV profiles, rather than vendor decoder naming, establish capability.
+    check(p.supportsDolbyProfile(256, java.util.Set.of(32, 256)));
+    check(!p.supportsDolbyProfile(512, java.util.Set.of(32, 256)));
+    check(!p.supportsDolbyProfile(null, java.util.Set.of(256)));
+    check(!p.supportsDolbyProfile(256, null));
+    check(!p.supportsDolbyProfile(256, java.util.Set.of()));
+    check(p.dolbyDecoderActive(true,true,true,true,true));
+    check(!p.dolbyDecoderActive(false,true,true,true,true));
+    check(!p.dolbyDecoderActive(true,false,true,true,true));
+    check(!p.dolbyDecoderActive(true,true,false,true,true));
+    check(!p.dolbyDecoderActive(true,true,true,false,true));
+    check(!p.dolbyDecoderActive(true,true,true,true,false));
     // PQ/HLG output does not depend on headroom or hardware decoding.
     check(p.hasHdrEvidence(6,6,true,true,false,null));
     check(p.hasHdrEvidence(7,7,true,true,false,null));
     check(p.hasHdrEvidence(6,3,true,true,false,null));
     check(p.hasHdrEvidence(null,6,true,true,false,2.25));
     check(!p.hasHdrEvidence(null,6,true,true,false,1.0));
+    check(!p.hasHdrEvidence(null,6,true,true,false,Double.NaN));
+    check(!p.hasHdrEvidence(null,6,true,true,false,Double.POSITIVE_INFINITY));
     check(p.hasHdrEvidence(null,7,true,true,false,2.25));
     check(!p.hasHdrEvidence(3,6,true,true,false,null)); // tone mapped SDR
     check(!p.hasHdrEvidence(null,6,false,true,false,null)); // source alone

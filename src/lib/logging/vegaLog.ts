@@ -132,8 +132,14 @@ export const shareLogs = async (extraHeader?: string): Promise<void> => {
 };
 
 export const clearLogs = async (): Promise<void> => {
+  if (!VegaLog) throw new Error('Logs are unavailable on this device');
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
   pending = [];
-  await VegaLog?.clear();
+  lastMessage = '';
+  lastLevel = 0;
+  repeats = 0;
+  await VegaLog.clear();
 };
 
 /**

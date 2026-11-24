@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   ToastAndroid,
   ScrollView,
-  useWindowDimensions,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -42,8 +41,6 @@ const SearchSubtitles = ({
   const colors = useM3Colors();
   const primary = colors.primary;
   const focusBorderColor = useTVFocusBorderColor(primary);
-  const {width} = useWindowDimensions();
-  const contentWidth = Math.min(width - 32, 1120);
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [season, setSeason] = useState('');
   const [episode, setEpisode] = useState('');
@@ -134,7 +131,7 @@ const SearchSubtitles = ({
       ) : (
         <PlayerMenuRow
           title="Search subtitles online"
-          detail="Find a subtitle from OpenSubtitles"
+          detail="Find subtitles for this video"
           accentColor={primary}
           icon="travel-explore"
           onPress={() => setSearchModalVisible(true)}
@@ -154,7 +151,8 @@ const SearchSubtitles = ({
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{flex: 1}}>
-          <View className="flex-1 self-center" style={{width: contentWidth}}>
+          <View
+            style={{flex: 1, alignSelf: 'center', width: '100%', maxWidth: 1120, paddingHorizontal: 16, minWidth: 0}}>
             <View className="flex-row items-center py-3">
               <Pressable
                 accessibilityLabel="Close subtitle search"
@@ -180,7 +178,7 @@ const SearchSubtitles = ({
                 onPress={() => setSearchModalVisible(false)}>
                 <MaterialIcons name="arrow-back" size={25} color="white" />
               </Pressable>
-              <View className="ml-3">
+              <View className="ml-3" style={{flex: 1, minWidth: 0}}>
                 <AppText className="text-white text-xl font-bold">
                   Search subtitles
                 </AppText>
@@ -191,7 +189,7 @@ const SearchSubtitles = ({
             </View>
 
             <ScrollView
-              style={{flex: 1}}
+              style={{flex: 1, minWidth: 0}}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               contentContainerStyle={{flexGrow: 1, paddingBottom: 24}}>
@@ -336,7 +334,7 @@ const SearchSubtitles = ({
                         numberOfLines={1}>
                         {[result?.InfoReleaseGroup, result?.UserNickName]
                           .filter(Boolean)
-                          .join(' · ') || 'OpenSubtitles'}
+                          .join(' · ')}
                       </AppText>
                     </View>
                     {(Number(result?.SeriesSeason) > 0 ||

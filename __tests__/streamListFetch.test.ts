@@ -1,11 +1,20 @@
+jest.mock('../src/lib/hooks/useSavedSubtitles', () => {
+  const savedSubtitles: any[] = [];
+  return {useSavedSubtitles: () => ({savedSubtitles, saveSubtitle: jest.fn(), removeSavedSubtitle: jest.fn()})};
+});
+jest.mock('../src/lib/subtitles/savedSubtitles', () => ({
+  subtitleVideoKey: (episode: any) => episode?.sourceLink || episode?.id || episode?.link || '',
+  savedSubtitleTrack: (track: any) => track,
+}));
 const mockGetStream = jest.fn();
+let mockExcludedQualities = ['480p'];
 const mockDownloads: Record<string, any> = {};
 
 jest.mock('../src/lib/services/ProviderManager', () => ({
   providerManager: {getStream: (args: object) => mockGetStream(args)},
 }));
 jest.mock('../src/lib/storage', () => ({
-  settingsStorage: {getExcludedQualities: () => ['480p']},
+  settingsStorage: {getExcludedQualities: () => mockExcludedQualities},
 }));
 jest.mock('../src/lib/file/ifExists', () => ({ifExists: async () => null}));
 jest.mock('../src/lib/downloadDestination', () => ({
@@ -39,6 +48,7 @@ const sd = {
 const local = {server: 'Downloaded', link: '/downloads/e1.mkv', type: 'mp4'};
 
 beforeEach(() => {
+  mockExcludedQualities = ['480p'];
   for (const key of Object.keys(mockDownloads)) delete mockDownloads[key];
   mockGetStream.mockReset().mockResolvedValue([hd, sd]);
 });
@@ -61,6 +71,18 @@ it('loads the provider servers without excluded qualities', async () => {
     signal: expect.any(AbortSignal),
     providerValue: 'source',
   });
+});
+
+it('excludes 1080p and 4K across provider quality labels', async () => {
+  mockExcludedQualities = ['1080p', '4K'];
+  const excluded = ['1080', '1080p', '4k', '2160', '2160p'].map(quality => ({
+    server: quality,
+    link: `https://cdn.test/${quality}.mp4`,
+    type: 'mp4',
+    quality,
+  }));
+  mockGetStream.mockResolvedValue([...excluded, sd]);
+  await expect(fetchStreamList(request)).resolves.toEqual([sd]);
 });
 
 it('lists a download first and reports it before the servers load', async () => {

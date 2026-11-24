@@ -14,6 +14,10 @@ export const registerWafOperation = (scope: AbortSignal): (() => void) => {
   };
 };
 
+export const dismissWafOperation = (scope?: AbortSignal): void => {
+  if (scope) dismissed.add(scope);
+};
+
 export const dismissWafOperations = (): void => {
   active.forEach((_, scope) => dismissed.add(scope));
 };

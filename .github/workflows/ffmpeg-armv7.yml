@@ -1,0 +1,35 @@
+name: Verify ARMv7 FFmpegKit build
+on:
+  pull_request:
+    paths:
+      - 'scripts/build-ffmpeg-armv7.sh'
+      - 'scripts/check-ffmpeg-abis.py'
+      - '.github/actions/ffmpeg-armv7/**'
+      - '.github/workflows/ffmpeg-armv7.yml'
+      - 'plugins/with-custom-native-modules.js'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Test packaging validation and prebuild integration
+        run: |
+          python3 scripts/tests/test_ffmpeg_abis.py
+          node --test scripts/tests/ffmpeg-prebuild.test.cjs
+      - uses: ./.github/actions/ffmpeg-armv7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-armv7-8.1.9
+          path: .native/ffmpeg-armv7
+          retention-days: 14

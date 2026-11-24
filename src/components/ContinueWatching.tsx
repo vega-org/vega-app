@@ -1,17 +1,19 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, type CompositeNavigationProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import React, {useCallback, useMemo, useState} from 'react';
 import {FlatList, TouchableOpacity, View} from 'react-native';
 import ReactNativeHapticFeedback, {
   HapticFeedbackTypes,
 } from 'react-native-haptic-feedback';
-import type {HomeStackParamList} from '../App';
+import type {HomeStackParamList, RootStackParamList} from '../App';
 import {useImageAccent} from '../lib/hooks/useImageAccent';
+import {resolveContinueWatchingOfflinePlayback} from '../lib/player/offlineContinueWatching';
 import {getContinueWatchingRow} from '../lib/player/upNext';
 import {settingsStorage} from '../lib/storage';
 import {showAppDialog} from '../lib/zustand/appDialogStore';
+import useDownloadsStore from '../lib/zustand/downloadsStore';
 import useContinueWatchingStore, {
   type ContinueWatchingItem,
 } from '../lib/zustand/continueWatchingStore';
@@ -23,7 +25,7 @@ import {TVFocusable} from './tv';
 import useLocalContentStore from '../lib/zustand/localContentStore';
 import {localContentId, localContentInfo, localContentLink} from '../lib/localContent/library';
 import {getLocalContinueWatching} from '../lib/localContent/playback';
-import {cacheStorage} from '../lib/storage';
+import {watchProgressStorage} from '../lib/storage';
 
 interface ContinueWatchingCardProps {
   item: ContinueWatchingItem;
@@ -90,8 +92,12 @@ const ContinueWatchingCard = ({
 
 const ContinueWatching = ({localOnly = false}: {localOnly?: boolean}) => {
   const colors = useM3Colors();
-  const navigation =
-    useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const navigation = useNavigation<
+    CompositeNavigationProp<
+      NativeStackNavigationProp<HomeStackParamList>,
+      NativeStackNavigationProp<RootStackParamList>
+    >
+  >();
   const storedItems = useContinueWatchingStore(state => state.items);
   const localTitles = useLocalContentStore(state => state.titles);
   const removeItem = useContinueWatchingStore(state => state.removeItem);
@@ -105,7 +111,7 @@ const ContinueWatching = ({localOnly = false}: {localOnly?: boolean}) => {
     () => {
       const localItems: ContinueWatchingItem[] = localTitles.flatMap(title => {
         const target = getLocalContinueWatching(title, uri => {
-          try { return JSON.parse(cacheStorage.getString(uri) || 'null') || undefined; } catch { return undefined; }
+          return watchProgressStorage.getProgress(uri) || undefined;
         });
         if (!target) return [];
         const link = localContentLink(title.id);
@@ -133,7 +139,7 @@ const ContinueWatching = ({localOnly = false}: {localOnly?: boolean}) => {
   );
 
   const handleCardPress = useCallback(
-    (item: ContinueWatchingItem) => {
+    async (item: ContinueWatchingItem) => {
       if (isSelectionMode) {
         triggerHaptic(HapticFeedbackTypes.effectTick);
         setSelectedIds(prev => {
@@ -146,6 +152,15 @@ const ContinueWatching = ({localOnly = false}: {localOnly?: boolean}) => {
           return next;
         });
       } else {
+        const offlinePlayerParams = await resolveContinueWatchingOfflinePlayback(
+          item,
+          useDownloadsStore.getState().downloads,
+          {alwaysCast: !isTV && settingsStorage.isAlwaysCastMode()},
+        );
+        if (offlinePlayerParams) {
+          navigation.navigate('Player', offlinePlayerParams);
+          return;
+        }
         navigation.navigate('Info', {
           link: item.infoUrl,
           provider: item.providerValue,

@@ -1,3 +1,4 @@
+import {ProviderVersionMismatchError, validateProviderModuleVersion, validateProviderModuleSet} from './providerVersion';
 import axios from 'axios';
 import {
   extensionStorage,
@@ -53,6 +54,15 @@ export const throwIfRateLimited = (error: unknown): void => {
 /**
  * Extension manager service for handling dynamic provider loading
  */
+const isNewerInstalledVersion = (installed: string, requested: string): boolean => {
+  const current = installed.split('.').map(part => parseInt(part, 10) || 0);
+  const next = requested.split('.').map(part => parseInt(part, 10) || 0);
+  for (let i = 0; i < Math.max(current.length, next.length); i++) {
+    if ((current[i] || 0) !== (next[i] || 0)) return (current[i] || 0) > (next[i] || 0);
+  }
+  return false;
+};
+
 export class ExtensionManager {
   private static instance: ExtensionManager;
   private readonly legacyCustomProviderBaseUrlKey = 'customProviderBaseUrl';
@@ -244,6 +254,7 @@ export class ExtensionManager {
     providerValue: string,
     version: string,
     path?: string,
+    cacheResult = true,
   ): Promise<ProviderModule> {
     if (this.testMode) {
       return this.downloadTestProviderModule(providerValue);
@@ -257,21 +268,31 @@ export class ExtensionManager {
       const modules: Record<string, string> = {};
       const downloadPromises = allFiles.map(async fileName => {
         try {
-          const url = `${filesUrl}/${fileName}.js?t=${Date.now()}`;
-          console.log(`Downloading: ${url}`);
+          // Retry a stale CDN body once with a fresh cache key; never commit a partial set.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const url = `${filesUrl}/${fileName}.js?v=${encodeURIComponent(version)}&t=${Date.now()}-${attempt}`;
+              console.log(`Downloading: ${url}`);
 
-          const response = await axios.get(url, {
-            timeout: 15000,
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              Pragma: 'no-cache',
-              Expires: '0',
-              ...getSourceAuthHeaders(sourceAuthor, url),
-            },
-          });
+              const response = await axios.get(url, {
+                timeout: 15000,
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  Pragma: 'no-cache',
+                  Expires: '0',
+                  ...getSourceAuthHeaders(sourceAuthor, url),
+                },
+              });
 
-          if (response.data) {
-            modules[fileName] = response.data;
+              if (typeof response.data !== 'string' || !response.data.trim()) {
+                throw new Error(`Invalid module response: ${fileName}.js`);
+              }
+              validateProviderModuleVersion(response.data, providerValue, version, fileName);
+              modules[fileName] = response.data;
+              break;
+            } catch (error) {
+              if (!(error instanceof ProviderVersionMismatchError) || attempt === 1) throw error;
+            }
           }
         } catch (error) {
           if (requiredFiles.includes(fileName)) {
@@ -285,6 +306,8 @@ export class ExtensionManager {
             );
             throw error;
           } else {
+            const status = (error as {response?: {status?: number}})?.response?.status;
+            if (status !== 404 && status !== 410) throw error;
             console.warn(
               `Optional file ${fileName}.js not found for ${providerValue}`,
             );
@@ -293,6 +316,7 @@ export class ExtensionManager {
       });
 
       await Promise.all(downloadPromises);
+      validateProviderModuleSet(modules, providerValue, version);
 
       // Verify required files were downloaded
       const missingRequired = requiredFiles.filter(file => !modules[file]);
@@ -318,7 +342,7 @@ export class ExtensionManager {
       };
 
       // Cache the modules
-      extensionStorage.cacheProviderModules(providerModule);
+      if (cacheResult) extensionStorage.cacheProviderModules(providerModule);
 
       return providerModule;
     } catch (error) {
@@ -440,18 +464,19 @@ export class ExtensionManager {
   /**
    * Update a provider
    */
-  async updateProvider(provider: ProviderExtension): Promise<boolean> {
-    if (!extensionStorage.isProviderInstalled(provider.value, provider.source.author)) {
+  async updateProvider(provider: ProviderExtension, shouldApply: () => boolean = () => true): Promise<boolean> {
+    if (!shouldApply() || !extensionStorage.isProviderInstalled(provider.value, provider.source.author)) {
       return false;
     }
     try {
       // Download updated modules
-      await this.downloadProviderModules(
+      const downloaded = await this.downloadProviderModules(
         provider.source.url,
         provider.source.author,
         provider.value,
         provider.version,
         provider.path,
+        false,
       );
 
       // Uninstall or source removal during the download takes precedence.
@@ -459,6 +484,16 @@ export class ExtensionManager {
         extensionStorage.removeProviderModules(provider.value, provider.source.author);
         return false;
       }
+
+      // A newer manual/automatic update may have finished while this download ran.
+      // The check and synchronous commit share one JS turn, so stale code cannot win.
+      const latest = extensionStorage.getInstalledProviders().find(
+        item => item.value === provider.value && item.source?.author === provider.source.author,
+      );
+      if (latest && isNewerInstalledVersion(latest.version, provider.version)) return false;
+      // Recheck immediately before committing code and version together.
+      if (!shouldApply()) return false;
+      extensionStorage.cacheProviderModules(downloaded);
 
       // Update the existing installation record.
       extensionStorage.installProvider(provider);

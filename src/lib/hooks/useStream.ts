@@ -1,3 +1,6 @@
+import {isExcludedQuality} from '../streamQuality';
+import {useSavedSubtitles} from './useSavedSubtitles';
+import {savedSubtitleTrack, subtitleVideoKey} from '../subtitles/savedSubtitles';
 import {deduplicateVideoTracks} from '../player/playbackQuality';
 import {externalVideoStream} from '../services/videoIntent';
 import { useQuery } from '@tanstack/react-query';
@@ -183,16 +186,67 @@ export const getDownloadedSubtitlesForMedia = (
     const isSub =
       item.isSubtitle ||
       isSubtitleDownloadItem(item) ||
-      item.displayFileName?.endsWith('.vtt') ||
-      item.displayFileName?.endsWith('.srt') ||
-      item.filePath?.endsWith('.vtt') ||
-      item.filePath?.endsWith('.srt');
+      /\.(vtt|srt)$/i.test(item.displayFileName || '') ||
+      /\.(vtt|srt)$/i.test(item.filePath || '');
 
     if (!isSub) {
       return false;
     }
 
     const episodeSourceLink = activeEpisode?.sourceLink || activeEpisode?.link;
+    const isSingleEpisode =
+      !routeParams?.episodeList || routeParams.episodeList.length <= 1;
+    const initialEpisode =
+      typeof routeParams?.linkIndex === 'number'
+        ? routeParams.episodeList?.[routeParams.linkIndex]
+        : undefined;
+    const isInitialEpisode =
+      Boolean(initialEpisode) &&
+      ((initialEpisode.id &&
+        activeEpisode?.id &&
+        initialEpisode.id === activeEpisode.id) ||
+        (initialEpisode.link &&
+          activeEpisode?.link &&
+          initialEpisode.link === activeEpisode.link) ||
+        (initialEpisode.sourceLink &&
+          activeEpisode?.sourceLink &&
+          initialEpisode.sourceLink === activeEpisode.sourceLink) ||
+        initialEpisode.title === activeEpisode?.title);
+    const activeLocalPath = isLocalPath(activeEpisode?.link)
+      ? activeEpisode.link
+      : isLocalPath(activeEpisode?.filePath)
+        ? activeEpisode.filePath
+        : (isSingleEpisode || isInitialEpisode) &&
+            isLocalPath(routeParams?.directUrl)
+          ? routeParams.directUrl
+          : undefined;
+
+    if (
+      activeEpisode?.id &&
+      item.id.startsWith(`${activeEpisode.id}_subtitle_`)
+    ) {
+      return true;
+    }
+
+    const matchedVideoDownload = allDownloads.find(
+      candidate =>
+        candidate.status === 'completed' &&
+        Boolean(candidate.filePath) &&
+        !candidate.isSubtitle &&
+        !isSubtitleDownloadItem(candidate) &&
+        ((activeLocalPath && candidate.filePath === activeLocalPath) ||
+          (episodeSourceLink &&
+            (candidate.sourceLink === episodeSourceLink ||
+              candidate.url === episodeSourceLink ||
+              candidate.filePath === episodeSourceLink))),
+    );
+    if (
+      matchedVideoDownload?.id &&
+      item.id.startsWith(`${matchedVideoDownload.id}_subtitle_`)
+    ) {
+      return true;
+    }
+
     if (episodeSourceLink && item.sourceLink === episodeSourceLink) {
       return true;
     }
@@ -222,11 +276,9 @@ export const getDownloadedSubtitlesForMedia = (
       }
     }
 
-    if (routeParams?.directUrl) {
-      const videoBase = routeParams.directUrl.substring(
-        0,
-        routeParams.directUrl.lastIndexOf('.'),
-      );
+    if (activeLocalPath) {
+      const lastDot = activeLocalPath.lastIndexOf('.');
+      const videoBase = lastDot > 0 ? activeLocalPath.substring(0, lastDot) : '';
       if (videoBase && item.filePath.startsWith(videoBase)) {
         return true;
       }
@@ -237,23 +289,23 @@ export const getDownloadedSubtitlesForMedia = (
 
   return downloadedSubs.map(sub => {
     const isVtt =
-      sub.videoType === 'vtt' ||
-      sub.filePath?.endsWith('.vtt') ||
-      sub.displayFileName?.endsWith('.vtt');
+      sub.videoType?.toLowerCase().includes('vtt') ||
+      /\.vtt$/i.test(sub.filePath || '') ||
+      /\.vtt$/i.test(sub.displayFileName || '');
     const uri =
       sub.filePath.startsWith('file://') ||
-        sub.filePath.startsWith('content://')
+      sub.filePath.startsWith('content://')
         ? sub.filePath
         : `file://${sub.filePath}`;
 
     let title = sub.episodeName || sub.title;
     let language = 'en';
     const match =
-      sub.title.match(/subtitle\s+([a-zA-Z]+)/i) ||
-      sub.id.match(/_subtitle_(.+)$/);
-    if (match) {
-      title = match[1];
-      language = match[1];
+      sub.id.match(/_subtitle_(.+)$/) ||
+      sub.title.match(/subtitle\s+([a-zA-Z]+)/i);
+    if (match?.[1]?.trim()) {
+      title = match[1].trim();
+      language = match[1].trim();
     }
 
     return {
@@ -378,6 +430,29 @@ export const getNextStream = (
   return streams[currentIndex + 1];
 };
 
+// A refetch gives the same servers new links. Match the server, then its
+// quality and tag when it has several, so playback stays on the one the user
+// had.
+export const findSameServer = (
+  streams: Stream[],
+  current: Stream,
+): Stream | undefined => {
+  if (!current?.server) return undefined;
+  let best: Stream | undefined;
+  let bestScore = -1;
+  for (const stream of streams) {
+    if (stream.server !== current.server) continue;
+    const score =
+      (stream.quality === current.quality ? 2 : 0) +
+      (stream.tag === current.tag ? 1 : 0);
+    if (score > bestScore) {
+      best = stream;
+      bestScore = score;
+    }
+  }
+  return best;
+};
+
 // A stream handed to the player for its first episode, such as the one an
 // unfinished download reads. It plays before online servers load.
 export const getInitialStream = (
@@ -410,6 +485,8 @@ export const getStreamQueryKey = (
 // list stays fresh and retries exactly like one the player loaded itself.
 export const streamQueryOptions = {
   staleTime: 5 * 60 * 1000, // 5 minutes
+  // Local downloaded files must resolve even if onlineManager ever reports offline.
+  networkMode: 'always' as const,
   gcTime: 30 * 60 * 1000, // 30 minutes
   retry: (failureCount: number, streamFailure: Error) => {
     if (streamFailure.message?.includes('WAF')) return false;
@@ -513,7 +590,7 @@ export const fetchStreamList = async ({
       // Filter out excluded qualities
       const excludedQualities = settingsStorage.getExcludedQualities() || [];
       const filteredQualities = data?.filter(
-        streamItem => !excludedQualities.includes(streamItem?.quality + 'p'),
+        streamItem => !isExcludedQuality(streamItem?.quality, excludedQualities),
       );
 
       remoteStreams =
@@ -565,6 +642,8 @@ export const useStream = ({
   const [externalSubs, setExternalSubs] = useState<any[]>([]);
 
   const activeEpisodeKey = getEpisodeIdentity(activeEpisode);
+  const subtitleCacheKey = subtitleVideoKey(activeEpisode, routeParams, provider);
+  const {savedSubtitles, saveSubtitle, removeSavedSubtitle} = useSavedSubtitles(subtitleCacheKey);
   const subtitleSourcesRef = useRef({episodeKey: activeEpisodeKey, uris: new Set<string>()});
   const activeEpisodeKeyRef = useRef(activeEpisodeKey);
   activeEpisodeKeyRef.current = activeEpisodeKey;
@@ -610,11 +689,14 @@ export const useStream = ({
     refetch,
   } = useQuery<Stream[], Error>({
     queryKey: getStreamQueryKey(activeEpisode, routeParams, provider),
-    queryFn: () =>
+    // Reading signal lets React Query cancel the provider call once nothing
+    // needs it (player closed, episode changed), so it frees its sandbox slot.
+    queryFn: ({signal}) =>
       fetchStreamList({
         episode: activeEpisode,
         routeParams,
         provider,
+        signal,
         isLocalFailed: () => localFailedRef.current,
         // A fetch from a previous episode must not replace the current selection.
         onLocalStream: localStream => {
@@ -668,7 +750,7 @@ export const useStream = ({
       if (!streamData.length) return current;
       return streamData.some(stream => stream.link === current.link)
         ? current
-        : streamData[0];
+        : findSameServer(streamData, current) || streamData[0];
     });
   }, [streamData, localFailed, initialStreamLink, error]);
 
@@ -708,6 +790,9 @@ export const useStream = ({
       }
     });
 
+    const savedTracks = [...savedSubtitles].reverse().map(savedSubtitleTrack).filter(sub =>
+      !mergedSubs.some((managed: any) => managed.uri === sub.uri),
+    );
     const previousSources = subtitleSourcesRef.current;
     subtitleSourcesRef.current = {
       episodeKey: activeEpisodeKey,
@@ -717,15 +802,15 @@ export const useStream = ({
       // Refetching provider streams must not discard subtitles added by the user.
       // Their lifetime is the episode; managed provider/download tracks can refresh.
       const imported = previousSources.episodeKey === activeEpisodeKey
-        ? prev.filter((sub: any) => !previousSources.uris.has(sub.uri)
+        ? prev.filter((sub: any) => !sub.savedSubtitleId && !previousSources.uris.has(sub.uri)
           && !mergedSubs.some((managed: any) => managed.uri === sub.uri))
         : [];
-      const next = [...mergedSubs, ...imported];
+      const next = [...mergedSubs, ...savedTracks, ...imported];
       const prevKey = prev.map((s: any) => s.uri || '').join('|');
       const nextKey = next.map((s: any) => s.uri || '').join('|');
       return prevKey === nextKey ? prev : next;
     });
-  }, [streamData, activeEpisodeKey]);
+  }, [streamData, activeEpisodeKey, subtitleCacheKey, savedSubtitles]);
 
   // Handle errors
   useEffect(() => {
@@ -771,15 +856,46 @@ export const useStream = ({
     return false;
   };
 
+  // Asks the provider for new links, for when the selected one has expired.
+  // Resolves true when the failed link is gone from the new list; the effect
+  // above then moves to the same server's new link.
+  const refreshLinks = async () => {
+    const failedLink = selectedStream.link;
+    const {data} = await refetch();
+    return (
+      Boolean(data?.length) &&
+      !data!.some(stream => stream.link === failedLink)
+    );
+  };
+
+  // Failed downloads are excluded from automatic fallback, not from manual choices.
+  const selectableStreams = useMemo(() => {
+    const downloaded = localPlaceholder?.[0];
+    return downloaded && !streamData.some(stream => stream.link === downloaded.link)
+      ? [downloaded, ...streamData]
+      : streamData;
+  }, [localPlaceholder, streamData]);
+  const selectStream: typeof setSelectedStream = useCallback(next => {
+    if (typeof next !== 'function' && isLocalPath(next.link)) {
+      localFailedRef.current = false;
+      setFailedLocalEpisodeKey(undefined);
+    }
+    setSelectedStream(next);
+  }, []);
+
   return {
-    streamData,
+    streamData: selectableStreams,
     selectedStream,
-    setSelectedStream,
+    setSelectedStream: selectStream,
     externalSubs,
     setExternalSubs,
+    savedSubtitles,
+    saveSubtitle,
+    removeSavedSubtitle,
     isLoading: isLoading && !isPlayingLocal,
     error: isPlayingLocal ? null : error,
     refetch,
+    refreshLinks,
     switchToNextStream,
   };
 };

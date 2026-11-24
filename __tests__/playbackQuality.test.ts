@@ -22,7 +22,7 @@ it('uses decoded dimensions for local files and sources with no declared resolut
   expect(getPlaybackQuality([], {width: 2560, height: 1440}).label).toBe(
     '1440p',
   );
-  expect(getPlaybackQuality([], {height: 804}, 'Auto').label).toBe('804p');
+  expect(getPlaybackQuality([], {height: 804}, 'Auto').label).toBe('720p');
   expect(getPlaybackQuality([{width: 1920, height: 1080}], null).label).toBe(
     '1080p',
   );
@@ -60,4 +60,13 @@ it('preserves the active copy of duplicated formats', () => {
   expect(tracks).toHaveLength(2);
   expect(tracks[0].index).toBe(2);
   expect(getPlaybackQuality(tracks, null).label).toBe('1080p');
+});
+
+it('uses standard tiers for cropped and slightly uneven active dimensions', () => {
+  expect(getPlaybackQuality([], null, '1920x804').label).toBe('1080p');
+  expect(getPlaybackQuality([], {width: 1920, height: 804}).label).toBe('1080p');
+  expect(getPlaybackQuality([], {width: 3840, height: 1608}).label).toBe('2160p');
+  expect(getPlaybackQuality([], {width: 1920, height: 1072}).label).toBe('1080p');
+  expect(getPlaybackQuality([], {width: 1080, height: 1920}).label).toBe('1080p');
+  expect(getPlaybackQuality([{selected: true, width: 1280, height: 536}], {width: 3840, height: 2160}, '4K').label).toBe('720p');
 });

@@ -6,6 +6,7 @@ import AppText from '../ui/Text';
 import type {IMDbSuggestion} from '../../lib/services/imdbSuggestions';
 import {isTV} from '../../lib/tv/constants';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
+import {useFloatingTabBarInset} from '../navigation/FloatingTabBarInsetContext';
 
 interface SearchSuggestionsProps {
   suggestions: IMDbSuggestion[];
@@ -136,6 +137,7 @@ const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
   onFirstItemNodeHandle,
 }) => {
   const focusBorderColor = useTVFocusBorderColor();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const scrollViewRef = useRef<ScrollView>(null);
   const itemRefs = useRef<(View | null)[]>([]);
   const [nodeHandles, setNodeHandles] = useState<(number | null)[]>([]);
@@ -207,7 +209,7 @@ const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
           ref={scrollViewRef}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{paddingBottom: 20}}>
+          contentContainerStyle={{paddingBottom: 20 + floatingTabBarInset}}>
           {visibleSuggestions.map((item, index) => (
             <SuggestionItem
               key={`${item.title}-${index}`}

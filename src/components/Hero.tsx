@@ -1,4 +1,8 @@
+import {normalizeContentTags} from '../lib/contentTags';
+import {fitArtworkSize} from '../lib/artworkLayout';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import {settingsStorage} from '../lib/storage';
 import {useIsFocused, useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import React, {
@@ -10,6 +14,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  useWindowDimensions,
   AppState,
   Image,
   Modal,
@@ -38,6 +43,8 @@ import {
 } from '../lib/hooks/useHomePageData';
 import useContentStore from '../lib/zustand/contentStore';
 import useHeroStore from '../lib/zustand/herostore';
+import useWatchListStore, {type WatchList} from '../lib/zustand/watchListStore';
+import LibraryCollectionDialog from './library/LibraryCollectionDialog';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {mixHex} from '../theme/seeds';
 import {
@@ -105,6 +112,7 @@ const HeroTopButton = React.forwardRef<
   View,
   {
     disabled?: boolean;
+    filled?: boolean;
     icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
     iconColor: string;
     label: string;
@@ -120,6 +128,7 @@ const HeroTopButton = React.forwardRef<
   (
     {
       disabled = false,
+      filled = false,
       icon,
       iconColor,
       label,
@@ -154,8 +163,8 @@ const HeroTopButton = React.forwardRef<
           focusBorderColor={focusBorderColor}
           style={{
             alignItems: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.45)',
-            borderColor: 'rgba(255, 255, 255, 0.15)',
+            backgroundColor: filled ? '#282828' : 'rgba(0, 0, 0, 0.45)',
+            borderColor: filled ? '#404040' : 'rgba(255, 255, 255, 0.15)',
             borderRadius: 24,
             borderWidth: 1,
             height: 48,
@@ -167,7 +176,7 @@ const HeroTopButton = React.forwardRef<
             <MaterialCommunityIcons
               name={icon}
               size={28}
-              color={focused ? '#FFFFFF' : iconColor}
+              color={filled ? '#FFFFFF' : focused ? '#FFFFFF' : iconColor}
             />
           )}
         </TVFocusable>
@@ -182,14 +191,24 @@ const HeroTopButton = React.forwardRef<
         accessibilityRole="button"
         disabled={disabled}
         onPress={onPress}
-        style={({pressed}) => ({
+        android_ripple={{color: filled ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.18)', borderless: false}}
+        style={{
+          backgroundColor: filled ? '#282828' : undefined,
+          borderRadius: filled ? 24 : undefined,
+          borderColor: filled ? '#404040' : undefined,
+          borderWidth: filled ? 1 : 0,
           alignItems: 'center',
           height: 48,
           justifyContent: 'center',
-          opacity: disabled ? 0 : pressed ? 0.62 : 1,
+          opacity: disabled ? 0 : 1,
+          overflow: 'hidden',
           width: 48,
-        })}>
-        <MaterialCommunityIcons name={icon} size={30} color={iconColor} />
+        }}>
+        <MaterialCommunityIcons
+          name={icon}
+          size={filled ? 26 : 30}
+          color={filled ? '#FFFFFF' : iconColor}
+        />
       </Pressable>
     );
   },
@@ -201,6 +220,7 @@ const Hero = memo(
     const insets = useSafeAreaInsets();
     const [logoFailed, setLogoFailed] = useState(false);
     const [searchActive, setSearchActive] = useState(false);
+    const [libraryItem, setLibraryItem] = useState<WatchList | null>(null);
     const [searchText, setSearchText] = useState('');
     const [suggestions, setSuggestions] = useState<IMDbSuggestion[]>([]);
     const [searchButtonColor, setSearchButtonColor] = useState('#FFFFFF');
@@ -265,7 +285,7 @@ const Hero = memo(
     } = useHeroRotation(
       heroes,
       provider.value,
-      searchActive || isDrawerOpen || !isVisible || !isFocused || !appActive,
+      searchActive || !!libraryItem || isDrawerOpen || !isVisible || !isFocused || !appActive,
     );
     const navigation =
       useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
@@ -303,10 +323,41 @@ const Hero = memo(
       opacity: 1 - Math.min(Math.abs(dragX.get()) / 300, 0.35),
       transform: [{translateX: dragX.get()}],
     }));
-    const {data: heroData, error} = useHeroMetadata(
+    const {data: heroData} = useHeroMetadata(
       hero?.link || '',
       provider.value,
     );
+
+    const inLibrary = useWatchListStore(state =>
+      state.watchList.some(item => item.link === hero?.link),
+    );
+
+    const toggleLibrary = () => {
+      if (!hero?.link || !provider.value) {
+        return;
+      }
+      if (settingsStorage.isHapticFeedbackEnabled()) {
+        ReactNativeHapticFeedback.trigger('effectTick', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
+      }
+      const item = {
+        title: heroData?.title || hero.title,
+        poster: heroData?.poster || heroData?.image || hero.image || '',
+        link: hero.link,
+        provider: provider.value,
+      };
+      const {collections, removeItem, setItemCollections} =
+        useWatchListStore.getState();
+      if (collections.length !== 1) {
+        setLibraryItem(item);
+      } else if (inLibrary) {
+        removeItem(item.link);
+      } else {
+        setItemCollections(item, [collections[0].id]);
+      }
+    };
 
     const imageSource = useMemo(
       () => ({
@@ -323,7 +374,8 @@ const Hero = memo(
     // Posters and small images are shown blurred instead of stretched sharp.
     // The image is drawn once its size is known, so it never jumps from sharp
     // to blurred.
-    const {ready: artworkReady, posterLike} = useArtworkShape(imageUri);
+    const {ready: artworkReady, posterLike, aspectRatio} = useArtworkShape(imageUri);
+    const {width: viewportWidth} = useWindowDimensions();
     // The title block waits for the same measurement, so it appears once at
     // its final size instead of shrinking when poster mode kicks in.
     const textReady = !imageUri || artworkReady;
@@ -333,6 +385,8 @@ const Hero = memo(
     // Poster mode also uses a smaller logo and title to leave it more room.
     const posterTop = insets.top + 8;
     const posterBottom = HERO_CONTENT_BOTTOM + contentHeight + 10;
+    const posterSize = fitArtworkSize(aspectRatio ?? 2 / 3, viewportWidth - 48,
+      Math.max(0, HERO_HEIGHT - posterTop - posterBottom));
     const showPoster =
       posterLike &&
       contentHeight > 0 &&
@@ -463,7 +517,7 @@ const Hero = memo(
     const genres = useMemo(
       // Poster mode keeps genres to one short row to leave the poster room.
       () =>
-        (heroData?.genre || heroData?.tags || []).slice(0, posterLike ? 2 : 3),
+        normalizeContentTags(heroData?.genre || heroData?.tags || []).slice(0, posterLike ? 2 : 3),
       [heroData, posterLike],
     );
     const openDetails = useCallback(() => {
@@ -542,6 +596,7 @@ const Hero = memo(
               style={[
                 {
                   alignItems: 'center',
+                  justifyContent: 'center',
                   bottom: posterBottom,
                   left: 0,
                   position: 'absolute',
@@ -554,15 +609,15 @@ const Hero = memo(
                 key={`poster-${imageUri}`}
                 entering={FadeIn.duration(450)}
                 style={{
-                  aspectRatio: 2 / 3,
+                  width: posterSize.width,
+                  height: posterSize.height,
                   borderRadius: 12,
                   elevation: 12,
-                  height: '100%',
                   overflow: 'hidden',
                 }}>
                 <Image
                   source={imageSource}
-                  resizeMode="cover"
+                  resizeMode="contain"
                   resizeMethod="resize"
                   style={{height: '100%', width: '100%'}}
                 />
@@ -692,7 +747,9 @@ const Hero = memo(
 
             <View
               style={{
+                alignItems: 'center',
                 flexDirection: 'row',
+                gap: 12,
                 justifyContent: 'center',
                 marginTop: posterLike ? 10 : 14,
                 width: '100%',
@@ -707,18 +764,16 @@ const Hero = memo(
                 onPress={openDetails}>
                 Watch now
               </Button>
+              <HeroTopButton
+                filled
+                icon={inLibrary ? 'check' : 'plus'}
+                iconColor="#FFFFFF"
+                label={inLibrary ? 'Saved to Library' : 'Add to Library'}
+                onPress={toggleLibrary}
+                nextFocusLeft={watchNowNode}
+                nextFocusUp={hamburgerNode}
+              />
             </View>
-            {error && !heroData ? (
-              <AppText
-                role="bodySmall"
-                style={{
-                  color: colors.onSurfaceVariant,
-                  marginTop: 10,
-                  textAlign: 'center',
-                }}>
-                Some featured details are unavailable
-              </AppText>
-            ) : null}
           </Animated.View>
           {/* The dots sit below the title block so they never take space from
             the poster. */}
@@ -751,6 +806,14 @@ const Hero = memo(
               )}
             </View>
           ) : null}
+
+          {libraryItem && (
+            <LibraryCollectionDialog
+              visible
+              item={libraryItem}
+              onClose={() => setLibraryItem(null)}
+            />
+          )}
 
           {/* Full-screen Search Overlay with Auto-completion Suggestions */}
           <Modal

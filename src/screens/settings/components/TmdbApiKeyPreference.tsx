@@ -1,3 +1,4 @@
+import {SettingsSearchAnchor} from '../../../components/ui/SettingsSearchTarget';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {useFocusEffect} from '@react-navigation/native';
 import React, {useCallback, useState} from 'react';
@@ -61,9 +62,11 @@ const TmdbApiKeyPreference = ({draft}: {draft?: {
   return (
     <SettingsSection title="Metadata">
       <View style={{padding: 16}}>
-        <AppText role="bodyLarge" style={{color: colors.onSurface}}>
-          Custom TMDB API key
-        </AppText>
+        <SettingsSearchAnchor label="Custom TMDB API key">
+          <AppText role="bodyLarge" style={{color: colors.onSurface}}>
+            Custom TMDB API key
+          </AppText>
+        </SettingsSearchAnchor>
         <AppText
           role="bodySmall"
           style={{

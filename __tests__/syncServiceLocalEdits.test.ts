@@ -58,6 +58,10 @@ jest.mock('../src/lib/storage', () => ({
   settingsStorage: {
     getDownloadLocationConfig: () => ({type: 'saf', uri: 'content://tree'}),
   },
+  watchProgressStorage: {
+    setProgress: jest.fn(),
+    getProgress: jest.fn(),
+  },
 }));
 
 jest.mock('../src/lib/downloadLocation', () => ({

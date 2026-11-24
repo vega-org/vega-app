@@ -1,4 +1,12 @@
-import React, {Dispatch, SetStateAction, useMemo, useState} from 'react';
+import type {PlaybackTimeline} from '../../../../lib/player/liveTimeline';
+import React, {
+  Dispatch,
+  SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   View,
@@ -23,6 +31,7 @@ interface SeekbarProps {
   setSeekerWidth: Dispatch<SetStateAction<number>>;
   time?: number;
   duration: number;
+  timeline?: PlaybackTimeline;
   showDuration: boolean;
   showTimeRemaining: boolean;
   showHours: boolean;
@@ -52,6 +61,7 @@ export const Seekbar = ({
   showTimeRemaining,
   time,
   duration,
+  timeline,
   toggleTimer,
   resetControlTimeout,
   seeking,
@@ -61,6 +71,12 @@ export const Seekbar = ({
   snapPosition,
   skips,
 }: SeekbarProps) => {
+  // Keep the playback position from before the drag: `time` follows the thumb
+  // while seeking and cannot serve as the offset baseline.
+  const seekOrigin = useRef(time);
+  useEffect(() => {
+    if (!seeking) seekOrigin.current = time;
+  }, [seeking, time]);
   const size = controlScale * seekbarScale;
   const [trackWidth, setTrackWidth] = useState(0);
   const previewLeft = useMemo(
@@ -74,6 +90,8 @@ export const Seekbar = ({
       ),
     [seekerPosition, trackWidth],
   );
+  const live = timeline?.isLive === true;
+  const canSeek = timeline?.canSeek ?? duration > 0;
   const timestampStyle = {
     color: 'hsl(0, 0%, 70%)',
     fontSize: 12 * controlScale,
@@ -93,13 +111,13 @@ export const Seekbar = ({
         justifyContent: 'center',
         alignItems: 'center',
       }}>
-      <Pressable
+      {!live && <Pressable
         hitSlop={12}
         // TV uses the Player timeline; this toggle has no focus ring there.
         focusable={!Platform.isTV}
         accessibilityRole="button"
         accessibilityLabel={
-          showTimeRemaining ? 'Show elapsed time' : 'Show remaining time'
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
         }
         onPress={() => {
           toggleTimer();
@@ -108,21 +126,30 @@ export const Seekbar = ({
         <Text style={timestampStyle}>
           {formatTime({
             duration,
-            time: showTimeRemaining
-              ? Math.max(0, duration - (time ?? 0))
-              : time,
+            time,
             showDuration,
             showHours,
-            showTimeRemaining,
+            showTimeRemaining: false,
           })}
         </Text>
-      </Pressable>
+      </Pressable>}
       <View
-        style={{...styles.container, width: '80%', height: 20 * size, alignSelf: 'center', flexShrink: 1, minWidth: 0}}
+        style={{
+          ...styles.container,
+          width: '80%',
+          height: 20 * size,
+          alignSelf: 'center',
+          flexShrink: 1,
+          minWidth: 0,
+          opacity: canSeek ? 1 : 0.35,
+        }}
         collapsable={false}
-        {...seekerPanHandlers}>
+        {...(canSeek ? seekerPanHandlers : {})}
+        pointerEvents={canSeek ? 'auto' : 'none'}>
         {seeking && trackWidth > 0 ? (
-          <View style={[styles.preview, {left: previewLeft, bottom: 30 * size}]} pointerEvents="none">
+          <View
+            style={[styles.preview, {left: previewLeft, bottom: 30 * size}]}
+            pointerEvents="none">
             {thumbnailUri ? (
               <Image
                 key={thumbnailUri}
@@ -140,19 +167,41 @@ export const Seekbar = ({
             ) : null}
             <View style={styles.previewTimestampContainer}>
               <Text style={styles.previewTimestamp}>
-                {formatTime({
-                  duration,
-                  time: previewTime,
-                  showDuration,
-                  showHours,
-                  showTimeRemaining: false,
-                })}
+                {(() => {
+                  const formattedPreview = formatTime({
+                    duration,
+                    time: previewTime,
+                    showDuration,
+                    showHours,
+                    showTimeRemaining: false,
+                  });
+                  if (
+                    seekOrigin.current !== undefined &&
+                    Math.abs(previewTime - seekOrigin.current) >= 1
+                  ) {
+                    const diff = Math.round(previewTime - seekOrigin.current);
+                    const diffSign = diff > 0 ? '+' : '-';
+                    const absDiff = Math.abs(diff);
+                    const diffFormatted = formatTime({
+                      duration: absDiff,
+                      time: absDiff,
+                      showDuration: false,
+                      showHours: absDiff >= 3600,
+                      showTimeRemaining: false,
+                    });
+                    return `${formattedPreview} (${diffSign}${diffFormatted})`;
+                  }
+                  return formattedPreview;
+                })()}
               </Text>
             </View>
           </View>
         ) : null}
         <View
-          style={[styles.track, {height: 2 * size, top: 9 * size, borderRadius: size}]}
+          style={[
+            styles.track,
+            {height: 2 * size, top: 9 * size, borderRadius: size},
+          ]}
           onLayout={event => {
             const width = event.nativeEvent.layout.width;
             if (width > 0 && Math.abs(width - trackWidth) > 1) {
@@ -229,30 +278,70 @@ export const Seekbar = ({
         </View>
         {seeking && snapPosition !== null ? (
           <View
-            style={[styles.snapMarker, {left: snapPosition - size, top: 4 * size, width: 2 * size, height: 12 * size, borderRadius: size}]}
+            style={[
+              styles.snapMarker,
+              {
+                left: snapPosition - size,
+                top: 4 * size,
+                width: 2 * size,
+                height: 12 * size,
+                borderRadius: size,
+              },
+            ]}
             pointerEvents="none"
           />
         ) : null}
         <View
-          style={[styles.handle, {left: seekerPosition, top: 0, marginLeft: -12 * size, width: 24 * size, height: 24 * size}]}
+          style={[
+            styles.handle,
+            {
+              left: seekerPosition,
+              top: 0,
+              marginLeft: -12 * size,
+              width: 24 * size,
+              height: 24 * size,
+            },
+          ]}
           pointerEvents="none">
           <View
-            style={[styles.circle, {backgroundColor: seekColor || '#FFF', top: 6 * size, left: 8 * size, width: 8 * size, height: 8 * size, borderRadius: 4 * size}]}
+            style={[
+              styles.circle,
+              {
+                backgroundColor: seekColor || '#FFF',
+                top: 6 * size,
+                left: 8 * size,
+                width: 8 * size,
+                height: 8 * size,
+                borderRadius: 4 * size,
+              },
+            ]}
             pointerEvents="none"
           />
         </View>
       </View>
-      <View>
+      {!live && <Pressable
+        hitSlop={12}
+        focusable={!Platform.isTV}
+        accessibilityRole="button"
+        accessibilityLabel={
+          showTimeRemaining ? 'Show total duration' : 'Show remaining time'
+        }
+        onPress={() => {
+          toggleTimer();
+          resetControlTimeout();
+        }}>
         <Text style={timestampStyle}>
           {formatTime({
             duration,
-            time: duration,
+            time: showTimeRemaining
+              ? Math.max(0, duration - (time ?? 0))
+              : duration,
             showDuration,
             showHours,
-            showTimeRemaining: false,
+            showTimeRemaining,
           })}
         </Text>
-      </View>
+      </Pressable>}
     </View>
   );
 };

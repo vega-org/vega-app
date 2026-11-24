@@ -14,6 +14,7 @@ const getSafChildren = (parent: string) =>
 
 jest.mock('@dr.pogodin/react-native-fs', () => ({
   CachesDirectoryPath: '/cache',
+  DocumentDirectoryPath: '/files',
   exists: async (path: string) =>
     mockFiles.has(path) || mockDirectories.has(path),
   stat: async (path: string) => ({size: mockFiles.get(path) || 0}),
@@ -414,5 +415,15 @@ describe('download startup reconciliation', () => {
     await reconcileDownloadState();
 
     expect(mockDirectories.has('/cache/downloads/orphan')).toBe(false);
+  });
+
+  it('removes orphaned legacy and cached torrent stream directories on startup', async () => {
+    mockDirectories.add('/files/torrents');
+    mockDirectories.add('/cache/torrents');
+
+    await reconcileDownloadState();
+
+    expect(mockDirectories.has('/files/torrents')).toBe(false);
+    expect(mockDirectories.has('/cache/torrents')).toBe(false);
   });
 });

@@ -7,8 +7,6 @@ import type {DownloadItem} from '../../../lib/zustand/downloadsStore';
 
 interface DownloadedEpisodeRowProps {
   item: DownloadItem;
-  index: number;
-  totalItems: number;
   isDeleting: boolean;
   onPlay: (item: DownloadItem) => void;
   onBeforePlay?: (control: View | null) => void;
@@ -21,8 +19,6 @@ interface DownloadedEpisodeRowProps {
 
 export const DownloadedEpisodeRow: React.FC<DownloadedEpisodeRowProps> = ({
   item,
-  index,
-  totalItems,
   isDeleting,
   onPlay,
   onBeforePlay,
@@ -37,7 +33,7 @@ export const DownloadedEpisodeRow: React.FC<DownloadedEpisodeRowProps> = ({
     <ManagedEpisodeRow
       controlRef={controlRef}
       title={item.episodeName || item.title}
-      description={`${totalItems > 1 ? `Episode ${index + 1} · ` : ''}${formatDownloadBytes(item.totalBytes)}`}
+      description={formatDownloadBytes(item.totalBytes)}
       thumbnail={<LocalVideoThumbnail uri={item.filePath} />}
       selecting={selecting}
       selected={selected}

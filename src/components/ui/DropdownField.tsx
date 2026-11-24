@@ -1,6 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   DropdownMenuItem,
+  HorizontalDivider,
   ExposedDropdownMenu,
   ExposedDropdownMenuBox,
   Host,
@@ -9,7 +10,7 @@ import {
   Text,
   TextField,
 } from '@expo/ui/jetpack-compose';
-import {fillMaxWidth, menuAnchor} from '@expo/ui/jetpack-compose/modifiers';
+import {clip, fillMaxWidth, menuAnchor, padding, Shapes} from '@expo/ui/jetpack-compose/modifiers';
 import React, {useState, useEffect} from 'react';
 import {
   BackHandler,
@@ -324,31 +325,40 @@ const DropdownField = <T,>({
         <ExposedDropdownMenu
           expanded={expanded}
           containerColor={LEGACY_TERTIARY_BACKGROUND}
+          modifiers={[clip(Shapes.RoundedCorner(16))]}
           onDismissRequest={() => setExpanded(false)}>
-          {options.map(option => {
+          {options.map((option, index) => {
             const key = getKey(option);
             const selected = key === selectedKey;
             return (
-              <DropdownMenuItem
-                key={key}
-                elementColors={{
-                  textColor: selected ? colors.primary : colors.onSurface,
-                }}
-                onClick={() => {
-                  onChange(option);
-                  setExpanded(false);
-                }}>
-                <DropdownMenuItem.Text>
-                  <Text
-                    color={selected ? colors.primary : colors.onSurface}
-                    maxLines={showFullOptionLabels ? undefined : 2}
-                    overflow={showFullOptionLabels ? undefined : 'ellipsis'}
-                    softWrap={showFullOptionLabels}
-                    style={{fontWeight: selected ? '700' : '400'}}>
-                    {getLabel(option)}
-                  </Text>
-                </DropdownMenuItem.Text>
-              </DropdownMenuItem>
+              <React.Fragment key={key}>
+                {index > 0 && (
+                  <HorizontalDivider
+                    thickness={StyleSheet.hairlineWidth}
+                    color={colors.outlineVariant}
+                  />
+                )}
+                <DropdownMenuItem
+                  elementColors={{
+                    textColor: selected ? colors.primary : colors.onSurface,
+                  }}
+                  onClick={() => {
+                    onChange(option);
+                    setExpanded(false);
+                  }}>
+                  <DropdownMenuItem.Text>
+                    <Text
+                      color={selected ? colors.primary : colors.onSurface}
+                      modifiers={[padding(0, 10, 0, 10)]}
+                      maxLines={showFullOptionLabels ? undefined : 2}
+                      overflow={showFullOptionLabels ? undefined : 'ellipsis'}
+                      softWrap={showFullOptionLabels}
+                      style={{fontWeight: selected ? '700' : '400'}}>
+                      {getLabel(option)}
+                    </Text>
+                  </DropdownMenuItem.Text>
+                </DropdownMenuItem>
+              </React.Fragment>
             );
           })}
         </ExposedDropdownMenu>

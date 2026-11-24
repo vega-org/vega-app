@@ -16,10 +16,13 @@ export const RemoteVolumeToast: React.FC = () => {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    let revision=0;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
     const subscription = DeviceEventEmitter.addListener(
       REMOTE_VOLUME_SHOWN_EVENT,
       (next: number) => {
+        const current=++revision;
+        opacity.stopAnimation();
         setVolume(next);
         Animated.timing(opacity, {
           toValue: 1,
@@ -33,7 +36,7 @@ export const RemoteVolumeToast: React.FC = () => {
             duration: 250,
             useNativeDriver: true,
           }).start(({finished}) => {
-            if (finished) setVolume(null);
+            if (finished && current===revision) setVolume(null);
           });
         }, VISIBLE_MS);
       },

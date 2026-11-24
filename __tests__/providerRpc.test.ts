@@ -83,6 +83,7 @@ describe('providerRpc openWebView', () => {
       {waitForCookie: 'cf_clearance'},
       'alice',
       undefined,
+      'uhd',
     );
   });
 });

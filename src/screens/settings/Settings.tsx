@@ -1,7 +1,5 @@
 import ScreenSafeArea from '../../components/ui/ScreenSafeArea';
 import {
-  DevSettings,
-  ToastAndroid,
   View,
   ScrollView,
   findNodeHandle,
@@ -105,10 +103,8 @@ const ProviderItem = React.memo(
 import React, {useCallback, useMemo} from 'react';
 import {
   settingsStorage,
-  clearAllMMKVStorage,
   ProviderExtension,
 } from '../../lib/storage';
-import * as Updates from 'expo-updates';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import useContentStore from '../../lib/zustand/contentStore';
 import {
@@ -127,15 +123,16 @@ import RenderProviderFlagIcon from '../../components/RenderProviderFLagIcon';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
 import GitHubStarButton from './components/GitHubStarButton';
 import DnsPreference from './components/DnsPreference';
+import Button from '../../components/ui/Button';
 import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import AppText from '../../components/ui/Text';
 import {useM3Colors} from '../../theme/M3PaletteContext';
-import {showAppDialog} from '../../lib/zustand/appDialogStore';
-import {clearAppCache} from '../../lib/clearAppCache';
-import {exportBackup, pickBackup, restoreBackup} from '../../lib/backup';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
+import Constants from 'expo-constants';
+import {searchSettings} from './settingsSearch';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 type Props = NativeStackScreenProps<SettingsStackParamList, 'Settings'>;
 
 const AnimatedSection = ({
@@ -146,10 +143,31 @@ const AnimatedSection = ({
 }) => <View>{children}</View>;
 
 const Settings = ({navigation}: Props) => {
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchFocused, setSearchFocused] = React.useState(false);
+  const [searchHistory, setSearchHistory] = React.useState(
+    () => settingsStorage.getSettingsSearchHistory(),
+  );
+  const searchInputRef = React.useRef<TextInput>(null);
+  const saveSearch = () => {
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    const next = [
+      query,
+      ...searchHistory.filter(item => item.toLowerCase() !== query.toLowerCase()),
+    ].slice(0, 10);
+    settingsStorage.setSettingsSearchHistory(next);
+    setSearchHistory(next);
+  };
+  const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
+  const results = searchSettings(searchQuery, {isTV, isPlayStore});
+  const searching = searchQuery.trim().length > 0;
   const providerManagerRowRef = React.useRef<View>(null);
   const tabNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const provider = useContentStore(state => state.provider);
   const setProvider = useContentStore(state => state.setProvider);
   const installedProviders = useContentStore(state => state.installedProviders);
@@ -175,7 +193,8 @@ const Settings = ({navigation}: Props) => {
 
   useFocusEffect(
     useCallback(() => {
-      if (!isTV) return;
+      if (!isTV) return () => setSearchFocused(false);
+
       const backAction = () => {
         const currentlyFocused =
           (TextInput as any).currentlyFocusedInput?.() ||
@@ -196,7 +215,10 @@ const Settings = ({navigation}: Props) => {
         'hardwareBackPress',
         backAction,
       );
-      return () => backHandler.remove();
+      return () => {
+        backHandler.remove();
+        setSearchFocused(false);
+      };
     }, [navigation, tabNavigation]),
   );
 
@@ -215,91 +237,6 @@ const Settings = ({navigation}: Props) => {
       )),
     [installedProviders, provider.value, colors, handleProviderSelect],
   );
-
-  const clearCacheHandler = useCallback(async () => {
-    if (settingsStorage.isHapticFeedbackEnabled()) {
-      ReactNativeHapticFeedback.trigger('virtualKey', {
-        enableVibrateFallback: true,
-        ignoreAndroidSystemSettings: false,
-      });
-    }
-    await clearAppCache();
-    ToastAndroid.show('App cache cleared', ToastAndroid.SHORT);
-  }, []);
-
-  const reloadApp = useCallback(async (reason: string) => {
-    if (Updates.isEnabled) {
-      await Updates.reloadAsync();
-      return;
-    }
-    DevSettings.reload(reason);
-  }, []);
-
-  const eraseAllLocalData = useCallback(async () => {
-    clearAllMMKVStorage();
-    await reloadApp('All MMKV storage erased');
-  }, [reloadApp]);
-
-  const exportBackupHandler = useCallback(async () => {
-    try {
-      if (await exportBackup()) {
-        ToastAndroid.show('Backup saved', ToastAndroid.SHORT);
-      }
-    } catch (error) {
-      console.error('Failed to export backup:', error);
-      ToastAndroid.show('Failed to save backup', ToastAndroid.SHORT);
-    }
-  }, []);
-
-  const importBackupHandler = useCallback(async () => {
-    try {
-      const backup = await pickBackup();
-      if (!backup) {
-        return;
-      }
-      showAppDialog({
-        title: 'Restore backup?',
-        message:
-          'This replaces your settings and installed providers, and your library if included in the backup. Vega will restart after restoring.',
-        actions: [
-          {label: 'Cancel'},
-          {
-            label: 'Restore',
-            variant: 'primary',
-            onPress: async () => {
-              restoreBackup(backup);
-              await reloadApp('Backup restored');
-            },
-          },
-        ],
-      });
-    } catch (error) {
-      showAppDialog({
-        title: 'Could not restore backup',
-        message:
-          error instanceof Error ? error.message : 'Failed to read the file',
-        variant: 'error',
-        actions: [{label: 'OK'}],
-      });
-    }
-  }, [reloadApp]);
-
-  const confirmEraseAllLocalData = useCallback(() => {
-    showAppDialog({
-      title: 'Erase all local data?',
-      message:
-        'This permanently erases every Vega MMKV store, including settings, installed provider data, Library, Continue watching, download records, and cached state. This cannot be undone. Downloaded media files on disk are not deleted.',
-      variant: 'error',
-      actions: [
-        {label: 'Cancel'},
-        {
-          label: 'Erase everything',
-          variant: 'destructive',
-          onPress: eraseAllLocalData,
-        },
-      ],
-    });
-  }, [eraseAllLocalData]);
 
   const ScrollContainer = isTV ? ScrollView : Animated.ScrollView;
 
@@ -321,7 +258,7 @@ const Settings = ({navigation}: Props) => {
           overScrollMode="always"
           contentContainerStyle={{
             paddingTop: 15,
-            paddingBottom: 24,
+            paddingBottom: 24 + floatingTabBarInset,
             flexGrow: 1,
           }}>
           <View className="p-5">
@@ -341,140 +278,229 @@ const Settings = ({navigation}: Props) => {
               </Animated.View>
             )}
 
-            {/* Content provider section */}
-            <AnimatedSection delay={100}>
-              <View className="mb-6">
-                <AppText
-                  role="labelLarge"
-                  className="mb-3"
-                  style={{color: colors.onSurfaceVariant}}>
-                  Content Provider
+            <View
+              style={{
+                alignItems: 'center',
+                backgroundColor: colors.surfaceContainerHighest,
+                borderColor: colors.outlineVariant,
+                borderRadius: 24,
+                borderWidth: 1,
+                flexDirection: 'row',
+                marginBottom: 20,
+                minHeight: 52,
+                paddingHorizontal: 14,
+              }}>
+              <MaterialIcons name="search" size={22} color={colors.onSurfaceVariant} />
+              <TextInput
+                ref={searchInputRef}
+                accessibilityLabel="Search settings"
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => {
+                  if (!isTV) setSearchFocused(false);
+                }}
+                onSubmitEditing={saveSearch}
+                autoCorrect={false}
+                onChangeText={setSearchQuery}
+                placeholder="Search settings"
+                placeholderTextColor={colors.onSurfaceVariant}
+                returnKeyType="search"
+                style={{color: colors.onSurface, flex: 1, fontSize: 16, paddingHorizontal: 10}}
+                value={searchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TVFocusable
+                  accessibilityLabel="Clear settings search"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSearchQuery('');
+                    searchInputRef.current?.focus();
+                  }}
+                  style={{alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 44}}>
+                  <MaterialIcons name="close" size={22} color={colors.onSurfaceVariant} />
+                </TVFocusable>
+              )}
+            </View>
+            {searching ? (
+              results.length > 0 ? (
+                <SettingsSection title="Search results">
+                  {results.map((result, index) => result.route === 'Settings' ? (
+                    <DnsPreference key={result.label} />
+                  ) : (
+                    <SettingsRow
+                      key={result.label}
+                      title={result.label}
+                      description={result.page}
+                      divider={index < results.length - 1}
+                      onPress={() => {
+                        saveSearch();
+                        Keyboard.dismiss();
+                        switch (result.route) {
+                          case 'Settings':
+                          case 'Extensions':
+                          case 'DownloadsStack':
+                          case 'PlayerControlSettings':
+                            navigation.navigate(result.route);
+                            break;
+                          default:
+                            navigation.navigate(result.route, {setting: result.target ?? (result.label === result.page || result.page === 'Vega' ? undefined : result.label)});
+                        }
+                      }}
+                    />
+                  ))}
+                </SettingsSection>
+              ) : (
+                <AppText role="bodyMedium" style={{color: colors.onSurfaceVariant}}>
+                  No matching settings
                 </AppText>
-                <View
-                  style={{
-                    backgroundColor: colors.background,
-                    borderColor: colors.outlineVariant,
-                    borderRadius: 24,
-                    borderWidth: 1,
-                    height: 116,
-                    justifyContent: 'center',
-                  }}>
-                  <ScrollView
-                    horizontal
-                    nestedScrollEnabled
-                    focusable={false}
-                    accessible={false}
-                    showsHorizontalScrollIndicator={false}
-                    style={{flexGrow: 0}}
-                    contentContainerStyle={{
-                      alignItems: 'center',
-                      paddingHorizontal: 10,
+              )
+            ) : searchFocused && searchHistory.length > 0 ? (
+              <>
+                <SettingsSection title="Recent searches">
+                  {searchHistory.map((query, index) => (
+                    <SettingsRow
+                      key={query}
+                      title={query}
+                      icon="history"
+                      divider={index < searchHistory.length - 1}
+                      onPress={() => {
+                        setSearchQuery(query);
+                        Keyboard.dismiss();
+                      }}
+                    />
+                  ))}
+                </SettingsSection>
+                <View style={{alignItems: 'center'}}>
+                  <Button
+                    variant="text"
+                    onPress={() => {
+                      settingsStorage.setSettingsSearchHistory([]);
+                      setSearchHistory([]);
+                      if (isTV) searchInputRef.current?.focus();
                     }}>
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      {providersList}
-                    </View>
-                    {installedProviders.length === 0 && (
-                      <AppText
-                        role="bodyMedium"
-                        style={{color: colors.onSurfaceVariant}}>
-                        No providers installed
-                      </AppText>
-                    )}
-                  </ScrollView>
+                    Clear search history
+                  </Button>
                 </View>
-              </View>
-              <SettingsSection title="Provider tools">
-                <SettingsRow
-                  ref={providerManagerRowRef}
-                  hasTVPreferredFocus={isTV && installedProviders.length === 0}
-                  title="Provider Manager"
-                  description="Install, update, and test provider extensions"
-                  icon="puzzle-outline"
-                  divider={false}
-                  onPress={() => navigation.navigate('Extensions')}
-                />
-              </SettingsSection>
-            </AnimatedSection>
+              </>
+            ) : (
+              <>
+                {/* Content provider section */}
+                <AnimatedSection delay={100}>
+                  <View className="mb-6">
+                    <AppText
+                      role="labelLarge"
+                      className="mb-3"
+                      style={{color: colors.onSurfaceVariant}}>
+                      Content Provider
+                    </AppText>
+                    <View
+                      style={{
+                        backgroundColor: colors.background,
+                        borderColor: colors.outlineVariant,
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        height: 116,
+                        justifyContent: 'center',
+                      }}>
+                      <ScrollView
+                        horizontal
+                        nestedScrollEnabled
+                        focusable={false}
+                        accessible={false}
+                        showsHorizontalScrollIndicator={false}
+                        style={{flexGrow: 0}}
+                        contentContainerStyle={{
+                          alignItems: 'center',
+                          paddingHorizontal: 10,
+                        }}>
+                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                          {providersList}
+                        </View>
+                        {installedProviders.length === 0 && (
+                          <AppText
+                            role="bodyMedium"
+                            style={{color: colors.onSurfaceVariant}}>
+                            No providers installed
+                          </AppText>
+                        )}
+                      </ScrollView>
+                    </View>
+                  </View>
+                  <SettingsSection title="Provider tools">
+                    <SettingsRow
+                      ref={providerManagerRowRef}
+                      hasTVPreferredFocus={isTV && installedProviders.length === 0}
+                      title="Provider Manager"
+                      description="Install, update, and test provider extensions"
+                      icon="puzzle-outline"
+                      divider={false}
+                      onPress={() => navigation.navigate('Extensions')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* Network Section */}
-            <AnimatedSection delay={150}>
-              <SettingsSection title="Network">
-                <DnsPreference />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* Network Section */}
+                <AnimatedSection delay={150}>
+                  <SettingsSection title="Network">
+                    <DnsPreference />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* Main options section */}
-            <AnimatedSection delay={200}>
-              <SettingsSection title="Options">
-                <SettingsRow
-                  title="Appearance"
-                  // description="Accent colors and launcher icon"
-                  icon="palette-outline"
-                  onPress={() => navigation.navigate('Appearance')}
-                />
-                <SettingsRow
-                  title="Subtitle Style"
-                  icon="subtitles-outline"
-                  onPress={() => navigation.navigate('SubTitlesPreferences')}
-                />
-                {hideDownloadsTab && (
-                  <SettingsRow
-                    title="Downloads"
-                    icon="download-circle-outline"
-                    onPress={() => navigation.navigate('DownloadsStack')}
-                  />
-                )}
-                <SettingsRow
-                  title="Preferences"
-                  icon="tune-variant"
-                  divider={false}
-                  onPress={() => navigation.navigate('Preferences')}
-                />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* Main options section */}
+                <AnimatedSection delay={200}>
+                  <SettingsSection title="Options">
+                    <SettingsRow
+                      title="Appearance"
+                      // description="Accent colors and launcher icon"
+                      icon="palette-outline"
+                      onPress={() => navigation.navigate('Appearance')}
+                    />
+                    <SettingsRow
+                      title="Player settings"
+                      icon="play-circle-outline"
+                      onPress={() => navigation.navigate('PlayerSettings')}
+                    />
+                    {hideDownloadsTab && (
+                      <SettingsRow
+                        title="Downloads"
+                        icon="download-circle-outline"
+                        onPress={() => navigation.navigate('DownloadsStack')}
+                      />
+                    )}
+                    <SettingsRow
+                      title="Preferences"
+                      icon="tune-variant"
+                      divider={false}
+                      onPress={() => navigation.navigate('Preferences')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* Data Management section */}
-            <AnimatedSection delay={300}>
-              <SettingsSection title="Data Management">
-                <SettingsRow
-                  title="Clear Cache"
-                  description="Clear temporary cache and images"
-                  icon="delete-outline"
-                  onPress={clearCacheHandler}
-                />
-                <SettingsRow
-                  title="Export backup"
-                  description="Save settings, providers and library to a file"
-                  icon="content-save-outline"
-                  onPress={exportBackupHandler}
-                />
-                <SettingsRow
-                  title="Import backup"
-                  description="Restore settings, providers and library from a file"
-                  icon="backup-restore"
-                  onPress={importBackupHandler}
-                />
-                <SettingsRow
-                  title="Erase all local data"
-                  description="Erase all local data"
-                  icon="delete-alert-outline"
-                  divider={false}
-                  onPress={confirmEraseAllLocalData}
-                />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* Data Management section */}
+                <AnimatedSection delay={300}>
+                  <SettingsSection title="Data Management">
+                    <SettingsRow
+                      title="Data management"
+                      description="Backups, cache, watch progress, and sync"
+                      icon="database-outline"
+                      divider={false}
+                      onPress={() => navigation.navigate('DataManagement')}
+                    />
+                  </SettingsSection>
+                </AnimatedSection>
 
-            {/* About & GitHub section */}
-            <AnimatedSection delay={400}>
-              <SettingsSection title="About">
-                <SettingsRow
-                  title="About Vega"
-                  icon="information-outline"
-                  onPress={() => navigation.navigate('About')}
-                />
-                <GitHubStarButton primary={colors.primary} />
-              </SettingsSection>
-            </AnimatedSection>
+                {/* About & GitHub section */}
+                <AnimatedSection delay={400}>
+                  <SettingsSection title="Vega">
+                    <SettingsRow
+                      title={isPlayStore ? 'About Vega' : 'About & updates'}
+                      icon="information-outline"
+                      onPress={() => navigation.navigate('About')}
+                    />
+                    <GitHubStarButton primary={colors.primary} />
+                  </SettingsSection>
+                </AnimatedSection>
+              </>
+            )}
           </View>
         </ScrollContainer>
       </TVFocusGuide>

@@ -1,5 +1,6 @@
 import React from 'react';
 import {Modal, ScrollView, Text, View} from 'react-native';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {TVFocusable, TVFocusGuide} from './tv';
 import {PlayerControl, PlayerControlIcon} from './PlayerControlBar';
 import {PlayerControlStyle} from '../lib/player/controlStyle';
@@ -48,23 +49,28 @@ export default function PlayerMoreMenu({
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              marginBottom: 8,
+              marginBottom: 14,
             }}>
             <Text
               numberOfLines={1}
               style={{
                 color: 'white',
                 fontSize: 16 * appearance.scale,
+                fontWeight: '600',
                 flex: 1,
               }}>
               Settings
             </Text>
             <TVFocusable
               registerScreenFocus={false}
+              accessibilityRole="button"
               accessibilityLabel="Close settings"
               onPress={onClose}
-              style={{padding: 10}}>
-              <Text style={{color: '#ccc'}}>Close</Text>
+              focusBorderColor={color}
+              borderRadius={22}
+              style={{width: 44, height: 44, borderRadius: 22,
+                backgroundColor: '#292929', alignItems: 'center', justifyContent: 'center'}}>
+              <MaterialCommunityIcons name="close" size={22} color="#ddd" />
             </TVFocusable>
           </View>
           <ScrollView
@@ -78,7 +84,7 @@ export default function PlayerMoreMenu({
                 accessibilityRole="button"
                 accessibilityLabel={`${control.title}, ${control.label}`}
                 focusBorderColor={color}
-                borderRadius={12}
+                borderRadius={16}
                 onPress={() => {
                   onClose();
                   control.onPress();
@@ -89,11 +95,19 @@ export default function PlayerMoreMenu({
                   gap: 12,
                   padding: 12,
                   minHeight: 44,
+                  marginBottom: i < controls.length - 1 ? 8 : 0,
+                  borderRadius: 16,
+                  backgroundColor: '#252525',
+                  borderWidth: 1,
+                  borderColor: '#333',
                 }}>
-                <PlayerControlIcon
-                  control={control}
-                  size={24 * appearance.scale}
-                />
+                <View style={{width: 40 * appearance.scale, height: 40 * appearance.scale,
+                  borderRadius: 12, backgroundColor: '#323232', alignItems: 'center', justifyContent: 'center'}}>
+                  <PlayerControlIcon
+                    control={control}
+                    size={24 * appearance.scale}
+                  />
+                </View>
                 <View style={{flex: 1}}>
                   <Text
                     numberOfLines={1}

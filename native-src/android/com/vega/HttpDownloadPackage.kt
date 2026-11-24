@@ -7,7 +7,12 @@ import com.facebook.react.uimanager.ViewManager
 
 class HttpDownloadPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(HttpDownloadModule(reactContext), SyncStorageModule(reactContext), BackupExportModule(reactContext))
+        return listOf(
+            HttpDownloadModule(reactContext),
+            SyncStorageModule(reactContext),
+            BackupExportModule(reactContext),
+            WebViewDataModule(reactContext),
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

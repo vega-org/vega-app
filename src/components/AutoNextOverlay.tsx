@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {BackHandler, Pressable, Text, View} from 'react-native';
 import {isTV} from '../lib/tv/constants';
 import {TVFocusGuide} from './tv';
+import {readableOnColor} from '../theme/seeds';
 
 interface AutoNextOverlayProps {
   seconds: number;
@@ -128,7 +129,7 @@ const OverlayButton = ({
         <Text
           numberOfLines={1}
           style={{
-            color: '#FFFFFF',
+            color: primary ? readableOnColor(focusColor) : '#FFFFFF',
             fontWeight: '700',
             fontSize: 13,
           }}>

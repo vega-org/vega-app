@@ -19,8 +19,9 @@ export {
   PLAYBACK_SPEED_MIN,
   PLAYBACK_SPEED_MAX,
   PLAYBACK_SPEED_STEP,
+  PLAYER_RESIZE_MODES,
 } from './SettingsStorage';
-export type {SettingsKeys} from './SettingsStorage';
+export type {SettingsKeys, PlayerResizeMode} from './SettingsStorage';
 
 // Export WatchListStorage
 export {
@@ -54,3 +55,12 @@ export type {
   ProviderExtension,
   ProviderModule,
 } from './extensionStorage';
+
+// Export WatchProgressStorage
+export {
+  WatchProgressStorage,
+  watchProgressStorage,
+  migrateWatchProgressFromCacheStorage,
+} from './WatchProgressStorage';
+export type {WatchProgress} from './WatchProgressStorage';
+

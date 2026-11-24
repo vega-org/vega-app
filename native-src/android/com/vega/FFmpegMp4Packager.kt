@@ -45,7 +45,8 @@ class FFmpegMp4Packager(
     // Shifts the sound against the picture; positive plays it later.
     private val audioDelayMs: Int = 0,
     private val onError: (String) -> Unit = {},
-    private val onMediaReady: () -> Unit = {}
+    private val onMediaReady: () -> Unit = {},
+    private val diagnosticId: String = java.util.UUID.randomUUID().toString().take(8)
 ) {
     companion object {
         private const val TAG = "FFmpegMp4Packager"
@@ -270,6 +271,7 @@ class FFmpegMp4Packager(
                 override fun close() {
                     synchronized(lock) {
                         if (done) return
+                        VegaLog.i(TAG, "Remux reader closed id=$diagnosticId reader=$id startSeconds=$startSeconds rangeStart=$offset bytesServed=${position - offset} bytesProduced=$written appClosed=$closed retired=$retiredOutput finished=$finished")
                         done = true
                         readerPositions.remove(id)
                         updateFloorLocked()
@@ -456,7 +458,7 @@ class FFmpegMp4Packager(
         args.add("-y")
         args.add(pipePath)
 
-        VegaLog.i(TAG, "Starting FFmpeg remux at ${startSeconds}s [audio: transcode aac 192k]")
+        VegaLog.i(TAG, "Remux start id=$diagnosticId startSeconds=$startSeconds audioTrack=$audioTrackIndex sourceDuration=$durationSeconds audio=transcode-aac")
 
         val prematureEndWarning = AtomicBoolean(false)
         val failure = AtomicReference<String?>(null)
@@ -465,6 +467,7 @@ class FFmpegMp4Packager(
             args.toTypedArray(),
             { completedSession ->
                 val returnCode = completedSession.returnCode
+                VegaLog.i(TAG, "Remux result id=$diagnosticId startSeconds=$startSeconds code=$returnCode appClosed=${closed.get()} retired=$retired mediaReady=$hasMedia outputTimeMs=${completedSession.lastReceivedStatistics?.time}")
                 // FFmpeg can recover from an EOF warning while probing the MKV tail.
                 // Judge truncation after processing ends, never while bytes still flow.
                 if (ReturnCode.isSuccess(returnCode) && RemuxCompletionPolicy.endedEarly(
@@ -477,11 +480,11 @@ class FFmpegMp4Packager(
                 } else if (ReturnCode.isSuccess(returnCode)) {
                     VegaLog.w(TAG, "FFmpeg ended with a delivery failure: ${failure.get()}")
                 } else if (ReturnCode.isCancel(returnCode)) {
-                    VegaLog.i(TAG, "FFmpeg remux session cancelled")
+                    VegaLog.i(TAG, "FFmpeg remux cancelled id=$diagnosticId appClosed=${closed.get()} retired=$retired")
                 } else {
                     failure.compareAndSet(null, "Video processing failed. Refresh the link or try another server.")
                     VegaLog.w(TAG, "FFmpeg remux session failed with code $returnCode: ${completedSession.failStackTrace}")
-                    VegaLog.w(TAG, "FFmpeg session output: ${completedSession.allLogsAsString}")
+                    VegaLog.w(TAG, "FFmpeg session output id=$diagnosticId: ${completedSession.allLogsAsString?.replace(Regex("https?://[^\\s]+"), "[media URL]")?.takeLast(4000)}")
                     // Unblock any waiting reader in background daemon so this thread never blocks
                     unblockPipeAsync(pipePath)
                 }
@@ -497,7 +500,7 @@ class FFmpegMp4Packager(
                 } else if (log.message.contains("File ended prematurely", ignoreCase = true)) {
                     prematureEndWarning.set(true)
                 }
-                VegaLog.w(TAG, "[FFmpeg] ${log.message}")
+                VegaLog.w(TAG, "[FFmpeg id=$diagnosticId] ${log.message.replace(Regex("https?://[^\\s]+"), "[media URL]").take(1200)}")
             },
             null
         )
@@ -799,6 +802,7 @@ class FFmpegMp4Packager(
     @Synchronized
     fun close() {
         if (closed.compareAndSet(false, true)) {
+            VegaLog.i(TAG, "Remux close requested id=$diagnosticId outputs=${outputs.size} activeStreams=${activeStreams.size}")
             outputs.forEach { it.close() }
             outputs.clear()
             cancelAllActiveStreams()

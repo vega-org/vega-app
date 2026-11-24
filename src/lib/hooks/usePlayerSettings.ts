@@ -1,5 +1,10 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {cacheStorage, settingsStorage} from '../storage';
+import {
+  settingsStorage,
+  watchProgressStorage,
+  PLAYER_RESIZE_MODES,
+  PlayerResizeMode,
+} from '../storage';
 
 interface UsePlayerProgressOptions {
   activeEpisode: any;
@@ -23,7 +28,7 @@ export const usePlayerProgress = ({
   const flushProgress = useCallback(() => {
     const progress = pendingProgressRef.current;
     if (!progress) return;
-    cacheStorage.setString(progress.link, JSON.stringify({position: progress.position, duration: progress.duration}));
+    watchProgressStorage.setProgress(progress.link, progress.position, progress.duration);
     progress.onSaved?.(progress.position, progress.duration);
     lastSavedPositionRef.current = progress.position;
     pendingProgressRef.current = null;
@@ -80,7 +85,9 @@ export const usePlayerSettings = () => {
   const [activeTab, setActiveTab] = useState<
     'audio' | 'subtitle' | 'server' | 'quality' | 'speed' | 'sleep'
   >('audio');
-  const [resizeMode, setResizeMode] = useState<any>('none');
+  const [resizeMode, setResizeMode] = useState<PlayerResizeMode>(() =>
+    settingsStorage.getDefaultResizeMode(),
+  );
   const [playbackRate, setPlaybackRate] = useState(() =>
     settingsStorage.getPlaybackSpeed(),
   );
@@ -93,18 +100,14 @@ export const usePlayerSettings = () => {
 
   const unlockButtonTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Memoized resize mode handler
+  // Cycles the fit for this session only; the default lives in Preferences.
   const handleResizeMode = useCallback(() => {
-    const modes = [
-      {mode: 'none', name: 'Fit'},
-      {mode: 'cover', name: 'Cover'},
-      {mode: 'stretch', name: 'Stretch'},
-      {mode: 'contain', name: 'Contain'},
-    ];
-    const index = modes.findIndex(mode => mode.mode === resizeMode);
-    const nextMode = modes[(index + 1) % modes.length];
+    const index = PLAYER_RESIZE_MODES.findIndex(
+      option => option.mode === resizeMode,
+    );
+    const nextMode = PLAYER_RESIZE_MODES[(index + 1) % PLAYER_RESIZE_MODES.length];
     setResizeMode(nextMode.mode);
-    setToast('Resize Mode: ' + nextMode.name, 2000);
+    setToast('Resize Mode: ' + nextMode.label, 2000);
   }, [resizeMode]);
 
   // Memoized toast setter

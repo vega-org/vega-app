@@ -121,7 +121,7 @@ export default function ManagedEpisodeRow({
           onShowDetails={selecting ? undefined : onShowDetails}
         />
       </TVFocusable>
-      {!selecting && isTV && onShowDetails && (
+      {isTV && !selecting && onShowDetails && (
         <TVFocusable
           accessibilityRole="button"
           accessibilityLabel={`Show full description for ${title}`}
@@ -129,7 +129,13 @@ export default function ManagedEpisodeRow({
           disabled={busy}
           borderRadius={14}
           focusBorderColor={focusBorderColor}
-          style={{padding: 10, minHeight: 48, justifyContent: 'center'}}>
+          style={{
+            padding: 10,
+            minWidth: 48,
+            minHeight: 48,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
           <MaterialCommunityIcons
             name="information-outline"
             size={24}

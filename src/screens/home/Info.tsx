@@ -1,3 +1,4 @@
+import {isExcludedQuality} from '../../lib/streamQuality';
 import {useFocusEffect, useIsFocused, useNavigation} from '@react-navigation/native';
 import {
   NativeStackNavigationProp,
@@ -17,14 +18,20 @@ import {
   findNodeHandle,
 } from 'react-native';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {HomeStackParamList, TabStackParamList} from '../../App';
+import {HomeStackParamList, RootStackParamList, TabStackParamList} from '../../App';
+import {downloadOutputExists} from '../../lib/downloadDestination';
+import {
+  buildOfflinePlayerParamsForDownload,
+  findCompletedDownloadForInfo,
+} from '../../lib/player/offlineContinueWatching';
+import useDownloadsStore from '../../lib/zustand/downloadsStore';
 import {isSafeExternalUrl} from '../../lib/sandbox/urlGuard';
 import Button from '../../components/ui/Button';
 import AppText from '../../components/ui/Text';
 import {QueryErrorBoundary} from '../../components/ErrorBoundary';
 import SeasonList from '../../components/SeasonList';
 import ScreenOverlayHost from '../../components/ScreenOverlayHost';
-import LocalSeasonList from '../../components/local-content/LocalSeasonList';
+import LocalEpisodeList from '../../components/local-content/LocalEpisodeList';
 import SkeletonLoader from '../../components/Skeleton';
 import {useContentDetails} from '../../lib/hooks/useContentInfo';
 import {useArtworkShape} from '../../lib/hooks/useHomePageData';
@@ -40,16 +47,19 @@ import ContentOverview from './components/ContentOverview';
 import InfoStoryModal from './components/InfoStoryModal';
 import LibraryCollectionDialog from '../../components/library/LibraryCollectionDialog';
 import ProviderMetadataDialog from '../../components/metadata/ProviderMetadataDialog';
+import LocalMetadataDialog from '../../components/metadata/LocalMetadataDialog';
 import InfoSkeleton from './components/InfoSkeleton';
 import StatusBarScrim from '../../components/ui/StatusBarScrim';
 import {TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
 import useTVNavigationStore from '../../lib/zustand/tvNavigationStore';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Info'>;
 
 export default function Info({route, navigation}: Props): React.JSX.Element {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const searchNavigation =
     useNavigation<NativeStackNavigationProp<TabStackParamList>>();
   const provider = useContentStore(state => state.provider);
@@ -114,6 +124,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     }
   }, []);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isAtTop, setIsAtTop] = useState(true);
   const [statusBarScrimVisible, setStatusBarScrimVisible] = useState(false);
@@ -147,7 +158,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     'https://placehold.jp/24/363636/ffffff/900x1200.png?text=Vega';
   // Posters and small images are blurred behind the page, with the sharp
   // poster shown in the header instead of stretched across it.
-  const {ready: backdropReady, posterLike: backdropPosterLike} =
+  const {ready: backdropReady, posterLike: backdropPosterLike, aspectRatio: backdropAspectRatio} =
     useArtworkShape(backgroundImage);
 
   // Register only while this screen is focused. A hidden screen in a
@@ -176,8 +187,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     }
     const excludedQualities = settingsStorage.getExcludedQualities();
     const filtered = linkList.filter(
-      (item: Link) =>
-        !item.quality || !excludedQualities.includes(item.quality),
+      (item: Link) => !isExcludedQuality(item.quality, excludedQualities),
     );
     return filtered.length > 0 ? filtered : linkList;
   }, [linkList]);
@@ -185,19 +195,23 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   // Promise chain instead of try/finally: React Compiler skips any component
   // that contains a finally clause.
   const handleRefresh = useCallback(() => {
+    if (refreshInFlight.current) return Promise.resolve();
+    refreshInFlight.current = true;
     setRefreshing(true);
     setRefreshVersion(version => version + 1);
-    return Promise.race([
+    const refresh = localTitle ? refetch() : Promise.race([
       refetch(),
       new Promise(resolve => setTimeout(resolve, 10000)),
-    ]).catch(cause => {
+    ]);
+    return refresh.catch(cause => {
       ToastAndroid.show(cause instanceof Error ? cause.message : 'Unable to refresh this title', ToastAndroid.LONG);
     }).finally(() => {
+      refreshInFlight.current = false;
       setTimeout(() => {
         setRefreshing(false);
       }, 50);
     });
-  }, [refetch]);
+  }, [refetch, localTitle]);
 
   const handleScroll = useCallback((event: any) => {
     const offsetY = event.nativeEvent?.contentOffset?.y ?? 0;
@@ -271,6 +285,38 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   }, [navigation, webUrl]);
 
   if (error && !info) {
+    const downloads = useDownloadsStore.getState().downloads;
+    const offlineDownload = findCompletedDownloadForInfo(
+      downloads,
+      route.params.link,
+      providerValue,
+    );
+    const handlePlayOfflineDownload = async () => {
+      if (!offlineDownload) return;
+      const exists = await downloadOutputExists(offlineDownload.filePath).catch(
+        () => false,
+      );
+      if (!exists) {
+        ToastAndroid.show(
+          'Downloaded file is no longer available on device',
+          ToastAndroid.SHORT,
+        );
+        return;
+      }
+      const rootNav =
+        navigation.getParent<NativeStackNavigationProp<RootStackParamList>>() ||
+        (navigation as unknown as NativeStackNavigationProp<RootStackParamList>);
+      rootNav.navigate(
+        'Player',
+        buildOfflinePlayerParamsForDownload(offlineDownload, downloads, {
+          alwaysCast: !isTV && settingsStorage.isAlwaysCastMode(),
+          fallbackPoster: route.params.poster,
+          fallbackProvider: providerValue,
+          fallbackInfoUrl: route.params.link,
+        }),
+      );
+    };
+
     return (
       <View
         style={{
@@ -295,7 +341,12 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
           }}>
           {error.message || 'An unexpected error occurred'}
         </AppText>
-        <View style={{flexDirection: 'row', gap: 10, marginTop: 22}}>
+        <View style={{flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 22}}>
+          {offlineDownload ? (
+            <Button variant="filled" onPress={handlePlayOfflineDownload}>
+              Play downloaded
+            </Button>
+          ) : null}
           <Button variant="destructive" onPress={handleRefresh}>
             Try again
           </Button>
@@ -359,12 +410,13 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                 <ContentOverview
                   backgroundImage={backgroundImage}
                   headerPoster={backdropPosterLike ? backgroundImage : undefined}
+                  headerPosterAspectRatio={backdropAspectRatio}
                   genres={meta?.genres}
                   inLibrary={inLibrary}
                   isLoading={isLoading && !info}
                   logo={displayLogo}
                   onBack={navigation.goBack}
-                  onOpenMenu={!localTitle ? () => setMetadataMenuVisible(true) : undefined}
+                  onOpenMenu={() => setMetadataMenuVisible(true)}
                   backButtonRef={backButtonRef}
                   onBackButtonLayout={registerBackFocus}
                   onOpenStory={
@@ -400,9 +452,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                       <SkeletonLoader show height={72} width="100%" />
                     </View>
                   ) : localTitle ? (
-                    <LocalSeasonList title={localTitle} onEditMetadata={() => searchNavigation.navigate('WatchListStack', {
-                      screen: 'LocalContent', params: {editId: localTitle.id},
-                    } as never)} />
+                    <LocalEpisodeList title={localTitle} />
                   ) : (
                     <SeasonList
                       refreshing={refreshing}
@@ -429,7 +479,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
               <View
                 style={{
                   backgroundColor: detailColors.background,
-                  height: 110,
+                  height: 110 + floatingTabBarInset,
                 }}
               />
             }
@@ -468,6 +518,13 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
               provider: providerValue,
             }}
           />
+          {localTitle && <LocalMetadataDialog
+            visible={metadataMenuVisible}
+            onClose={() => setMetadataMenuVisible(false)}
+            title={localTitle}
+            onRescan={handleRefresh}
+            rescanning={refreshing}
+          />}
           {info && !localTitle && <ProviderMetadataDialog
             visible={metadataMenuVisible}
             onClose={() => setMetadataMenuVisible(false)}

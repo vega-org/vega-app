@@ -1,3 +1,11 @@
+jest.mock('../src/lib/hooks/useSavedSubtitles', () => {
+  const savedSubtitles: any[] = [];
+  return {useSavedSubtitles: () => ({savedSubtitles, saveSubtitle: jest.fn(), removeSavedSubtitle: jest.fn()})};
+});
+jest.mock('../src/lib/subtitles/savedSubtitles', () => ({
+  subtitleVideoKey: (episode: any) => episode?.sourceLink || episode?.id || episode?.link || '',
+  savedSubtitleTrack: (track: any) => track,
+}));
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';

@@ -85,3 +85,39 @@ it('migrates older layouts and keeps Settings last while moving controls into an
   expect([...restored.top, ...restored.bottom].sort()).toEqual([...PLAYER_CONTROL_IDS].sort());
   expect(normalizePlayerControlLayout(launcherOnTop)).toEqual(launcherOnTop);
 });
+
+
+it('keeps legacy layouts single and remembers the Settings control on the right', () => {
+  const legacy = normalizePlayerControlLayout({top: ['sleep'], bottom: ['audio', 'settings']});
+  expect(legacy.bottomRight).toEqual([]);
+
+  let rightOnly = defaultPlayerControlLayout();
+  for (const id of [...rightOnly.bottom]) {
+    rightOnly = movePlayerControl(rightOnly, id, 'bottomRight', rightOnly.bottomRight.length);
+  }
+
+  expect(rightOnly.bottom).toEqual([]);
+  expect(rightOnly.bottomRight).toEqual(defaultPlayerControlLayout().bottom);
+  expect(normalizePlayerControlLayout(JSON.parse(JSON.stringify(rightOnly)))).toEqual(rightOnly);
+
+  const fitted = normalizePlayerControlLayout(rightOnly, 1);
+  expect(fitted.bottom).toEqual([]);
+  expect(fitted.bottomRight).toContain('decoder');
+  expect(fitted.bottomRight.at(-1)).toBe('settings');
+});
+
+
+it('adds Rotate to the existing bottom group for right-only saved layouts', () => {
+  const defaults = defaultPlayerControlLayout();
+  const old = {
+    top: defaults.top,
+    bottom: [],
+    bottomRight: defaults.bottom.filter(id => id !== 'rotate'),
+    more: [],
+  };
+
+  expect(normalizePlayerControlLayout(old)).toEqual({
+    ...old,
+    bottomRight: defaults.bottom,
+  });
+});

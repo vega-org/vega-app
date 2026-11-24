@@ -27,7 +27,7 @@ import {
 } from '../../lib/downloadLibrary';
 import {useDownloadsMaintenance} from '../../lib/hooks/useDownloadsMaintenance';
 import {deleteLocalEpisodes} from '../../lib/localContent/delete';
-import {localLibraryItem} from '../../lib/localContent/library';
+import {localLibraryItem, localContentId} from '../../lib/localContent/library';
 import {settingsStorage} from '../../lib/storage';
 import {showAppDialog} from '../../lib/zustand/appDialogStore';
 import useDownloadsStore, {
@@ -42,11 +42,13 @@ import MissingDownloadsSection from '../settings/components/MissingDownloadsSect
 import DownloadsEmptyState from './components/DownloadsEmptyState';
 import DownloadsSelectionBottomBar from './components/DownloadsSelectionBottomBar';
 import DownloadsSelectionHeader from './components/DownloadsSelectionHeader';
+import {useFloatingTabBarInset} from '../../components/navigation/FloatingTabBarInsetContext';
 import {deleteDownloadedMediaGroups} from './utils/deleteDownloadGroups';
 
 const Downloads = () => {
   const insets = useSafeAreaInsets();
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor();
   const navigation =
     useNavigation<NativeStackNavigationProp<DownloadsStackParamList>>();
@@ -343,7 +345,7 @@ const Downloads = () => {
         contentContainerStyle={{
           paddingHorizontal: containerPadding,
           paddingTop: isSelectionMode ? 14 : 0,
-          paddingBottom: isSelectionMode ? 120 : 80,
+          paddingBottom: (isSelectionMode ? 120 : 80) + floatingTabBarInset,
         }}
         ListHeaderComponent={
           !isSelectionMode ? (
@@ -493,10 +495,8 @@ const Downloads = () => {
                     selectionMode={isSelectionMode}
                     onLongPress={() => handleCardLongPress(item.link)}
                     onPress={() => isSelectionMode ? handleCardPress(item.link) :
-                      navigation.navigate('Info', {
-                        link: item.link,
-                        provider: item.provider,
-                        poster: item.poster,
+                      navigation.navigate('DownloadedDetails', {
+                        localTitleId: localContentId(item.link)!,
                       })
                     }
                   />

@@ -1,3 +1,8 @@
+import {authorizeVerification, VerificationDeniedError} from '../zustand/verificationConsentStore';
+import {extensionStorage} from '../storage/extensionStorage';
+import {providerAbortError, throwIfProviderAborted} from '../sandbox/abort';
+import {providerFetch} from '../sandbox/providerFetch';
+import {base64ToUtf8} from '../sandbox/base64';
 import {headers as commonHeaders} from '../providers/headers';
 import type {
   OpenWebViewOptions,
@@ -9,6 +14,7 @@ import {providerAuthor} from '../sandbox/providerScope';
 import {deleteJarCookie, getJarCookieMap} from '../sandbox/providerCookieJar';
 import {
   canPromptWaf,
+  dismissWafOperation,
   isWafOperationDismissed,
   registerWafOperation,
   wafCancelledError,
@@ -37,18 +43,22 @@ import {
  *  - resolves with the page response (`data`) and cookies (including httpOnly
  *    cookies) once the user taps "Done" or the optional `waitForCookie` is
  *    detected.
- *  - rejects if the user cancels the dialog or the optional `timeoutMs` elapses.
+ *  - retries once over HTTP after dismissal; rejects if it remains blocked.
+ * Other calls on the same domain wait, then fetch their own page with the jar.
  *
  * Cookies are read from and saved to the cookie jar of `author` (the
  * provider's source author), never another author's.
  */
-// Dictionary to store pending WAF resolution promises by URL/cookie
+// Pending dialogs, keyed by provider author and hostname.
 const pendingRequests: Record<string, Promise<OpenWebViewResult>> = {};
 
 const trackScope = (promise: Promise<OpenWebViewResult>, scope?: AbortSignal) => {
   if (scope) {
     const release = registerWafOperation(scope);
-    promise.then(release, release);
+    promise.then(release, error => {
+      if (error instanceof VerificationDeniedError) dismissWafOperation(scope);
+      release();
+    });
   }
   return promise;
 };
@@ -58,7 +68,9 @@ export const openWebView = (
   options?: OpenWebViewOptions,
   authorRaw?: string,
   scope?: AbortSignal,
+  providerValue?: string,
 ): Promise<OpenWebViewResult> => {
+  if (scope?.aborted) return Promise.reject(providerAbortError());
   if (isWafOperationDismissed(scope)) return Promise.reject(wafCancelledError());
   const author = providerAuthor(authorRaw);
   if (!url) {
@@ -68,21 +80,45 @@ export const openWebView = (
   const userAgent =
     pickUserAgent(options?.headers) || commonHeaders['User-Agent'];
 
-  // Requests waiting for the same cookie on a site share one dialog. Without
-  // waitForCookie the caller needs the page itself, so only the same URL is
-  // shared.
-  const hostname = url.includes('://') ? url.split('/')[2] : url;
-  const siteKey = options?.waitForCookie
-    ? `${hostname}:${options.waitForCookie}`
-    : url;
-  const cacheKey = `${author}|${siteKey}`;
-  
-  // Request coalescing: if a WAF resolution is already pending for this URL/cookie, return its promise
-  // We ALWAYS coalesce, even if force: true, to prevent multiple dialogs for the same domain
+  // Cookie jars are isolated by author. Paths and cookie options do not create
+  // additional challenges for the same host, including while it is queued.
+  const cacheKey = `${author}|${new URL(url).hostname.toLowerCase()}`;
+  const retryPage = async (solved?: OpenWebViewResult): Promise<OpenWebViewResult> => {
+    const retryUserAgent = solved?.userAgent || userAgent;
+    const headers = Object.entries(options?.headers || {}).filter(
+      ([name]) => !['cookie', 'user-agent'].includes(name.toLowerCase()),
+    );
+    headers.push(['User-Agent', retryUserAgent]);
+    const response = await providerFetch(author, url, {
+      method: 'GET', headers, body: {kind: 'none'},
+    }, scope);
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`WAF retry failed: HTTP ${response.status}`);
+    }
+    const cookieMap = getJarCookieMap(author, response.url || url);
+    return {
+      data: base64ToUtf8(response.bodyBase64),
+      cookies: buildCookieString(cookieMap), cookieMap,
+      url: response.url || url, userAgent: retryUserAgent,
+    };
+  };
+  const afterDismissal = async (error: unknown): Promise<OpenWebViewResult> => {
+    if (!(error instanceof Error) || error.message !== 'WAF_DIALOG_CANCELLED') {
+      throw error;
+    }
+    // One HTTP attempt only; this path never requests another dialog.
+    try {
+      return await retryPage();
+    } catch {
+      throw error;
+    }
+  };
   if (cacheKey in pendingRequests) {
-    return trackScope(pendingRequests[cacheKey], scope);
+    // Each waiter needs its own page, not the first catalog's HTML.
+    return trackScope(pendingRequests[cacheKey].then(retryPage, afterDismissal), scope);
   }
 
+  let dialogOpened = false;
   const execute = async (): Promise<OpenWebViewResult> => {
     // If not forced and the awaited cookie already exists, return it without a
     // dialog. In force mode we always open.
@@ -97,17 +133,22 @@ export const openWebView = (
           userAgent,
         };
       }
-    } else if (options?.waitForCookie) {
-      // If it is forced, or if we are about to open the dialog, delete the old cookie
-      // because it is either expired or invalid (caused a 403).
-      deleteJarCookie(author, url, options.waitForCookie);
     }
 
     // Background work fails rather than opening a dialog; a solved cookie
     // above can still be reused.
     if (!canPromptWaf(scope)) throw wafCancelledError();
 
+    const installed = extensionStorage.getInstalledProviders().find(provider =>
+      provider.value === providerValue && providerAuthor(provider.source?.author) === author,
+    );
+    await authorizeVerification(installed?.display_name || providerValue || author, url, scope);
+    throwIfProviderAborted(scope);
+    if (!canPromptWaf(scope) || isWafOperationDismissed(scope)) throw wafCancelledError();
+    if (options?.force && options.waitForCookie) deleteJarCookie(author, url, options.waitForCookie);
+
     return new Promise<OpenWebViewResult>((resolve, reject) => {
+      dialogOpened = true;
       useWafStore.getState().enqueue({
         ...options,
         url,
@@ -132,5 +173,8 @@ export const openWebView = (
   };
   promise.then(cleanup, cleanup);
 
-  return trackScope(promise, scope);
+  return trackScope(promise.catch(error => {
+    if (!dialogOpened) throw error;
+    return afterDismissal(error);
+  }), scope);
 };

@@ -23,6 +23,7 @@ import {
   useSafeIsNavFocused,
   useTVNavFocusMemory,
 } from '../lib/tv/useTVNavFocusMemory';
+import { useFloatingTabBarInset } from '../components/navigation/FloatingTabBarInsetContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ScrollList'>;
 
@@ -218,6 +219,7 @@ const ScrollListCard = memo(({
 
 const ScrollList = ({ route }: Props): React.ReactElement => {
   const colors = useM3Colors();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const { width: windowWidth } = useWindowDimensions();
   const navigation =
     useNavigation<NativeStackNavigationProp<SearchStackParamList>>();
@@ -417,7 +419,7 @@ const ScrollList = ({ route }: Props): React.ReactElement => {
           data={listData}
           numColumns={numColumns}
           key={`view-type-${viewType}-${numColumns}-${Math.round(dominantRatio * 100)}`}
-          contentContainerStyle={{ paddingBottom: 80 }}
+          contentContainerStyle={{ paddingBottom: 80 + floatingTabBarInset }}
           keyExtractor={(item, i) =>
             'isSkeleton' in item ? item.id : `${item.title}-${i}`
           }

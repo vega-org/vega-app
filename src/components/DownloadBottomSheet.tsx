@@ -1,3 +1,4 @@
+import {usesExternalApp} from '../lib/externalApps';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   Text,
@@ -12,11 +13,12 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Stream } from '../lib/providers/types';
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
+  BottomSheetSectionList,
 } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import LoadingIndicator from './ui/LoadingIndicator';
@@ -27,6 +29,7 @@ import { settingsStorage } from '../lib/storage';
 import { useM3Colors } from '../theme/M3PaletteContext';
 import { isTV } from '../lib/tv';
 import { TVFocusable, TVFocusGuide } from './tv';
+import SearchSubtitles, { FoundSubtitle } from './SearchSubtitles';
 
 const NativeTouchableOpacity = TouchableOpacity;
 
@@ -123,6 +126,15 @@ export interface DownloadedSubtitleItem {
   filePath?: string;
 }
 
+type AvailableSubtitle = NonNullable<Stream['subtitles']>[number];
+type SubtitleItem = AvailableSubtitle | DownloadedSubtitleItem;
+
+type SubtitleSection = {
+  key: 'downloaded' | 'available';
+  title?: string;
+  data: SubtitleItem[];
+};
+
 const formatQualityLabel = (quality?: string): string => {
   if (!quality) return '';
   const trimmed = quality.trim();
@@ -156,6 +168,8 @@ type Props = {
   downloadedSubtitles?: DownloadedSubtitleItem[];
   isSubDownloaded?: (subTitle: string) => boolean;
   onDeleteSub?: (subTitle: string) => void;
+  /** Initial OpenSubtitles query, such as an IMDb ID or title. */
+  subtitleSearchQuery?: string;
 };
 const DownloadBottomSheet = ({
   data,
@@ -174,8 +188,13 @@ const DownloadBottomSheet = ({
   downloadedSubtitles,
   isSubDownloaded,
   onDeleteSub,
+  subtitleSearchQuery,
 }: Props) => {
   const bottomSheetRef = useRef<BottomSheet>(null);
+  // The sheet only caps its content height after it measures itself. When
+  // cached streams render on the first frame, the list lays out at its full
+  // content height and has nothing to scroll, so cap it from the modal size.
+  const [sheetContainerHeight, setSheetContainerHeight] = React.useState(0);
   const tvCloseRef = useRef<View>(null);
   const tvFirstRowRef = useRef<View>(null);
   const closeSheet = () => {
@@ -184,26 +203,40 @@ const DownloadBottomSheet = ({
   };
   const colors = useM3Colors();
   const [activeTab, setActiveTab] = React.useState<1 | 2>(1);
+  const [searchQuery, setSearchQuery] = React.useState(subtitleSearchQuery ?? '');
+  useEffect(() => {
+    setSearchQuery(subtitleSearchQuery ?? '');
+  }, [subtitleSearchQuery]);
   const isAlwaysExternal =
-    settingsStorage.getBool('alwaysExternalDownloader') === true;
-  const streams = Array.isArray(data) ? data : [];
+    usesExternalApp('downloader');
+  const streams = useMemo(() => Array.isArray(data) ? data : [], [data]);
 
   const downloadedSubs = downloadedSubtitles || [];
   const hasDownloadedSubs = downloadedSubs.length > 0;
 
-  const rawSubtitles = streams
-    .flatMap(server => server.subtitles || [])
-    .filter(Boolean);
+  const streamSubtitles = useMemo(() => {
+    const seenUris = new Set<string>();
+    const languagesByTitle = new Map<string, Set<AvailableSubtitle['language']>>();
+    const unique: AvailableSubtitle[] = [];
 
-  const streamSubtitles = rawSubtitles.filter(
-    (sub, index, self) =>
-      index ===
-      self.findIndex(
-        s =>
-          s.uri === sub.uri ||
-          (s.title === sub.title && s.language === sub.language),
-      ),
-  );
+    for (const stream of streams) {
+      for (const sub of stream.subtitles ?? []) {
+        if (!sub) continue;
+
+        const languages =
+          languagesByTitle.get(sub.title) ?? new Set<AvailableSubtitle['language']>();
+        if (!seenUris.has(sub.uri) && !languages.has(sub.language)) {
+          unique.push(sub);
+        }
+        // Earlier subtitles count as duplicates even when they were omitted.
+        seenUris.add(sub.uri);
+        languages.add(sub.language);
+        languagesByTitle.set(sub.title, languages);
+      }
+    }
+
+    return unique;
+  }, [streams]);
 
   const hasSubtitles = hasDownloadedSubs || streamSubtitles.length > 0;
 
@@ -221,7 +254,6 @@ const DownloadBottomSheet = ({
   useEffect(() => {
     if (showModal) {
       setActiveTab(1);
-      bottomSheetRef.current?.snapToIndex?.(0);
     }
   }, [showModal]);
 
@@ -537,7 +569,7 @@ const DownloadBottomSheet = ({
     ));
   };
 
-  const renderSubtitleTab = () => {
+  const renderSubtitlePlaceholder = () => {
     if (loading) {
       return (
         <View style={{ alignItems: 'center', paddingVertical: 40 }}>
@@ -575,281 +607,367 @@ const DownloadBottomSheet = ({
       );
     }
 
-    return (
-      <>
-        {/* Downloaded Subtitles Section */}
-        {downloadedSubs.length > 0 ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text
-              style={{
-                color: colors.primary,
-                fontSize: 12,
-                fontWeight: '700',
-                letterSpacing: 0.8,
-                marginBottom: 6,
-                textTransform: 'uppercase',
-              }}>
-              Downloaded
-            </Text>
-            {downloadedSubs.map((sub, index) => (
-              <View
-                key={sub.id || index}
-                style={{
-                  alignItems: 'center',
-                  backgroundColor: colors.surfaceContainerHighest,
-                  borderColor: colors.outlineVariant,
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  marginVertical: 4,
-                  paddingHorizontal: 14,
-                  paddingVertical: 12,
-                }}>
-                <View
-                  style={{
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    gap: 10,
-                    flex: 1,
-                  }}>
-                  <MaterialCommunityIcons
-                    name="check-circle"
-                    size={20}
-                    color={colors.primary}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    style={{
-                      color: colors.onSurface,
-                      fontSize: 14,
-                      fontWeight: '600',
-                      flex: 1,
-                    }}>
-                    {sub.title}
-                  </Text>
-                </View>
-                <SheetButton
-                  accessibilityLabel={`Delete downloaded subtitle ${sub.title}`}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    onDeleteSub?.(sub.title);
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={{
-                    alignItems: 'center',
-                    backgroundColor: colors.errorContainer,
-                    borderRadius: 10,
-                    height: 34,
-                    justifyContent: 'center',
-                    width: 34,
-                  }}>
-                  <MaterialCommunityIcons
-                    name="delete-outline"
-                    size={18}
-                    color={colors.onErrorContainer}
-                  />
-                </SheetButton>
-              </View>
-            ))}
-          </View>
-        ) : null}
+    return null;
+  };
 
-        {/* Stream Subtitles Section */}
-        {streamSubtitles.length > 0 ? (
-          <View>
-            {downloadedSubs.length > 0 ? (
+  const renderDownloadedSubtitle = (sub: DownloadedSubtitleItem) => (
+    <View
+      style={{
+        alignItems: 'center',
+        backgroundColor: colors.surfaceContainerHighest,
+        borderColor: colors.outlineVariant,
+        borderRadius: 16,
+        borderWidth: 1,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginVertical: 4,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+      }}>
+      <View
+        style={{
+          alignItems: 'center',
+          flexDirection: 'row',
+          gap: 10,
+          flex: 1,
+        }}>
+        <MaterialCommunityIcons
+          name="check-circle"
+          size={20}
+          color={colors.primary}
+        />
+        <Text
+          numberOfLines={1}
+          style={{
+            color: colors.onSurface,
+            fontSize: 14,
+            fontWeight: '600',
+            flex: 1,
+          }}>
+          {sub.title}
+        </Text>
+      </View>
+      <SheetButton
+        accessibilityLabel={`Delete downloaded subtitle ${sub.title}`}
+        activeOpacity={0.7}
+        onPress={() => {
+          onDeleteSub?.(sub.title);
+        }}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={{
+          alignItems: 'center',
+          backgroundColor: colors.errorContainer,
+          borderRadius: 10,
+          height: 34,
+          justifyContent: 'center',
+          width: 34,
+        }}>
+        <MaterialCommunityIcons
+          name="delete-outline"
+          size={18}
+          color={colors.onErrorContainer}
+        />
+      </SheetButton>
+    </View>
+  );
+
+  const renderAvailableSubtitle = (sub: AvailableSubtitle) => {
+    const subDownloaded = isSubDownloaded
+      ? isSubDownloaded(sub.title)
+      : false;
+    const SubtitleRow = subDownloaded ? View : SheetButton;
+    return (
+      <View
+        style={{
+          alignItems: 'center',
+          backgroundColor: colors.surfaceContainerHighest,
+          borderColor: colors.outlineVariant,
+          borderRadius: 16,
+          borderWidth: 1,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          marginVertical: 4,
+          paddingRight: 14,
+        }}>
+        <SubtitleRow
+          {...(!subDownloaded && {
+            accessibilityLabel: `Download subtitle ${sub.title}`,
+            activeOpacity: 0.7,
+            onPress: () => {
+              onPressSubs({
+                link: sub.uri,
+                type: TextTrackType.VTT,
+                title: sub.title,
+              });
+              closeSheet();
+            },
+          })}
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            marginRight: 10,
+            paddingLeft: 14,
+            paddingVertical: 8,
+            minHeight: 56,
+          }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              color: colors.onSurface,
+              fontSize: 15,
+              fontWeight: '600',
+            }}>
+            {sub.title}
+          </Text>
+          {sub.type ? (
+            <View
+              style={{
+                alignSelf: 'flex-start',
+                backgroundColor: colors.secondaryContainer,
+                borderRadius: 8,
+                marginTop: 4,
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+              }}>
               <Text
                 style={{
-                  color: colors.onSurfaceVariant,
-                  fontSize: 12,
+                  color: colors.onSecondaryContainer,
+                  fontSize: 11,
                   fontWeight: '700',
-                  letterSpacing: 0.8,
-                  marginBottom: 6,
-                  textTransform: 'uppercase',
                 }}>
-                Available
+                {sub.type.toUpperCase()}
               </Text>
-            ) : null}
-            {streamSubtitles.map((sub, index) => {
-              const subDownloaded = isSubDownloaded
-                ? isSubDownloaded(sub.title)
-                : false;
-              return (
-                <View
-                  key={index}
-                  style={{
-                    alignItems: 'center',
-                    backgroundColor: colors.surfaceContainerHighest,
-                    borderColor: colors.outlineVariant,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    marginVertical: 4,
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                  }}>
-                  <View
-                    style={{
-                      alignItems: 'center',
-                      flexDirection: 'row',
-                      gap: 8,
-                      flex: 1,
-                      marginRight: 10,
-                    }}>
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        color: colors.onSurface,
-                        fontSize: 14,
-                        fontWeight: '600',
-                        flex: 1,
-                      }}>
-                      {sub.title}
-                    </Text>
-                    {sub.type ? (
-                      <View
-                        style={{
-                          backgroundColor: colors.secondaryContainer,
-                          borderRadius: 8,
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
-                        }}>
-                        <Text
-                          style={{
-                            color: colors.onSecondaryContainer,
-                            fontSize: 10,
-                            fontWeight: '700',
-                          }}>
-                          {sub.type.toUpperCase()}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
+            </View>
+          ) : null}
+        </SubtitleRow>
 
-                  <View
-                    style={{
-                      alignItems: 'center',
-                      flexDirection: 'row',
-                      gap: 6,
-                      flexShrink: 0,
-                    }}>
-                    {/* Copy Subtitle Link Button */}
-                    <SheetButton
-                      accessibilityLabel={`Copy subtitle link for ${sub.title}`}
-                      activeOpacity={0.7}
-                      onPress={() => handleCopy(sub.uri)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={{
-                        alignItems: 'center',
-                        backgroundColor: colors.surfaceContainerHighest,
-                        borderRadius: 10,
-                        justifyContent: 'center',
-                        padding: 8,
-                      }}>
-                      <MaterialCommunityIcons
-                        name="content-copy"
-                        size={18}
-                        color={colors.onSurfaceVariant}
-                      />
-                    </SheetButton>
-
-                    {/* External Subtitle Button */}
-                    <SheetButton
-                      accessibilityLabel={`Open subtitle externally: ${sub.title}`}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        onPressExternalSubs?.({
-                          link: sub.uri,
-                          type: TextTrackType.VTT,
-                          title: sub.title,
-                        });
-                        closeSheet();
-                      }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={{
-                        alignItems: 'center',
-                        backgroundColor: colors.surfaceContainerHighest,
-                        borderRadius: 10,
-                        justifyContent: 'center',
-                        padding: 8,
-                      }}>
-                      <MaterialCommunityIcons
-                        name="open-in-new"
-                        size={18}
-                        color={colors.onSurfaceVariant}
-                      />
-                    </SheetButton>
-
-                    {/* Download / Delete Subtitle Button */}
-                    {subDownloaded ? (
-                      <SheetButton
-                        accessibilityLabel={`Delete downloaded subtitle ${sub.title}`}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          onDeleteSub?.(sub.title);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{
-                          alignItems: 'center',
-                          backgroundColor: colors.errorContainer,
-                          borderRadius: 10,
-                          height: 34,
-                          justifyContent: 'center',
-                          width: 34,
-                        }}>
-                        <MaterialCommunityIcons
-                          name="delete-outline"
-                          size={18}
-                          color={colors.onErrorContainer}
-                        />
-                      </SheetButton>
-                    ) : (
-                      <SheetButton
-                        accessibilityLabel={`Download subtitle ${sub.title}`}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          onPressSubs({
-                            link: sub.uri,
-                            type: TextTrackType.VTT,
-                            title: sub.title,
-                          });
-                          closeSheet();
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{
-                          alignItems: 'center',
-                          backgroundColor: colors.primaryContainer,
-                          borderRadius: 10,
-                          height: 34,
-                          justifyContent: 'center',
-                          width: 34,
-                        }}>
-                        <MaterialCommunityIcons
-                          name="download"
-                          size={18}
-                          color={colors.onPrimaryContainer}
-                        />
-                      </SheetButton>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        ) : downloadedSubs.length > 0 ? (
-          <Text
+        <View
+          style={{
+            alignItems: 'center',
+            flexDirection: 'row',
+            gap: 6,
+            flexShrink: 0,
+          }}>
+          {/* Copy Subtitle Link Button */}
+          <SheetButton
+            accessibilityLabel={`Copy subtitle link for ${sub.title}`}
+            activeOpacity={0.7}
+            onPress={() => handleCopy(sub.uri)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={{
-              color: colors.onSurfaceVariant,
-              fontSize: 13,
-              textAlign: 'center',
-              marginTop: 20,
+              alignItems: 'center',
+              backgroundColor: colors.surfaceContainerHighest,
+              borderRadius: 10,
+              justifyContent: 'center',
+              padding: 8,
             }}>
-            No extra subtitles available
-          </Text>
-        ) : null}
-      </>
+            <MaterialCommunityIcons
+              name="content-copy"
+              size={18}
+              color={colors.onSurfaceVariant}
+            />
+          </SheetButton>
+
+          {/* External Subtitle Button */}
+          <SheetButton
+            accessibilityLabel={`Open subtitle externally: ${sub.title}`}
+            activeOpacity={0.7}
+            onPress={() => {
+              onPressExternalSubs?.({
+                link: sub.uri,
+                type: TextTrackType.VTT,
+                title: sub.title,
+              });
+              closeSheet();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{
+              alignItems: 'center',
+              backgroundColor: colors.surfaceContainerHighest,
+              borderRadius: 10,
+              justifyContent: 'center',
+              padding: 8,
+            }}>
+            <MaterialCommunityIcons
+              name="open-in-new"
+              size={18}
+              color={colors.onSurfaceVariant}
+            />
+          </SheetButton>
+
+          {/* Delete downloaded subtitle */}
+          {subDownloaded ? (
+            <SheetButton
+              accessibilityLabel={`Delete downloaded subtitle ${sub.title}`}
+              activeOpacity={0.7}
+              onPress={() => {
+                onDeleteSub?.(sub.title);
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{
+                alignItems: 'center',
+                backgroundColor: colors.errorContainer,
+                borderRadius: 10,
+                height: 34,
+                justifyContent: 'center',
+                width: 34,
+              }}>
+              <MaterialCommunityIcons
+                name="delete-outline"
+                size={18}
+                color={colors.onErrorContainer}
+              />
+            </SheetButton>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
+  const renderSubtitleTab = () => {
+    const sections: SubtitleSection[] = [];
+    if (!loading) {
+      if (hasDownloadedSubs) {
+        sections.push({key: 'downloaded', title: 'Downloaded', data: downloadedSubs});
+      }
+      if (streamSubtitles.length > 0) {
+        sections.push({
+          key: 'available',
+          title: hasDownloadedSubs ? 'Available' : undefined,
+          data: streamSubtitles,
+        });
+      }
+    }
+
+    const renderItem = (item: SubtitleItem) =>
+      'uri' in item ? renderAvailableSubtitle(item) : renderDownloadedSubtitle(item);
+    const itemKey = (item: SubtitleItem, index: number) =>
+      'uri' in item ? item.uri : item.id || String(index);
+    const renderHeader = ({key, title}: SubtitleSection) => title ? (
+      <Text
+        style={{
+          color: key === 'downloaded' ? colors.primary : colors.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: '700',
+          letterSpacing: 0.8,
+          marginBottom: 6,
+          marginTop: key === 'available' ? 12 : 0,
+          textTransform: 'uppercase',
+        }}>
+        {title}
+      </Text>
+    ) : null;
+    const searchRow = (
+      <View style={{marginBottom: 8}}>
+        <SearchSubtitles
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          onAddSubtitle={(track: FoundSubtitle) => {
+            if (!track.uri) return;
+            onPressSubs({
+              link: track.uri,
+              type: TextTrackType.SUBRIP,
+              title: track.title?.trim() || track.language || 'Subtitle',
+            });
+            closeSheet();
+          }}
+          renderTrigger={open => (
+            <SheetButton
+              accessibilityLabel="Search subtitles online"
+              activeOpacity={0.7}
+              onPress={open}
+              style={{
+                alignItems: 'center',
+                backgroundColor: colors.surfaceContainerHighest,
+                borderColor: colors.outlineVariant,
+                borderRadius: 16,
+                borderWidth: 1,
+                flexDirection: 'row',
+                gap: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+              }}>
+              <MaterialCommunityIcons
+                name="earth"
+                size={22}
+                color={colors.onSurfaceVariant}
+              />
+              <View style={{flex: 1}}>
+                <Text
+                  style={{
+                    color: colors.onSurface,
+                    fontSize: 14,
+                    fontWeight: '700',
+                  }}>
+                  Search subtitles online
+                </Text>
+                <Text
+                  style={{
+                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                  }}>
+                  Download subtitles for offline playback
+                </Text>
+              </View>
+            </SheetButton>
+          )}
+        />
+      </View>
+    );
+    const placeholder = renderSubtitlePlaceholder();
+    const footer = !loading && hasDownloadedSubs && streamSubtitles.length === 0 ? (
+      <Text
+        style={{
+          color: colors.onSurfaceVariant,
+          fontSize: 13,
+          textAlign: 'center',
+          marginTop: 20,
+        }}>
+        No extra subtitles available
+      </Text>
+    ) : null;
+
+    if (isTV) {
+      // Keep every row available to the TV's native D-pad focus traversal.
+      return (
+        <ScrollView
+          focusable={false}
+          accessible={false}
+          contentContainerStyle={{paddingBottom: 24}}>
+          {searchRow}
+          {placeholder}
+          {sections.map(section => (
+            <React.Fragment key={section.key}>
+              {renderHeader(section)}
+              {section.data.map((item, index) => (
+                <React.Fragment key={itemKey(item, index)}>
+                  {renderItem(item)}
+                </React.Fragment>
+              ))}
+            </React.Fragment>
+          ))}
+          {footer}
+        </ScrollView>
+      );
+    }
+
+    return (
+      <BottomSheetSectionList<SubtitleItem, SubtitleSection>
+        sections={sections}
+        keyExtractor={itemKey}
+        renderItem={({item}) => renderItem(item)}
+        renderSectionHeader={({section}) => renderHeader(section)}
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={searchRow}
+        ListEmptyComponent={placeholder}
+        ListFooterComponent={footer}
+        contentContainerStyle={{paddingBottom: 36, paddingTop: hasSubtitles ? 0 : 12}}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={16}
+        windowSize={5}
+      />
     );
   };
 
@@ -901,7 +1019,7 @@ const DownloadBottomSheet = ({
               style={{alignSelf: 'flex-end', alignItems: 'center', justifyContent: 'center', minHeight: 48, minWidth: 100, marginBottom: 12}}>
               <Text style={{color: colors.onSurface, fontSize: 18}}>Close</Text>
             </TVFocusable>
-            {hasSubtitles && (
+            {(
               <View style={{flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 12}}>
                 {([{label: 'Video', value: 1 as const}, {label: 'Subtitle', value: 2 as const}] as const).map(tab => (
                   <SheetButton
@@ -914,12 +1032,14 @@ const DownloadBottomSheet = ({
                 ))}
               </View>
             )}
-            <ScrollView
-              focusable={false}
-              accessible={false}
-              contentContainerStyle={{paddingBottom: 24}}>
-              {activeTab === 1 ? renderVideoTab() : renderSubtitleTab()}
-            </ScrollView>
+            {activeTab === 1 ? (
+              <ScrollView
+                focusable={false}
+                accessible={false}
+                contentContainerStyle={{paddingBottom: 24}}>
+                {renderVideoTab()}
+              </ScrollView>
+            ) : renderSubtitleTab()}
           </TVFocusGuide>
         </View>
       </Modal>
@@ -933,7 +1053,9 @@ const DownloadBottomSheet = ({
       animationType="none"
       onRequestClose={() => setModal(false)}
       statusBarTranslucent>
-      <GestureHandlerRootView style={StyleSheet.absoluteFill}>
+      <GestureHandlerRootView
+        style={StyleSheet.absoluteFill}
+        onLayout={event => setSheetContainerHeight(event.nativeEvent.layout.height)}>
         <BottomSheet
           ref={bottomSheetRef}
           index={0}
@@ -964,7 +1086,10 @@ const DownloadBottomSheet = ({
             trapFocusDown={isTV}
             style={{
               backgroundColor: colors.surfaceContainerLow,
-              flex: 1,
+              // Height of the 85% snap point minus the 24 px handle.
+              ...(sheetContainerHeight > 0
+                ? {height: sheetContainerHeight * 0.85 - 24}
+                : {flex: 1}),
               paddingHorizontal: 16,
               paddingTop: 8,
             }}>
@@ -995,7 +1120,7 @@ const DownloadBottomSheet = ({
                 {title}
               </Text>
             )}
-            {hasSubtitles && (
+            {(
               <View
                 style={{
                   alignSelf: 'center',
@@ -1040,14 +1165,16 @@ const DownloadBottomSheet = ({
                 })}
               </View>
             )}
-            <BottomSheetScrollView
-              contentContainerStyle={{
-                paddingBottom: 36,
-                paddingTop: hasSubtitles ? 0 : 12,
-              }}
-              showsVerticalScrollIndicator={false}>
-              {activeTab === 1 ? renderVideoTab() : renderSubtitleTab()}
-            </BottomSheetScrollView>
+            {activeTab === 1 ? (
+              <BottomSheetScrollView
+                contentContainerStyle={{
+                  paddingBottom: 36,
+                  paddingTop: hasSubtitles ? 0 : 12,
+                }}
+                showsVerticalScrollIndicator={false}>
+                {renderVideoTab()}
+              </BottomSheetScrollView>
+            ) : renderSubtitleTab()}
           </TVFocusGuide>
         </BottomSheet>
       </GestureHandlerRootView>

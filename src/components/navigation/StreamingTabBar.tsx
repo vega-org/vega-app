@@ -10,9 +10,13 @@ import {
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {settingsStorage} from '../../lib/storage';
+import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
+import {useTabVisibilityStore} from '../../lib/zustand/tabVisibilityStore';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import AppText from '../ui/Text';
 import {AnimatedTabIcon, type AnimatedTabIconName} from './AnimatedTabIcon';
+import {isTabRouteOnSubpage} from './FloatingTabBarInsetContext';
+import {GlassTabBar, type GlassTabItem} from './GlassTabBar';
 import {isTV} from '../../lib/tv/constants';
 import {useTVFocusBorderColor} from '../../lib/tv/useTVFocusBorderColor';
 
@@ -153,7 +157,7 @@ const StreamingTabButton = ({
       key={routeKey}
       accessibilityRole="button"
       accessibilityState={isFocused ? {selected: true} : {}}
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={accessibilityLabel || label}
       activeOpacity={0.85}
       onLongPress={onLongPress}
       onPress={onPress}
@@ -175,9 +179,7 @@ const StreamingTabButton = ({
         pointerEvents="none"
         style={{
           alignItems: 'center',
-          backgroundColor: isFocused
-            ? colors.secondaryContainer
-            : 'transparent',
+          backgroundColor: isFocused ? colors.secondaryContainer : 'transparent',
           borderRadius: 16,
           height: 34,
           justifyContent: 'center',
@@ -214,18 +216,113 @@ const StreamingTabBar = ({
   state,
   descriptors,
   navigation,
-}: BottomTabBarProps) => {
+  blurTarget,
+}: BottomTabBarProps & {blurTarget?: View}) => {
   const colors = useM3Colors();
   const insets = useSafeAreaInsets();
   const {width: windowWidth, height: windowHeight} = useWindowDimensions();
   const isNavigationRail = isTV || Math.min(windowWidth, windowHeight) >= 600;
+  const glassEnabled = useNavigationPreferencesStore(
+    state => state.glassTabBar,
+  );
+  const hideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.hideGlassTabBarInSubpages,
+  );
+  const glass = glassEnabled && !isNavigationRail;
   const showLabels = settingsStorage.showTabBarLabels();
   const bottomBarPadding = Math.max(insets.bottom, 8);
   const activeTabKey = state.routes[state.index]?.key ?? null;
+  const activeSubpage = useTabVisibilityStore(s => activeTabKey ? s.subpages[activeTabKey] : undefined);
 
   React.useLayoutEffect(() => {
     if (isTV) useTVNavigationStore.getState().setActiveTabKey(activeTabKey);
   }, [activeTabKey]);
+
+  const activateTab = (index: number, options?: {skipHaptic?: boolean}) => {
+    const route = state.routes[index];
+    if (!route) return false;
+
+    const event = navigation.emit({
+      type: 'tabPress',
+      target: route.key,
+      canPreventDefault: true,
+    });
+    if (event.defaultPrevented) return false;
+
+    if (index !== state.index) {
+      if (!options?.skipHaptic && settingsStorage.isHapticFeedbackEnabled()) {
+        ReactNativeHapticFeedback.trigger('effectTick', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
+      }
+      navigation.navigate(route.name, route.params);
+    }
+    return true;
+  };
+
+  const getTabLabel = (routeKey: string, routeName: string) => {
+    const descriptor = descriptors[routeKey];
+    return typeof descriptor?.options.tabBarLabel === 'string'
+      ? descriptor.options.tabBarLabel
+      : typeof descriptor?.options.title === 'string'
+        ? descriptor.options.title
+        : routeName;
+  };
+
+  if (glass) {
+    const activeRoute = state.routes[state.index];
+    const hiddenOnSubpage =
+      hideGlassTabBarInSubpages && (activeSubpage ?? isTabRouteOnSubpage(activeRoute));
+    const glassItems: GlassTabItem[] = state.routes.map(route => {
+      const descriptor = descriptors[route.key];
+      return {
+        key: route.key,
+        label: getTabLabel(route.key, route.name),
+        icon: TAB_ICONS[route.name] ?? 'home',
+        accessibilityLabel: descriptor?.options.tabBarAccessibilityLabel,
+      };
+    });
+    const hideOnKeyboard = Boolean(
+      activeRoute
+        ? descriptors[activeRoute.key]?.options.tabBarHideOnKeyboard
+        : false,
+    );
+
+    return (
+      <GlassTabBar
+        blurTarget={blurTarget}
+        items={glassItems}
+        selectedIndex={state.index}
+        showLabels={showLabels}
+        hideOnKeyboard={hideOnKeyboard}
+        hidden={hiddenOnSubpage}
+        onSelect={activateTab}
+      />
+    );
+  }
+
+  const tabs = state.routes.map((route, index) => {
+    const descriptor = descriptors[route.key];
+    return (
+      <StreamingTabButton
+        key={route.key}
+        routeKey={route.key}
+        routeName={route.name}
+        isFocused={state.index === index}
+        label={getTabLabel(route.key, route.name)}
+        icon={TAB_ICONS[route.name] ?? 'home'}
+        accessibilityLabel={descriptor.options.tabBarAccessibilityLabel}
+        isNavigationRail={isNavigationRail}
+        showLabels={showLabels}
+        colors={colors}
+        onPress={() => activateTab(index)}
+        onLongPress={() =>
+          navigation.emit({type: 'tabLongPress', target: route.key})
+        }
+      />
+    );
+  });
 
   return (
     <View
@@ -250,53 +347,7 @@ const StreamingTabBar = ({
           gap: isNavigationRail ? 8 : undefined,
           height: isNavigationRail ? undefined : showLabels ? 58 : 42,
         }}>
-        {state.routes.map((route, index) => {
-          const descriptor = descriptors[route.key];
-          const focused = state.index === index;
-          const label =
-            typeof descriptor.options.tabBarLabel === 'string'
-              ? descriptor.options.tabBarLabel
-              : typeof descriptor.options.title === 'string'
-                ? descriptor.options.title
-                : route.name;
-          const icon = TAB_ICONS[route.name] ?? 'home';
-
-          const onPress = () => {
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!focused && !event.defaultPrevented) {
-              if (settingsStorage.isHapticFeedbackEnabled()) {
-                ReactNativeHapticFeedback.trigger('effectTick', {
-                  enableVibrateFallback: true,
-                  ignoreAndroidSystemSettings: false,
-                });
-              }
-              navigation.navigate(route.name, route.params);
-            }
-          };
-
-          return (
-            <StreamingTabButton
-              key={route.key}
-              routeKey={route.key}
-              routeName={route.name}
-              isFocused={focused}
-              label={label}
-              icon={icon}
-              accessibilityLabel={descriptor.options.tabBarAccessibilityLabel}
-              isNavigationRail={isNavigationRail}
-              showLabels={showLabels}
-              colors={colors}
-              onPress={onPress}
-              onLongPress={() =>
-                navigation.emit({type: 'tabLongPress', target: route.key})
-              }
-            />
-          );
-        })}
+        {tabs}
       </View>
     </View>
   );

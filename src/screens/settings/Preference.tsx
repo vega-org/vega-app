@@ -1,27 +1,29 @@
+import {SettingsSearchAnchor} from '../../components/ui/SettingsSearchTarget';
+import {isExcludedQuality} from '../../lib/streamQuality';
+import ExternalAppPreference from './components/ExternalAppPreference';
+import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import Surface from '../../components/ui/Surface';
 import {useFocusEffect} from '@react-navigation/native';
 import {
   View,
   ToastAndroid,
   BackHandler,
-  Platform,
 } from 'react-native';
 import React, {useState, useCallback} from 'react';
-import {settingsStorage, SEEK_INTERVAL_OPTIONS} from '../../lib/storage';
-import RNReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import {settingsStorage} from '../../lib/storage';
+import {updateProvidersService} from '../../lib/services/UpdateProviders';
 import Constants from 'expo-constants';
-import {setVideoIntentsEnabled, supportsVideoIntents} from '../../lib/services/videoIntent';
 import DownloadLocationPreference from './components/DownloadLocationPreference';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
 import DownloadConcurrencyPreference from './components/DownloadConcurrencyPreference';
-import BufferPreference from './components/BufferPreference';
+import VerificationWindowPreference from './components/VerificationWindowPreference';
 import TmdbApiKeyPreference from './components/TmdbApiKeyPreference';
 import AppText from '../../components/ui/Text';
-import DropdownField from '../../components/ui/DropdownField';
 import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsPage from '../../components/ui/SettingsPage';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
-import SettingsSliderRow from '../../components/ui/SettingsSliderRow';
-import Surface from '../../components/ui/Surface';
+import SettingsRow from '../../components/ui/SettingsRow';
+import SettingsChoiceDialog from '../../components/ui/SettingsChoiceDialog';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
 import {isTV} from '../../lib/tv';
@@ -50,7 +52,13 @@ const applyTelemetryOptIn = async (next: boolean) => {
   } catch {}
 };
 
+const bottomBarStyles = [
+  {value: 'material', label: 'Material', description: 'Standard navigation bar'},
+  {value: 'glass', label: 'Glass', description: 'Floating, rounded navigation bar'},
+] as const;
+
 const Preferences = ({navigation}: any) => {
+  const [showBottomBarStyles, setShowBottomBarStyles] = useState(false);
   const hasFirebase =
     Boolean(Constants?.expoConfig?.extra?.hasFirebase) &&
     isFirebaseNativeReady();
@@ -73,6 +81,10 @@ const Preferences = ({navigation}: any) => {
       return () => sub.remove();
     }, [navigation]),
   );
+  const [ExcludedQualities, setExcludedQualities] = useState(() =>
+    settingsStorage.getExcludedQualities(),
+  );
+
   const [tmdbInputKey, setTmdbInputKey] = useState(() => settingsStorage.getTmdbApiKey());
   useFocusEffect(useCallback(() => {
     setTmdbInputKey(settingsStorage.getTmdbApiKey());
@@ -81,57 +93,22 @@ const Preferences = ({navigation}: any) => {
     () => settingsStorage.getBool('disableDrawer') || false,
   );
 
-  const [ExcludedQualities, setExcludedQualities] = useState(() =>
-    settingsStorage.getExcludedQualities(),
-  );
-
-  const [showMediaControls, setShowMediaControls] = useState<boolean>(() =>
-    settingsStorage.showMediaControls(),
-  );
-
   const [showHamburgerMenu, setShowHamburgerMenu] = useState<boolean>(() =>
     settingsStorage.showHamburgerMenu(),
   );
 
-  const [hideSeekButtons, setHideSeekButtons] = useState<boolean>(() =>
-    settingsStorage.hideSeekButtons(),
-  );
-
-  const [seekInterval, setSeekInterval] = useState<number>(() =>
-    settingsStorage.getSeekInterval(),
-  );
-
-  const [showEpisodeSidebar, setShowEpisodeSidebar] = useState<boolean>(() =>
-    settingsStorage.showPlayerEpisodeSidebar(),
-  );
-
-  const [ambientVideo, setAmbientVideo] = useState(() => settingsStorage.isAmbientVideoEnabled());
-  const [ambientIntensity, setAmbientIntensity] = useState(() => Math.round(settingsStorage.getAmbientIntensity() * 100));
-
-  const [showSleepTimer, setShowSleepTimer] = useState<boolean>(() =>
-    settingsStorage.showSleepTimer(),
-  );
-  useFocusEffect(useCallback(() => {
-    setShowSleepTimer(settingsStorage.showSleepTimer());
-    setShowEpisodeSidebar(settingsStorage.showPlayerEpisodeSidebar());
-  }, []));
-  const [autoPlayNextEpisode, setAutoPlayNextEpisode] = useState<boolean>(() =>
-    settingsStorage.isAutoPlayNextEpisodeEnabled(),
-  );
-
-  const [_enable2xGesture, _setEnable2xGesture] = useState<boolean>(() =>
-    settingsStorage.isEnable2xGestureEnabled(),
-  );
-
-  const [enableSwipeGesture, setEnableSwipeGesture] = useState<boolean>(() =>
-    settingsStorage.isSwipeGestureEnabled(),
-  );
-  const [enableVolumeBoost, setEnableVolumeBoost] = useState(() =>
-    settingsStorage.isVolumeBoostEnabled(),
-  );
-
   const [showTabBarLables, setShowTabBarLables] = useState<boolean>(() =>
     settingsStorage.showTabBarLabels(),
+  );
+  const glassTabBar = useNavigationPreferencesStore(state => state.glassTabBar);
+  const setGlassTabBar = useNavigationPreferencesStore(
+    state => state.setGlassTabBar,
+  );
+  const hideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.hideGlassTabBarInSubpages,
+  );
+  const setHideGlassTabBarInSubpages = useNavigationPreferencesStore(
+    state => state.setHideGlassTabBarInSubpages,
   );
   const hideDownloadsTab = useNavigationPreferencesStore(
     state => state.hideDownloadsTab,
@@ -146,28 +123,10 @@ const Preferences = ({navigation}: any) => {
     state => state.setShowContinueWatching,
   );
 
-  const [openVideosFromOtherApps, setOpenVideosFromOtherApps] = useState(() =>
-    settingsStorage.isOpenVideosFromOtherAppsEnabled(),
-  );
-  const updatingVideoIntents = React.useRef(false);
-
-  const [OpenExternalPlayer, setOpenExternalPlayer] = useState(() =>
-    settingsStorage.getBool('useExternalPlayer', false),
-  );
-
-  const [torrentFullDownload, setTorrentFullDownload] = useState<boolean>(() =>
-    settingsStorage.isTorrentFullDownload(),
-  );
-  const [alwaysCastMode, setAlwaysCastMode] = useState<boolean>(() =>
-    settingsStorage.isAlwaysCastMode(),
-  );
-  const [askLocalFileFirst, setAskLocalFileFirst] = useState<boolean>(() =>
-    settingsStorage.isAskLocalFileFirst(),
-  );
-
   const [hapticFeedback, setHapticFeedback] = useState(() =>
     settingsStorage.isHapticFeedbackEnabled(),
   );
+  const [providerAutoUpdates, setProviderAutoUpdates] = useState(() => settingsStorage.isProviderAutoUpdateEnabled());
 
   const [alwaysUseExternalDownload, setAlwaysUseExternalDownload] = useState(
     () => settingsStorage.getBool('alwaysExternalDownloader') || false,
@@ -222,9 +181,19 @@ const Preferences = ({navigation}: any) => {
           <AppText
             role="bodyLarge"
             className="mb-7 mt-1 text-m3-on-surface-variant">
-            Shape how Vega looks, plays, and downloads
+            Manage app behavior, privacy, and downloads
           </AppText>
 
+          <SettingsSection title="Providers">
+            <SettingsSwitchRow title="Auto update providers"
+              description="Install provider updates automatically. Turn off to review and install updates manually in Extensions."
+              value={providerAutoUpdates} onValueChange={next => {
+                settingsStorage.setProviderAutoUpdateEnabled(next);
+                setProviderAutoUpdates(next);
+                if (next) void updateProvidersService.checkForUpdatesAndAutoUpdate().catch(error => console.warn('Provider update check failed:', error));
+              }}/>
+            <VerificationWindowPreference />
+          </SettingsSection>
           <SettingsSection title="Experience">
             <SettingsSwitchRow
               title="Haptic feedback"
@@ -248,13 +217,30 @@ const Preferences = ({navigation}: any) => {
                 );
               }}
             />
+            {!isTV && (
+              <SettingsRow
+                title="Bottom bar style"
+                description={glassTabBar ? 'Glass' : 'Material'}
+                onPress={() => setShowBottomBarStyles(true)}
+              />
+            )}
+            {!isTV && glassTabBar && (
+              <SettingsSwitchRow
+                title="Hide glass bar on subpages"
+                description="Hide the floating Glass bar on detail and settings pages"
+                value={hideGlassTabBarInSubpages}
+                onValueChange={setHideGlassTabBarInSubpages}
+              />
+            )}
             <SettingsSwitchRow
               title="Hide downloads tab"
+              description="Move Downloads from the tab bar to Settings"
               value={hideDownloadsTab}
               onValueChange={setHideDownloadsTab}
             />
             <SettingsSwitchRow
               title="Hamburger menu"
+              description="This switch currently has no effect on the Home provider menu button"
               value={showHamburgerMenu}
               onValueChange={next => {
                 settingsStorage.setShowHamburgerMenu(next);
@@ -269,32 +255,13 @@ const Preferences = ({navigation}: any) => {
             />
             <SettingsSwitchRow
               title="Disable drawer"
+              description="Turn off the swipe-out provider drawer on Home"
               value={disableDrawer}
               onValueChange={next => {
                 settingsStorage.setBool('disableDrawer', next);
                 setDisableDrawer(next);
               }}
             />
-            {supportsVideoIntents && (
-              <SettingsSwitchRow
-                title="Open videos from other apps"
-                description="Show Vega in Android’s Open with and video sharing options"
-                value={openVideosFromOtherApps}
-                onValueChange={async next => {
-                  if (updatingVideoIntents.current) return;
-                  updatingVideoIntents.current = true;
-                  try {
-                    await setVideoIntentsEnabled(next);
-                    settingsStorage.setOpenVideosFromOtherAppsEnabled(next);
-                    setOpenVideosFromOtherApps(next);
-                  } catch {
-                    ToastAndroid.show('Unable to update video opening support', ToastAndroid.SHORT);
-                  } finally {
-                    updatingVideoIntents.current = false;
-                  }
-                }}
-              />
-            )}
             <SettingsSwitchRow
               title="External downloader"
               description="Send every download to another app"
@@ -304,6 +271,7 @@ const Preferences = ({navigation}: any) => {
                 setAlwaysUseExternalDownload(next);
               }}
             />
+            <ExternalAppPreference kind="downloader" />
             <SettingsSwitchRow
               title="Skip in-app webview"
               description="Open web links directly in your default browser"
@@ -314,29 +282,6 @@ const Preferences = ({navigation}: any) => {
                 setSkipInAppWebview(next);
               }}
             />
-            {!isTV && (
-              <SettingsSwitchRow
-                title="Ask for local file first"
-                description="Before loading online streams, offer to play a video file from this device"
-                value={askLocalFileFirst}
-                onValueChange={next => {
-                  settingsStorage.setAskLocalFileFirst(next);
-                  setAskLocalFileFirst(next);
-                }}
-              />
-            )}
-            {!isTV && (
-              <SettingsSwitchRow
-                title="Always cast mode"
-                description="Stream directly to TV instead of opening the local phone player"
-                value={alwaysCastMode}
-                divider={false}
-                onValueChange={next => {
-                  settingsStorage.setAlwaysCastMode(next);
-                  setAlwaysCastMode(next);
-                }}
-              />
-            )}
           </SettingsSection>
 
           {hasFirebase ? (
@@ -355,137 +300,6 @@ const Preferences = ({navigation}: any) => {
             </SettingsSection>
           ) : null}
 
-          <TmdbApiKeyPreference draft={{inputKey: tmdbInputKey, setInputKey: setTmdbInputKey}} />
-
-          <SettingsSection title="Playback">
-            {Platform.OS === 'android' && <>
-            <SettingsSwitchRow title="Ambient lighting" description="Soft video colors in the black bars around the picture"
-              value={ambientVideo} onValueChange={next => {settingsStorage.setAmbientVideoEnabled(next); setAmbientVideo(next);}} />
-            {ambientVideo && <SettingsSliderRow title="Ambient intensity" value={ambientIntensity} min={0} max={100} step={5}
-              valueDisplay={`${ambientIntensity}%`} widestValue="100%" onValueChange={setAmbientIntensity}
-              onValueChangeFinished={value => settingsStorage.setAmbientIntensity(value / 100)} />}
-            </>}
-
-            <SettingsSwitchRow
-              title="External player"
-              description="Open streams in your preferred video app"
-              value={OpenExternalPlayer}
-              onValueChange={next => {
-                settingsStorage.setBool('useExternalPlayer', next);
-                setOpenExternalPlayer(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Media controls"
-              value={showMediaControls}
-              onValueChange={next => {
-                settingsStorage.setShowMediaControls(next);
-                setShowMediaControls(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Hide seek buttons"
-              value={hideSeekButtons}
-              onValueChange={next => {
-                settingsStorage.setHideSeekButtons(next);
-                setHideSeekButtons(next);
-              }}
-            />
-            <View
-              className="px-4 py-3"
-              style={{
-                borderBottomColor: colors.outlineVariant,
-                borderBottomWidth: 1,
-              }}>
-              <AppText role="bodyLarge" style={{color: colors.onSurface}}>
-                Seek interval
-              </AppText>
-              <AppText
-                role="bodySmall"
-                style={{color: colors.onSurfaceVariant, marginTop: 3}}>
-                Used by double tap, seek buttons and the TV remote
-              </AppText>
-              <View style={{width: '100%', minHeight: 56, marginTop: 12}}>
-                <DropdownField
-                  placeholder="Seek interval"
-                  options={SEEK_INTERVAL_OPTIONS}
-                  value={seekInterval}
-                  getKey={option => String(option)}
-                  getLabel={option => `${option} seconds`}
-                  onChange={option => {
-                    settingsStorage.setSeekInterval(option);
-                    setSeekInterval(option);
-                  }}
-                />
-              </View>
-            </View>
-            <SettingsSwitchRow
-              title="Episode list button"
-              description="Show button on the right edge to quickly open the episode list sidebar"
-              value={showEpisodeSidebar}
-              onValueChange={next => {
-                settingsStorage.setShowPlayerEpisodeSidebar(next);
-                setShowEpisodeSidebar(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Auto play next episode"
-              description="Start the next episode after a short countdown"
-              value={autoPlayNextEpisode}
-              onValueChange={next => {
-                settingsStorage.setAutoPlayNextEpisode(next);
-                setAutoPlayNextEpisode(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Sleep timer"
-              description="Show the sleep timer button in the player"
-              value={showSleepTimer}
-              onValueChange={next => {
-                settingsStorage.setShowSleepTimer(next);
-                setShowSleepTimer(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Swipe gestures"
-              description="Adjust playback with gestures over the video"
-              value={enableSwipeGesture}
-              onValueChange={next => {
-                settingsStorage.setSwipeGestureEnabled(next);
-                setEnableSwipeGesture(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Volume boost"
-              description="Allow volume up to 200% in the built-in Android player"
-              value={enableVolumeBoost}
-              onValueChange={next => {
-                settingsStorage.setVolumeBoostEnabled(next);
-                setEnableVolumeBoost(next);
-              }}
-            />
-            <SettingsSwitchRow
-              title="Download full torrent"
-              description={
-                torrentFullDownload
-                  ? 'Keep downloading the whole video while it plays'
-                  : 'Download only about 1 minute ahead of playback'
-              }
-              value={torrentFullDownload}
-              divider={false}
-              onValueChange={next => {
-                settingsStorage.setTorrentFullDownload(next);
-                setTorrentFullDownload(next);
-              }}
-            />
-          </SettingsSection>
-
-          <BufferPreference />
-
-          <DownloadLocationPreference primary={colors.primary} />
-
-          <DownloadConcurrencyPreference primary={colors.primary} />
-
           <View className="mb-6">
             <AppText
               role="labelLarge"
@@ -493,29 +307,32 @@ const Preferences = ({navigation}: any) => {
               Quality
             </AppText>
             <Surface level="low" className="p-4">
-              <AppText role="bodyLarge" className="text-m3-on-surface">
-                Excluded Qualities
-              </AppText>
+              <SettingsSearchAnchor label="Excluded Qualities">
+                <AppText role="bodyLarge" className="text-m3-on-surface">
+                  Excluded Qualities
+                </AppText>
+              </SettingsSearchAnchor>
               <AppText
                 role="bodySmall"
                 className="mb-4 mt-1 text-m3-on-surface-variant">
-                Hide lower resolutions from stream results
+                Hide selected resolutions from stream results
               </AppText>
               <View className="flex-row flex-wrap gap-3">
-                {['360p', '480p', '720p'].map(quality => {
-                  const selected = ExcludedQualities.includes(quality);
+                {['360p', '480p', '720p', '1080p', '4K'].map(quality => {
+                  const selected = isExcludedQuality(quality, ExcludedQualities);
                   return (
                     <TVFocusable
                       key={quality}
                       borderRadius={16}
                       accessibilityRole="button"
                       accessibilityLabel={`Quality ${quality}`}
+                      accessibilityState={{selected}}
                       onPress={() => {
                         if (settingsStorage.isHapticFeedbackEnabled()) {
                           RNReactNativeHapticFeedback.trigger('effectTick');
                         }
-                        const newExcluded = ExcludedQualities.includes(quality)
-                          ? ExcludedQualities.filter(q => q !== quality)
+                        const newExcluded = selected
+                          ? ExcludedQualities.filter(q => !isExcludedQuality(q, [quality]))
                           : [...ExcludedQualities, quality];
                         setExcludedQualities(newExcluded);
                         settingsStorage.setExcludedQualities(newExcluded);
@@ -547,7 +364,25 @@ const Preferences = ({navigation}: any) => {
               </View>
             </Surface>
           </View>
+          <TmdbApiKeyPreference draft={{inputKey: tmdbInputKey, setInputKey: setTmdbInputKey}} />
+
+          <DownloadLocationPreference primary={colors.primary} />
+
+          <DownloadConcurrencyPreference primary={colors.primary} />
+
       </SettingsPage>
+      {showBottomBarStyles && (
+        <SettingsChoiceDialog
+          title="Bottom bar style"
+          choices={bottomBarStyles}
+          selected={glassTabBar ? 'glass' : 'material'}
+          onSelect={style => {
+            setGlassTabBar(style === 'glass');
+            setShowBottomBarStyles(false);
+          }}
+          onDismiss={() => setShowBottomBarStyles(false)}
+        />
+      )}
     </TVFocusGuide>
   );
 };

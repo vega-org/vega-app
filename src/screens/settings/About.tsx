@@ -1,5 +1,6 @@
+import {SettingsSearchScrollView} from '../../components/ui/SettingsSearchTarget';
 import {useFocusEffect} from '@react-navigation/native';
-import {View, ScrollView, ToastAndroid, Linking, BackHandler, findNodeHandle} from 'react-native';
+import {View, ToastAndroid, Linking, BackHandler, findNodeHandle} from 'react-native';
 // import pkg from '../../../package.json';
 import React, {useState, useEffect, useRef, useCallback} from 'react';
 import {settingsStorage} from '../../lib/storage';
@@ -7,12 +8,16 @@ import * as RNFS from '@dr.pogodin/react-native-fs';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import {notificationService} from '../../lib/services/Notification';
+import SettingsChoiceDialog from '../../components/ui/SettingsChoiceDialog';
 import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
 import AppText from '../../components/ui/Text';
 import LoadingIndicator from '../../components/ui/LoadingIndicator';
-import {showAppDialog} from '../../lib/zustand/appDialogStore';
+import useAppDialogStore, {
+  showAppDialog,
+  type GlobalAppDialog,
+} from '../../lib/zustand/appDialogStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {useM3Colors} from '../../theme/M3PaletteContext';
 import {TVFocusable, TVFocusGuide} from '../../components/tv';
@@ -21,7 +26,9 @@ import {
   isDetailedLoggingEnabled,
   setDetailedLogging,
   shareLogs,
+  clearLogs,
 } from '../../lib/logging/vegaLog';
+import {selectUpdate, type AppRelease} from '../../lib/services/appUpdateReleases';
 import {useRemoteStore} from '../../lib/remote/remoteStore';
 
 const deletePartialFile = async (filePath: string) => {
@@ -33,64 +40,175 @@ const deletePartialFile = async (filePath: string) => {
 };
 
 const downloadUpdate = async (url: string, name: string) => {
-  console.log('downloading', url, name);
-  await notificationService.requestPermission();
+  let currentDialog: GlobalAppDialog | undefined;
+  let cancelDownload: (() => void) | undefined;
 
-  const filePath = `${RNFS.CachesDirectoryPath}/${name}`;
-
-  let expectedSize = 0;
-
-  const {promise} = RNFS.downloadFile({
-    fromUrl: url,
-    background: true,
-    progressInterval: 1000,
-    progressDivider: 1,
-    toFile: filePath,
-    begin: res => {
-      expectedSize = res.contentLength;
-      console.log('begin', res.jobId, res.statusCode, res.contentLength);
-    },
-    progress: res => {
-      notificationService.showUpdateProgress(
-        'Downloading Update',
-        `Version ${Application.nativeApplicationVersion} -> ${name}`,
-        {
-          current: res.bytesWritten,
-          max: res.contentLength,
-          indeterminate: false,
-        },
-      );
-    },
-  });
-
-  try {
-    const res = await promise;
-    await notificationService.cancelNotification('updateProgress');
-
-    if (res.statusCode !== 200 || res.bytesWritten < expectedSize) {
-      console.log(
-        `[update] Download failed: status=${res.statusCode}, bytes=${res.bytesWritten}/${expectedSize}`,
-      );
-      await deletePartialFile(filePath);
-      ToastAndroid.show(
-        'Download failed, please try again',
-        ToastAndroid.SHORT,
-      );
+  const show = (dialog: GlobalAppDialog) => {
+    if (currentDialog && useAppDialogStore.getState().dialog !== currentDialog) {
       return;
     }
+    currentDialog = dialog;
+    showAppDialog(dialog);
+  };
 
-    await notificationService.displayUpdateNotification({
+  const updateId = `update-${Date.now()}`;
+  const filePath = `${RNFS.CachesDirectoryPath}/${updateId}-${name}`;
+  const showInstall = (allowed: boolean, error?: string) => {
+    let opening = false;
+    show({
+      title: 'Update downloaded',
+      message: error ?? (allowed
+        ? 'The update is ready to install.'
+        : 'Allow Vega to install unknown apps in Android settings, then return here to install the update.'),
+      actions: [
+        {label: 'Close'},
+        {
+          label: allowed ? 'Install' : 'Allow permission',
+          variant: 'primary',
+          dismissOnPress: false,
+          onPress: async () => {
+            if (opening || useAppDialogStore.getState().dialog !== currentDialog) {
+              return;
+            }
+            opening = true;
+            show({
+              title: 'Update downloaded',
+              message: allowed ? 'Opening installerâ€¦' : 'Opening Android settingsâ€¦',
+              actions: [{label: 'Close'}],
+            });
+            try {
+              const hasPermission = await notificationService.hasUnknownAppSourcesPermission();
+              if (useAppDialogStore.getState().dialog !== currentDialog) {
+                return;
+              }
+              if (allowed && hasPermission) {
+                await notificationService.launchApkInstaller(filePath);
+                showInstall(true);
+              } else {
+                showInstall(hasPermission || (!allowed &&
+                  await notificationService.requestUnknownAppSourcesPermission()));
+              }
+            } catch (error) {
+              console.warn('[update] Install action failed:', error);
+              showInstall(allowed, allowed
+                ? 'Could not open the installer. Try again.'
+                : 'Could not open Android settings. Try again.');
+            }
+          },
+        },
+      ],
+    });
+  };
+
+  let expectedSize = 0;
+  let cancelled = false;
+  let notificationsAllowed = false;
+  let lastNotificationAt = 0;
+  let progressNotifications = Promise.resolve();
+
+  const showProgress = (written: number, total: number) => {
+    if (cancelled) return;
+
+    const progress = total > 0 ? Math.min(written / total, 1) : null;
+    const message = progress === null
+      ? written > 0 ? `${(written / 1048576).toFixed(1)} MB downloaded` : 'Preparing download…'
+      : `${Math.floor(progress * 100)}% downloaded`;
+    show({
+      title: 'Downloading update',
+      message,
+      progress,
+      onDismiss: () => {
+        cancelled = true;
+        cancelDownload?.();
+      },
+      actions: [{label: 'Cancel'}],
+    });
+
+    const now = Date.now();
+    if (!notificationsAllowed || now - lastNotificationAt < 1000) return;
+    lastNotificationAt = now;
+    progressNotifications = progressNotifications
+      .then(() => notificationService.displayUpdateNotification({
+        id: updateId,
+        title: 'Downloading update',
+        body: message,
+        onlyAlertOnce: true,
+        progress: {current: Math.floor((progress ?? 0) * 100), max: 100, indeterminate: progress === null},
+      }))
+      .catch(error => console.warn('[update] Progress notification failed:', error));
+  };
+
+  showProgress(0, 0);
+  try {
+    notificationsAllowed = await notificationService.ensureDownloadPermission().catch(() => false);
+    if (cancelled || useAppDialogStore.getState().dialog !== currentDialog) return;
+    showProgress(0, 0);
+    const {jobId, promise} = RNFS.downloadFile({
+      fromUrl: url,
+      progressInterval: 250,
+      toFile: filePath,
+      begin: res => {
+        expectedSize = res.contentLength;
+        showProgress(0, expectedSize);
+      },
+      progress: res => showProgress(res.bytesWritten, res.contentLength),
+    });
+    cancelDownload = () => {
+      RNFS.stopDownload(jobId);
+    };
+
+    const res = await promise;
+    if (res.statusCode !== 200 || res.bytesWritten <= 0 ||
+        (expectedSize > 0 && res.bytesWritten !== expectedSize)) {
+      throw new Error(`Incomplete APK download (HTTP ${res.statusCode})`);
+    }
+    cancelDownload = undefined;
+    if (cancelled || useAppDialogStore.getState().dialog !== currentDialog) {
+      await deletePartialFile(filePath);
+      return;
+    }
+  } catch (error) {
+    await deletePartialFile(filePath);
+    if (!cancelled) {
+      console.warn('[update] Download failed:', error);
+      show({
+        title: 'Update download failed',
+        message: 'Check your connection and try again.',
+        variant: 'error',
+        actions: [
+          {label: 'Close'},
+          {
+            label: 'Retry',
+            variant: 'primary',
+            dismissOnPress: false,
+            onPress: () => void downloadUpdate(url, name),
+          },
+        ],
+      });
+    }
+    return;
+  } finally {
+    if (notificationsAllowed && lastNotificationAt > 0) {
+      void progressNotifications
+        .then(() => notificationService.cancelNotification(updateId))
+        .catch(error => console.warn('[update] Could not clear progress notification:', error));
+    }
+  }
+
+  if (notificationsAllowed) {
+    void notificationService.displayUpdateNotification({
       id: 'downloadComplete',
-      title: 'Download Complete',
+      title: 'Update downloaded',
       body: 'Tap to install',
       data: {filePath, action: 'install'},
-    });
-  } catch (error) {
-    console.log('[update] Download error:', error);
-    await notificationService.cancelNotification('updateProgress');
-    await deletePartialFile(filePath);
-    ToastAndroid.show('Download failed, please try again', ToastAndroid.SHORT);
+    }).catch(error => console.warn('[update] Completion notification failed:', error));
   }
+
+  const allowed = await notificationService.hasUnknownAppSourcesPermission().catch(error => {
+    console.warn('[update] Permission check failed:', error);
+    return false;
+  });
+  showInstall(allowed);
 };
 
 // handle check for update
@@ -101,9 +219,9 @@ export const checkForUpdate = async (
 ) => {
   setUpdateLoading(true);
   try {
-    const res = await fetch(
-      'https://api.github.com/repos/vega-org/vega-app/releases/latest',
-    );
+    const beta = settingsStorage.getUpdateChannel() === 'beta';
+    const endpoint = beta ? 'releases?per_page=100' : 'releases/latest';
+    const res = await fetch(`https://api.github.com/repos/vega-org/vega-app/${endpoint}`);
     if (res.status === 403 || res.status === 429) {
       ToastAndroid.show(
         'GitHub API rate limit exceeded. Please wait a few minutes before trying again.',
@@ -115,62 +233,49 @@ export const checkForUpdate = async (
     if (!res.ok) {
       throw new Error(`GitHub release check failed with status ${res.status}`);
     }
-    const data = await res.json();
-    if (!data?.tag_name) {
+    const response = await res.json();
+    const localVersion = Application.nativeApplicationVersion;
+    const releases: AppRelease[] = beta ? response : [response];
+    if (!Array.isArray(releases) || (!beta && !response?.tag_name)) {
       throw new Error('Invalid release data received from GitHub');
     }
-    const localVersion = Application.nativeApplicationVersion;
-    const remoteVersion = Number(
-      data.tag_name.replace('v', '')?.split('.').join(''),
-    );
-    if (compareVersions(localVersion || '', data.tag_name.replace('v', ''))) {
+    const data = selectUpdate(releases, localVersion ?? '', beta, isTV);
+    if (data) {
       ToastAndroid.show('New update available', ToastAndroid.SHORT);
+      const targetKeyword = isTV ? 'tv' : 'mobile';
+      const apkAssets = data.assets?.filter((asset: any) =>
+        asset.name?.endsWith('.apk') && asset.browser_download_url,
+      );
+      const apkAsset =
+        apkAssets?.find((asset: any) => asset.name.toLowerCase().includes(targetKeyword)) ??
+        apkAssets?.find((asset: any) => asset.name.toLowerCase().includes('universal')) ??
+        apkAssets?.[0];
+      const githubAction = {
+        label: 'Open GitHub release',
+        onPress: () => {
+          void Linking.openURL(data.html_url).catch(() => {
+            ToastAndroid.show('Could not open the GitHub release', ToastAndroid.SHORT);
+          });
+        },
+      };
       showAppDialog({
         title: `Update v${localVersion} -> ${data.tag_name}`,
-        message: data.body,
+        message: data.body ?? '',
         messageFormat: 'markdown',
-        actions: [
-          {label: 'Cancel'},
-          {
-            label: 'Update',
-            variant: 'primary',
-            onPress: () => {
-              const targetKeyword = isTV ? 'tv' : 'mobile';
-              const apkAsset =
-                data?.assets?.find(
-                  (asset: any) =>
-                    asset.name?.endsWith('.apk') &&
-                    asset.name?.toLowerCase().includes(targetKeyword),
-                ) ||
-                data?.assets?.find(
-                  (asset: any) =>
-                    asset.name?.endsWith('.apk') &&
-                    asset.name?.toLowerCase().includes('universal'),
-                ) ||
-                data?.assets?.find((asset: any) =>
-                  asset.name?.endsWith('.apk'),
-                );
-              return autoDownload && apkAsset
-                ? downloadUpdate(apkAsset.browser_download_url, apkAsset.name)
-                : Linking.openURL(data.html_url);
-            },
-          },
-        ],
+        actions: autoDownload && apkAsset
+          ? [
+              githubAction,
+              {
+                label: 'Download',
+                variant: 'primary',
+                dismissOnPress: false,
+                onPress: () => void downloadUpdate(apkAsset.browser_download_url, apkAsset.name),
+              },
+            ]
+          : [{label: 'Cancel'}, {...githubAction, variant: 'primary'}],
       });
-      console.log(
-        'local version',
-        localVersion,
-        'remote version',
-        remoteVersion,
-      );
     } else {
       showToast && ToastAndroid.show('App is up to date', ToastAndroid.SHORT);
-      console.log(
-        'local version',
-        localVersion,
-        'remote version',
-        remoteVersion,
-      );
     }
   } catch (error) {
     const isRateLimit =
@@ -185,7 +290,13 @@ export const checkForUpdate = async (
   setUpdateLoading(false);
 };
 
+const updateChannels = [
+  {value: 'stable', label: 'Stable', description: 'Receive stable releases only.'},
+  {value: 'beta', label: 'Beta', description: 'Receive stable releases and prereleases.'},
+] as const;
+
 const About = ({navigation}: any) => {
+  const isPlayStore = Boolean(Constants.expoConfig?.extra?.isPlayStore);
   const colors = useM3Colors();
   const backRef = useRef<View>(null);
   const autoDownloadRef = useRef<View>(null);
@@ -195,6 +306,8 @@ const About = ({navigation}: any) => {
   const [autoDownload, setAutoDownload] = useState(
     settingsStorage.isAutoDownloadEnabled(),
   );
+  const [channelChooserOpen, setChannelChooserOpen] = useState(false);
+  const [updateChannel, setUpdateChannel] = useState(() => settingsStorage.getUpdateChannel());
   const [autoCheckUpdate, setAutoCheckUpdate] = useState<boolean>(
     settingsStorage.isAutoCheckUpdateEnabled(),
   );
@@ -202,6 +315,19 @@ const About = ({navigation}: any) => {
     isDetailedLoggingEnabled,
   );
   const [exportingLogs, setExportingLogs] = useState(false);
+  const [clearingLogs, setClearingLogs] = useState(false);
+
+  const handleClearLogs = async () => {
+    setClearingLogs(true);
+    try {
+      await clearLogs();
+      ToastAndroid.show('Logs cleared', ToastAndroid.SHORT);
+    } catch (error: any) {
+      ToastAndroid.show(error?.message || 'Could not clear logs', ToastAndroid.SHORT);
+    } finally {
+      setClearingLogs(false);
+    }
+  };
 
   const exportLogs = async () => {
     setExportingLogs(true);
@@ -244,7 +370,7 @@ const About = ({navigation}: any) => {
 
   return (
     <TVFocusGuide autoFocus={true} trapFocusRight={true} trapFocusDown={true} style={{flex: 1}}>
-      <ScrollView
+      <SettingsSearchScrollView
         focusable={false}
         accessible={false}
         style={{flex: 1, backgroundColor: colors.background}}
@@ -277,11 +403,11 @@ const About = ({navigation}: any) => {
             <AppText
               role="headlineLargeEmphasized"
               className="text-m3-on-background">
-              About Vega
+              {isPlayStore ? 'About Vega' : 'About & updates'}
             </AppText>
           </View>
           <AppText role="bodyLarge" className="mt-1 text-m3-on-surface-variant">
-            App information and updates
+            {isPlayStore ? 'App information' : 'App information and updates'}
           </AppText>
         </View>
 
@@ -290,16 +416,16 @@ const About = ({navigation}: any) => {
             title="Version"
             description={`Vega ${Application.nativeApplicationVersion || ''}`}
             icon="information-outline"
-            divider={Constants.expoConfig?.extra?.isPlayStore}
+            divider={isPlayStore}
           />
 
-          {!Constants.expoConfig?.extra?.isPlayStore && (
+          {!isPlayStore && (
             <>
               <SettingsSwitchRow
                 ref={autoDownloadRef}
                 nextFocusUp={backHandle}
-                title="Auto install updates"
-                description="Download and install new releases automatically"
+                title="Download updates in Vega"
+                description="Download releases in Vega when you select Update"
                 value={autoDownload}
                 onValueChange={next => {
                   setAutoDownload(next);
@@ -314,6 +440,12 @@ const About = ({navigation}: any) => {
                   setAutoCheckUpdate(next);
                   settingsStorage.setAutoCheckUpdateEnabled(next);
                 }}
+              />
+              <SettingsRow
+                title="Update channel"
+                description={updateChannel === 'beta' ? 'Beta' : 'Stable'}
+                icon="source-branch"
+                onPress={() => setChannelChooserOpen(true)}
               />
               <SettingsRow
                 title="Check for updates"
@@ -348,51 +480,37 @@ const About = ({navigation}: any) => {
               title="Export logs"
               description="Share recent app logs with the developer. Links and sign-in data are removed."
               icon="file-document-outline"
-              divider={false}
               trailing={
                 exportingLogs ? <LoadingIndicator size={14} /> : undefined
               }
-              onPress={exportingLogs ? undefined : exportLogs}
+              onPress={exportingLogs || clearingLogs ? undefined : exportLogs}
+            />
+            <SettingsRow
+              title="Clear logs"
+              description="Clear old logs before reproducing a problem."
+              icon="delete-outline"
+              divider={false}
+              trailing={clearingLogs ? <LoadingIndicator size={14} /> : undefined}
+              onPress={clearingLogs || exportingLogs ? undefined : handleClearLogs}
             />
           </SettingsSection>
         )}
-      </ScrollView>
+      </SettingsSearchScrollView>
+      {!isPlayStore && channelChooserOpen && (
+        <SettingsChoiceDialog
+          title="Update channel"
+          choices={updateChannels}
+          selected={updateChannel}
+          onDismiss={() => setChannelChooserOpen(false)}
+          onSelect={channel => {
+            settingsStorage.setUpdateChannel(channel);
+            setUpdateChannel(channel);
+            setChannelChooserOpen(false);
+          }}
+        />
+      )}
     </TVFocusGuide>
   );
 };
 
 export default About;
-
-function compareVersions(localVersion: string, remoteVersion: string): boolean {
-  try {
-    // Split versions into arrays and convert to numbers
-    const local = localVersion.split('.').map(Number);
-    const remote = remoteVersion.split('.').map(Number);
-
-    // Compare major version
-    if (remote[0] > local[0]) {
-      return true;
-    }
-    if (remote[0] < local[0]) {
-      return false;
-    }
-
-    // Compare minor version
-    if (remote[1] > local[1]) {
-      return true;
-    }
-    if (remote[1] < local[1]) {
-      return false;
-    }
-
-    // Compare patch version
-    if (remote[2] > local[2]) {
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    console.error('Invalid version format');
-    return false;
-  }
-}

@@ -136,7 +136,7 @@ class DlnaModule(
                 val multicastAddr = InetAddress.getByName(SSDP_ADDRESS)
                 val broadcastAddr = InetAddress.getByName("255.255.255.255")
 
-                val targets = listOf("urn:schemas-upnp-org:device:MediaRenderer:1", "ssdp:all")
+                val targets = listOf("urn:schemas-upnp-org:device:MediaRenderer:1", "urn:vega:service:cast:1", "ssdp:all")
                 for (target in targets) {
                     try {
                         socket.send(createSearchPacket(target, multicastAddr))
@@ -161,6 +161,18 @@ class DlnaModule(
                         val receivePacket = DatagramPacket(buffer, buffer.size)
                         socket.receive(receivePacket)
                         val response = String(receivePacket.data, 0, receivePacket.length, Charsets.UTF_8)
+
+                        val castService = extractHeader(response, "X-VEGA-CAST-SERVICE")
+                        if (!castService.isNullOrBlank()) {
+                            try {
+                                val service = java.net.URI(castService)
+                                if (service.scheme in listOf("http", "https") && service.host == receivePacket.address.hostAddress &&
+                                    service.userInfo == null && service.path == "/vega-cast/v1") {
+                                    sendEvent("VegaCastServiceDiscovered", Arguments.createMap().apply { putString("serviceUrl", castService) })
+                                }
+                            } catch (_: Exception) {}
+                            continue
+                        }
 
                         val location = extractHeader(response, "LOCATION")
                         if (!location.isNullOrBlank() && discoveredDevices.putIfAbsent(location, true) == null) {

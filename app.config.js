@@ -26,7 +26,15 @@ module.exports = () => {
   const APP_SCHEME = IS_PLAYSTORE ? 'vegaapp' : 'com.vega';
   const plugins = [
     './plugins/with-custom-native-modules.js',
+      [
+        'expo-camera',
+        {
+          cameraPermission: 'Allow Vega to scan receiver QR codes.',
+          recordAudioAndroid: false,
+        },
+      ],
     './plugins/android-native-config.js',
+    './plugins/with-display-density.js',
     './plugins/with-saf-copy-module.js',
     './plugins/with-uri-permission-module.js',
     './plugins/with-proguard-rules.js',
@@ -138,14 +146,16 @@ module.exports = () => {
   return {
     expo: {
       name: 'Vega',
-      scheme: APP_SCHEME,
+      scheme: [APP_SCHEME, 'vega-cast'],
       displayName: 'Vega',
       jsEngine: 'hermes',
       newArchEnabled: true,
       autolinking: {exclude: ['expo-splash-screen']},
       plugins,
       slug: 'vega',
-      version: '5.2.1',
+      version: process.env.VEGA_NIGHTLY_DATE
+        ? `5.4.1-nightly.${process.env.VEGA_NIGHTLY_DATE}`
+        : '5.4.1',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,
@@ -155,7 +165,7 @@ module.exports = () => {
           ? {googleServicesFile: androidGoogleServicesFile}
           : {}),
         package: PACKAGE_NAME,
-        versionCode: 206,
+        versionCode: 220,
         permissions: [
           'FOREGROUND_SERVICE',
           'FOREGROUND_SERVICE_DATA_SYNC',
@@ -169,6 +179,8 @@ module.exports = () => {
           'POST_NOTIFICATIONS',
         ],
         blockedPermissions: [
+          // Casting uses WebRTC data channels, not microphone capture.
+          'android.permission.RECORD_AUDIO',
           'android.permission.MANAGE_EXTERNAL_STORAGE',
           'android.permission.READ_EXTERNAL_STORAGE',
           'android.permission.READ_MEDIA_VIDEO',
@@ -200,6 +212,14 @@ module.exports = () => {
       },
       platforms: ['ios', 'android'],
       extra: {
+        vegaCastServiceUrl:
+          process.env.VEGA_CAST_SERVICE_URL ||
+          'https://cast.vega-app.in/vega-cast/v1',
+        // Optional STUN/TURN servers. Use short-lived TURN credentials in builds;
+        // never commit a permanent relay secret. Empty means same-LAN ICE only.
+        vegaCastIceServers: JSON.parse(
+          process.env.VEGA_CAST_ICE_SERVERS || '[]',
+        ),
         eas: {
           projectId: '40d98354-d3c8-4616-ab2e-70d9c297091f',
         },

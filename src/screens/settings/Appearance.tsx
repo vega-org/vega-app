@@ -1,8 +1,9 @@
+import {SettingsSearchScrollView} from '../../components/ui/SettingsSearchTarget';
 import {useFocusEffect} from '@react-navigation/native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import React, {useEffect, useCallback} from 'react';
-import {BackHandler, ScrollView, View} from 'react-native';
+import {BackHandler, View} from 'react-native';
 import type {SettingsStackParamList} from '../../App';
 import AppearancePreference from './components/AppearancePreference';
 import AppText from '../../components/ui/Text';
@@ -32,7 +33,7 @@ const Appearance = ({navigation}: Props) => {
 
   return (
     <TVFocusGuide autoFocus={true} trapFocusRight={true} style={{flex: 1}}>
-      <ScrollView
+      <SettingsSearchScrollView
         focusable={false}
         accessible={false}
         style={{backgroundColor: colors.background}}
@@ -66,7 +67,7 @@ const Appearance = ({navigation}: Props) => {
           </AppText>
         </View>
         <AppearancePreference />
-      </ScrollView>
+      </SettingsSearchScrollView>
     </TVFocusGuide>
   );
 };

@@ -6,6 +6,9 @@ import {providerManager} from '../src/lib/services/ProviderManager';
 jest.mock('../src/lib/services/ProviderManager', () => ({
   providerManager: {getSearchPosts: jest.fn()},
 }));
+jest.mock('../src/lib/zustand/verificationConsentStore', () => ({
+  useVerificationConsentStore: require('zustand').create(() => ({requests: []})),
+}));
 jest.mock('../src/lib/zustand/contentStore', () => {
   const state = {
     provider: {value: 'c'},
@@ -69,7 +72,7 @@ const searched = () =>
 const text = (tree: renderer.ReactTestRenderer) =>
   JSON.stringify(tree.toJSON());
 
-it('searches two providers at a time, active provider first, and shows failed ones', async () => {
+it('searches two providers at a time and reveals failed rows only when expanded', async () => {
   let tree!: renderer.ReactTestRenderer;
   await act(async () => {
     tree = renderer.create(<SearchResults {...props} />);
@@ -79,6 +82,10 @@ it('searches two providers at a time, active provider first, and shows failed on
   pending.a.resolve([{title: 'Dune', link: 'dune', image: ''}]);
   await flush();
   expect(searched()).toEqual(['c', 'a', 'b', 'd']);
+  expect(tree.root.findAllByType('Slider' as any).map(row => row.props.title)).toEqual(['A']);
+  const toggle = tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})[0];
+  expect(toggle.props.accessibilityState.expanded).toBe(false);
+  act(() => toggle.props.onPress());
   const rows = tree.root.findAllByType('Slider' as any);
   expect(rows.map(row => [row.props.title, row.props.error])).toEqual([
     ['A', undefined],
@@ -145,5 +152,36 @@ it('shows providers that have the searched title above ones that do not', async 
     'Dune',
     'Dune: Part Two',
   ]);
+  act(() => tree.unmount());
+});
+
+it('toggles empty provider rows and collapses them for a new query', async () => {
+  let tree!: renderer.ReactTestRenderer;
+  await act(async () => {tree = renderer.create(<SearchResults {...props} />);});
+  pending.c.resolve([]);
+  pending.a.resolve([{title: 'Dune', link: 'dune', image: ''}]);
+  await flush();
+  expect(tree.root.findAllByType('Slider' as any).map(row => row.props.title)).toEqual(['A']);
+  act(() => tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})[0].props.onPress());
+  expect(tree.root.findAllByType('Slider' as any).map(row => row.props.title)).toEqual(['A', 'C']);
+  act(() => tree.root.findAllByProps({accessibilityLabel: 'Hide empty results'})[0].props.onPress());
+  expect(tree.root.findAllByType('Slider' as any).map(row => row.props.title)).toEqual(['A']);
+  act(() => tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})[0].props.onPress());
+  await act(async () => {tree.update(<SearchResults {...props} route={{params: {filter: 'Saw'}}} />);});
+  pending.c.resolve([]);
+  await flush();
+  const toggle = tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})[0];
+  expect(toggle.props.accessibilityState.expanded).toBe(false);
+  expect(tree.root.findAllByType('Slider' as any)).toHaveLength(0);
+  act(() => tree.unmount());
+});
+
+it('does not show the expander when providers have not returned empty results or errors', async () => {
+  let tree!: renderer.ReactTestRenderer;
+  await act(async () => {tree = renderer.create(<SearchResults {...props} />);});
+  expect(tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})).toHaveLength(0);
+  pending.c.resolve([{title: 'Dune', link: 'dune', image: ''}]);
+  await flush();
+  expect(tree.root.findAllByProps({accessibilityLabel: 'Show empty results'})).toHaveLength(0);
   act(() => tree.unmount());
 });

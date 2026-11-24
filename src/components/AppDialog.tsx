@@ -1,17 +1,22 @@
+import {fillMaxWidth, padding} from '@expo/ui/jetpack-compose/modifiers';
 import {MaterialCommunityIcons} from '@expo/vector-icons';
 import {
   AlertDialog,
+  Column,
+  LinearProgressIndicator,
   Host,
   RNHostView,
   Text,
   TextButton,
 } from '@expo/ui/jetpack-compose';
 import React from 'react';
-import {Modal, ScrollView, Text as ReactNativeText, View} from 'react-native';
-import Markdown from 'react-native-markdown-display';
+import {ActivityIndicator, Modal, ScrollView, Text as ReactNativeText, View} from 'react-native';
+import Markdown, {MarkdownIt} from 'react-native-markdown-display';
 import {useM3Colors, useM3HostTheme} from '../theme/M3PaletteContext';
 import {isTV} from '../lib/tv';
 import {TVFocusable} from './tv/TVFocusable';
+
+const dialogMarkdown = MarkdownIt({typographer: true, linkify: true});
 
 export type AppDialogVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -28,6 +33,7 @@ interface AppDialogProps {
   visible: boolean;
   title: string;
   message: string;
+  progress?: number | null;
   messageFormat?: 'plain' | 'markdown';
   primary: string;
   variant?: AppDialogVariant;
@@ -52,6 +58,7 @@ const AppDialog = ({
   visible,
   title,
   message,
+  progress,
   messageFormat = 'plain',
   variant = 'info',
   actions = [{label: 'OK', variant: 'primary'}],
@@ -74,6 +81,29 @@ const AppDialog = ({
   if (!visible) {
     return null;
   }
+
+  const progressBar = progress === null ? (
+    <ActivityIndicator color={colors.primary} />
+  ) : progress === undefined ? null : (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{min: 0, max: 100, now: Math.floor(progress * 100)}}
+      style={{
+        backgroundColor: colors.surfaceContainerHighest,
+        borderRadius: 4,
+        height: 6,
+        marginTop: 12,
+        overflow: 'hidden',
+      }}>
+      <View
+        style={{
+          backgroundColor: colors.primary,
+          height: '100%',
+          width: `${progress * 100}%`,
+        }}
+      />
+    </View>
+  );
 
   if (isTV) {
     return (
@@ -108,7 +138,7 @@ const AppDialog = ({
               }}>
               <MaterialCommunityIcons
                 name={appearance.icon}
-                size={32}
+                size={24}
                 color={iconColor}
               />
               <ReactNativeText
@@ -116,9 +146,9 @@ const AppDialog = ({
                 style={{
                   color: colors.onSurface,
                   flex: 1,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: '700',
-                  marginLeft: 14,
+                  marginLeft: 10,
                 }}>
                 {title}
               </ReactNativeText>
@@ -128,9 +158,11 @@ const AppDialog = ({
               {messageFormat === 'markdown' ? (
                 <View testID="app-dialog-message">
                   <Markdown
+                    markdownit={dialogMarkdown}
                     style={{
                       body: {color: colors.onSurfaceVariant, fontSize: 15},
                       paragraph: {marginBottom: 8},
+                      link: {color: colors.primary, textDecorationLine: 'underline'},
                     }}>
                     {message}
                   </Markdown>
@@ -146,6 +178,7 @@ const AppDialog = ({
                   {message}
                 </ReactNativeText>
               )}
+              {progressBar}
             </ScrollView>
 
             <View
@@ -242,7 +275,7 @@ const AppDialog = ({
                 }}>
                 <MaterialCommunityIcons
                   name={appearance.icon}
-                  size={28}
+                  size={22}
                   color={iconColor}
                 />
                 <ReactNativeText
@@ -250,9 +283,9 @@ const AppDialog = ({
                   style={{
                     color: colors.onSurface,
                     flex: 1,
-                    fontSize: 24,
+                    fontSize: 20,
                     fontWeight: '700',
-                    marginLeft: 16,
+                    marginLeft: 10,
                     textAlign: 'left',
                   }}>
                   {title}
@@ -269,6 +302,7 @@ const AppDialog = ({
                   contentContainerStyle={{paddingRight: 8}}>
                   <View testID="app-dialog-message">
                     <Markdown
+                      markdownit={dialogMarkdown}
                       style={{
                         body: {color: colors.onSurfaceVariant, fontSize: 14},
                         bullet_list: {marginVertical: 4},
@@ -296,7 +330,7 @@ const AppDialog = ({
                           fontSize: 16,
                           marginVertical: 6,
                         },
-                        link: {color: colors.primary},
+                        link: {color: colors.primary, textDecorationLine: 'underline'},
                         ordered_list: {marginVertical: 4},
                         paragraph: {marginBottom: 8, marginTop: 0},
                       }}>
@@ -306,21 +340,21 @@ const AppDialog = ({
                 </ScrollView>
               </RNHostView>
             ) : (
-              <RNHostView matchContents>
-                {/* matchContents measures with no width limit, so unbounded
-                    text is laid out as one long line and Compose clips both
-                    ends. A fixed width (same as the title) makes it wrap. */}
-                <ReactNativeText
-                  testID="app-dialog-message"
-                  style={{
-                    color: colors.onSurfaceVariant,
-                    fontSize: 14,
-                    lineHeight: 20,
-                    width: 280,
-                  }}>
+              <Column modifiers={[fillMaxWidth()]}>
+                <Text
+                  color={String(colors.onSurfaceVariant)}
+                  style={{typography: 'bodyMedium'}}>
                   {message}
-                </ReactNativeText>
-              </RNHostView>
+                </Text>
+                {progress !== undefined && (
+                  <LinearProgressIndicator
+                    progress={progress}
+                    color={colors.primary}
+                    trackColor={colors.surfaceContainerHighest}
+                    modifiers={[fillMaxWidth(), padding(0, 12, 0, 0)]}
+                  />
+                )}
+              </Column>
             )}
           </AlertDialog.Text>
           {dismissAction ? (

@@ -1,7 +1,7 @@
+import {clampTimelineSeek, playbackTimeline, type PlaybackTimeline} from '../player/liveTimeline';
 import {useState, useRef, useCallback, useEffect} from 'react';
 import {isTV} from './constants';
 import {useTVRemote} from './useTVRemote';
-import {useTVFocusBorderColor} from './useTVFocusBorderColor';
 import {settingsStorage} from '../storage';
 
 // Focused and idle controls share border width and padding, so focus only
@@ -15,6 +15,7 @@ const TV_CONTROL_IDLE_STYLE = {
 
 interface UsePlayerTVControlsOptions {
   playerRef: React.RefObject<any>;
+  timelineRef?: React.RefObject<PlaybackTimeline>;
   videoPositionRef: React.RefObject<{position: number; duration: number}>;
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
@@ -31,6 +32,7 @@ interface UsePlayerTVControlsOptions {
 
 export const usePlayerTVControls = ({
   playerRef,
+  timelineRef,
   videoPositionRef,
   showSettings,
   setShowSettings,
@@ -38,12 +40,10 @@ export const usePlayerTVControls = ({
   setShowControls,
   showEpisodeSidebar = false,
   setShowEpisodeSidebar,
-  primaryColor,
   onTogglePlayPause,
   onSeekNotification,
   remoteSuspended = false,
 }: UsePlayerTVControlsOptions) => {
-  const focusBorderColor = useTVFocusBorderColor(primaryColor);
   const [isTVControlsVisible, setIsTVControlsVisible] = useState(false);
   const [tvFocusedControl, setTVFocusedControl] = useState<string | null>(null);
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
@@ -76,19 +76,24 @@ export const usePlayerTVControls = ({
     }, 8000);
   }, [setShowControls, showSettings, showEpisodeSidebar]);
 
+  const seekTarget = useCallback((position: number) => {
+    const timeline = timelineRef?.current ?? playbackTimeline({}, videoPositionRef.current.duration);
+    return clampTimelineSeek(position, timeline);
+  }, [timelineRef, videoPositionRef]);
+
   const performTVSeek = useCallback(
     (delta: number) => {
       if (!playerRef.current || !videoPositionRef.current) {
         return;
       }
 
-      const duration = videoPositionRef.current.duration || Infinity;
       const currentBase =
         pendingSeekPositionRef.current !== null
           ? pendingSeekPositionRef.current
           : videoPositionRef.current.position || 0;
 
-      const targetPos = Math.max(0, Math.min(duration, currentBase + delta));
+      const targetPos = seekTarget(currentBase + delta);
+      if (targetPos === undefined) { showTVControls(); return; }
       pendingSeekPositionRef.current = targetPos;
       seekDeltaAccumulatorRef.current += delta;
       showTVControls();
@@ -104,13 +109,14 @@ export const usePlayerTVControls = ({
       }
       seekDebounceTimerRef.current = setTimeout(() => {
         if (playerRef.current && pendingSeekPositionRef.current !== null) {
-          playerRef.current.seek?.(pendingSeekPositionRef.current);
+          const target = seekTarget(pendingSeekPositionRef.current);
+          if (target !== undefined) playerRef.current.seek?.(target);
           pendingSeekPositionRef.current = null;
           seekDeltaAccumulatorRef.current = 0;
         }
       }, 350);
     },
-    [playerRef, videoPositionRef, onSeekNotification, showTVControls],
+    [playerRef, videoPositionRef, onSeekNotification, showTVControls, seekTarget],
   );
 
   const handleTVSeekForward = useCallback(() => {
@@ -125,16 +131,19 @@ export const usePlayerTVControls = ({
     const duration = videoPositionRef.current?.duration || 0;
     if (duration <= 0) return;
     setScrubPosition(previous =>
-      Math.max(0, Math.min(duration, (previous ?? videoPositionRef.current.position) + delta)),
+      seekTarget((previous ?? videoPositionRef.current.position) + delta) ?? null,
     );
     showTVControls();
-  }, [showTVControls, videoPositionRef]);
+  }, [showTVControls, videoPositionRef, seekTarget]);
 
   const confirmScrub = useCallback(() => {
-    if (scrubPosition !== null) playerRef.current?.seek?.(scrubPosition);
+    if (scrubPosition !== null) {
+      const target = seekTarget(scrubPosition);
+      if (target !== undefined) playerRef.current?.seek?.(target);
+    }
     setScrubPosition(null);
     showTVControls();
-  }, [playerRef, scrubPosition, showTVControls]);
+  }, [playerRef, scrubPosition, showTVControls, seekTarget]);
   const cancelScrub = useCallback(() => setScrubPosition(null), []);
   const hideTVControls = useCallback(() => {
     if (tvControlsTimeoutRef.current) clearTimeout(tvControlsTimeoutRef.current);
@@ -296,7 +305,6 @@ export const usePlayerTVControls = ({
           style: TV_CONTROL_IDLE_STYLE,
         };
       }
-      const isFocused = tvFocusedControl === controlId;
       return {
         focusable: true,
         isTVSelectable: true,
@@ -308,12 +316,12 @@ export const usePlayerTVControls = ({
           setTVFocusedControl(prev => (prev === controlId ? null : prev));
           if (controlId === 'timeline') setScrubPosition(null);
         },
-        style: isFocused
-          ? {...TV_CONTROL_IDLE_STYLE, borderColor: focusBorderColor}
-          : TV_CONTROL_IDLE_STYLE,
+        // The outline is drawn by TVFocusPressable from native focus state;
+        // this style only reserves the same space so rows don't reflow.
+        style: TV_CONTROL_IDLE_STYLE,
       };
     },
-    [tvFocusedControl, focusBorderColor, showTVControls, showSettings, showEpisodeSidebar, showControls],
+    [showTVControls, showSettings, showEpisodeSidebar, showControls],
   );
 
   return {

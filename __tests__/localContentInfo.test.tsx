@@ -1,3 +1,4 @@
+import {listLocalFolder} from '../src/lib/localContent/files';
 jest.mock('../src/lib/zustand/metadataOverrideStore', () => ({__esModule: true, default: (selector: any) => selector({overrides: {}}), metadataOverrideKey: (provider: string, link: string) => JSON.stringify([provider, link]), applyMetadataOverride: (info: any) => info}));
 import React from 'react';
 import renderer, {act} from 'react-test-renderer';
@@ -42,4 +43,28 @@ it('refreshes files locally and preserves their metadata and category assignment
   expect(details.localTitle?.metadata).toEqual(title.metadata);
   expect(details.localTitle?.collections).toEqual(['movies']);
   expect(mockGetMetaData).not.toHaveBeenCalled();
+});
+
+it('discovers a new season and removes files no longer in the folder', async () => {
+  (listLocalFolder as jest.Mock).mockImplementationOnce(async () => [{uri: 'season2', name: 'Season 2', directory: true}])
+    .mockImplementationOnce(async () => [{uri: 'new-episode', name: 'S02E01.mkv', directory: false}]);
+  await act(async () => { await details.refetch(); });
+  expect(details.localTitle?.episodes).toEqual([{uri: 'new-episode', name: 'S02E01.mkv', folder: 'Season 2', season: 2, episode: 1}]);
+});
+it('keeps edits made while a folder scan is in progress', async () => {
+  let finish!: (entries: any[]) => void;
+  (listLocalFolder as jest.Mock).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => {
+    const pending = details.refetch();
+    useLocalContentStore.getState().setCollections(title.id, ['updated']);
+    finish([]);
+    await pending;
+  });
+  expect(details.localTitle?.collections).toEqual(['updated']);
+  expect(details.localTitle?.episodes).toEqual([]);
+});
+it('preserves the previous files when folder access fails', async () => {
+  (listLocalFolder as jest.Mock).mockRejectedValueOnce(new Error('Folder access denied'));
+  await act(async () => { await expect(details.refetch()).rejects.toThrow('Folder access denied'); });
+  expect(details.localTitle?.episodes).toEqual(title.episodes);
 });

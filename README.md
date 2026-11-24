@@ -24,21 +24,23 @@ ___
 
 [![Download Apk](https://custom-icon-badges.demolab.com/badge/-Download_From_Github-black?style=for-the-badge&logo=download&logoColor=white)](https://github.com/vega-org/vega-app/releases/latest)
 
-[![Download Apk](https://custom-icon-badges.demolab.com/badge/-Website-tomato?style=for-the-badge&logo=download&logoColor=white)](https://vega.8man.in/#mobile)
+[![Download Apk](https://custom-icon-badges.demolab.com/badge/-Website-tomato?style=for-the-badge&logo=download&logoColor=white)](https://vega-app.in/#mobile)
 
 ## Vega for Desktop 
 https://github.com/vega-org/vega-desktop
 
+## Vega for Web
+https://web.vega-app.in
+
 
 <br>
 
-## Add or Create Provider source
-> [!TIP]
-> Follow the guide here https://vega.8man.in/guide/adding-providers
-
 ##
 <!--  ![Screenshots](https://github.com/user-attachments/assets/b86af756-e66e-4ae7-b2af-61b25cfd8d4e) -->
-<img width="2712" height="1220" alt="Screenshot_2026-08-11-20-07-17-817_com vega" src="https://github.com/user-attachments/assets/e7de4085-fcb1-4504-92e3-a4f011adc879" />
+<!--<img width="2712" height="1220" alt="Screenshot_2026-08-11-20-07-17-817_com vega" src="https://github.com/user-attachments/assets/e7de4085-fcb1-4504-92e3-a4f011adc879" /> -->
+Play any local or remote video
+<img width="2946" height="1324" alt="Untitled design" src="https://github.com/user-attachments/assets/76b6adee-861d-4cc9-88c7-d029d0ab2137" />
+
 
 
 ___
@@ -98,4 +100,3 @@ https://reactnative.dev/docs/signed-apk-android
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=vega-org/vega-app&type=date&legend=top-left&sealed_token=ajfKjwdP9VUHI3OOuOW40FrTlJWZRFXQqjUVf51d1HcT6QFCcR2mvv8ykA_FM5u7a9rqhzNtERwdQjth0A63L5tRJ6ImisXf5ktSU4eYU-SB1m3-xp5HOQ" />
  </picture>
 </a>
-

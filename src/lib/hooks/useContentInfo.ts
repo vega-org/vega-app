@@ -16,6 +16,35 @@ const getContentInfoCacheKey = (link: string, providerValue: string) =>
 const getEnhancedMetadataCacheKey = (imdbId: string, type: string) =>
   `enhancedMeta:${type}:${imdbId}`;
 
+const readCachedContentInfo = (link: string, providerValue: string) => {
+  if (!link || !providerValue) return undefined;
+  const cached = cacheStorage.getString(getContentInfoCacheKey(link, providerValue));
+  if (!cached) return undefined;
+  try {
+    const info = JSON.parse(cached);
+    // Older builds could cache hero metadata here, which has no links.
+    return Array.isArray(info?.linkList) ? info : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const hasCachedContentInfo = (
+  link: string,
+  providerValue: string,
+): boolean => Boolean(readCachedContentInfo(link, providerValue));
+
+const readCachedEnhancedMetadata = (cacheKey: string, imdbId: string) => {
+  const cached =
+    cacheStorage.getString(cacheKey) || cacheStorage.getString(imdbId);
+  if (!cached) return undefined;
+  try {
+    return JSON.parse(cached);
+  } catch {
+    return undefined;
+  }
+};
+
 // Hook for fetching content info/metadata
 export const useContentInfo = (link: string, providerValue: string, enabled = true) => {
   const cacheKey = getContentInfoCacheKey(link, providerValue);
@@ -41,17 +70,7 @@ export const useContentInfo = (link: string, providerValue: string, enabled = tr
     retry: (count, error) => !error.message?.includes('WAF') && count < 1,
     initialData: () => {
       if (!enabled) return undefined;
-      const cached = cacheStorage.getString(cacheKey);
-      if (cached) {
-        try {
-          const info = JSON.parse(cached);
-          // Older builds could cache hero metadata here, which has no links.
-          return Array.isArray(info?.linkList) ? info : undefined;
-        } catch {
-          return undefined;
-        }
-      }
-      return undefined;
+      return readCachedContentInfo(link, providerValue);
     },
     refetchOnMount: false,
   });
@@ -88,7 +107,7 @@ export const useEnhancedMetadata = (
         return response.data?.meta ?? null;
       } catch (error) {
         console.log('Error fetching enhanced metadata:', error);
-        return null;
+        return readCachedEnhancedMetadata(cacheKey, imdbId) ?? null;
       }
     },
     enabled: enabled && !!imdbId && !!type,
@@ -99,16 +118,7 @@ export const useEnhancedMetadata = (
       if (!enabled) {
         return undefined;
       }
-      const cached =
-        cacheStorage.getString(cacheKey) || cacheStorage.getString(imdbId);
-      if (cached) {
-        try {
-          return JSON.parse(cached);
-        } catch {
-          return undefined;
-        }
-      }
-      return undefined;
+      return readCachedEnhancedMetadata(cacheKey, imdbId);
     },
     refetchOnMount: false,
   });
@@ -164,7 +174,9 @@ export const useContentDetails = (link: string, providerValue: string) => {
       refetch: async () => {
         if (!localTitle) return;
         const episodes = await scanEpisodes(localTitle.folderUri, listLocalFolder, undefined, !localTitle.rootFilesOnly);
-        useLocalContentStore.getState().saveTitles([{...localTitle, episodes}]);
+        // Keep edits made during the scan and never recreate a removed import.
+        const latest = useLocalContentStore.getState().titles.find(title => title.id === localId);
+        if (latest) useLocalContentStore.getState().saveTitles([{...latest, episodes}]);
       },
     };
   }

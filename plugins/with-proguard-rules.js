@@ -13,6 +13,12 @@ const RULES = `
 # Keep custom native modules (both com.vega and dynamic package)
 -keep class com.vega.** { *; }
 `;
+// org.jitsi:webrtc:155.0.1 omits Dav1dDecoder and its Natives interface,
+// but includes a leftover Dav1dDecoderJni stub. No decoder factory uses it.
+const WEBRTC_RULES = `
+# Optional AV1 JNI stub in the WebRTC data-channel dependency
+-dontwarn org.webrtc.Dav1dDecoder$Natives
+`;
 
 module.exports = function withProguardRules(config) {
   return withDangerousMod(config, [
@@ -35,8 +41,11 @@ module.exports = function withProguardRules(config) {
           if (packageName !== 'com.vega') {
             content += `-keep class ${packageName}.** { *; }\n`;
           }
-          fs.writeFileSync(proguardRulesFile, content, 'utf8');
         }
+        if (!content.includes('-dontwarn org.webrtc.Dav1dDecoder$Natives')) {
+          content += WEBRTC_RULES;
+        }
+        fs.writeFileSync(proguardRulesFile, content, 'utf8');
       }
       return cfg;
     },

@@ -1,4 +1,11 @@
+jest.mock('../src/lib/zustand/verificationConsentStore', () => ({authorizeVerification: async () => {}, VerificationDeniedError: class extends Error {}}));
+jest.mock('../src/lib/storage/extensionStorage', () => ({extensionStorage: {getInstalledProviders: () => []}}));
 import {beforeEach, describe, expect, it, jest} from '@jest/globals';
+
+const mockFetch = jest.fn<any>();
+jest.mock('../src/lib/sandbox/providerFetch', () => ({
+  providerFetch: (...args: any[]) => mockFetch(...args),
+}));
 
 const mockEnqueue = jest.fn<(request: any) => void>();
 
@@ -30,31 +37,21 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 describe('openWebView request coalescing', () => {
   beforeEach(() => {
     mockEnqueue.mockReset();
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async (_author: string, url: string) => ({
+      status: 200, url, bodyBase64: Buffer.from(`page ${url}`).toString('base64'),
+    }));
   });
 
-  it('opens a separate dialog for each path on the same site', async () => {
+  it('shares one domain dialog and retries each waiter with its own URL', async () => {
     const a = openWebView('https://site.test/a');
-    const b = openWebView('https://site.test/b');
-    await flush();
-
-    expect(mockEnqueue).toHaveBeenCalledTimes(2);
-    for (const call of mockEnqueue.mock.calls) {
-      const req = call[0];
-      req.resolve({data: `page ${req.url}`, cookies: '', url: req.url});
-    }
-
-    expect((await a).data).toBe('page https://site.test/a');
-    expect((await b).data).toBe('page https://site.test/b');
-  });
-
-  it('shares one dialog for the same author and url', async () => {
-    const a = openWebView('https://site.test/a', undefined, 'x');
-    const b = openWebView('https://site.test/a', undefined, 'x');
-    expect(b).toBe(a);
+    const b = openWebView('https://site.test/b', {force: true, waitForCookie: 'other'});
     await flush();
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
-    mockEnqueue.mock.calls[0][0].resolve({data: 'ok', cookies: ''});
-    await a;
+    mockEnqueue.mock.calls[0][0].resolve({data: 'first page', cookies: ''});
+    expect((await a).data).toBe('first page');
+    expect((await b).data).toBe('page https://site.test/b');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('does not share a dialog between authors', async () => {
@@ -71,11 +68,31 @@ describe('openWebView request coalescing', () => {
     const opts = {waitForCookie: 'cf_clearance'};
     const a = openWebView('https://site.test/a', opts);
     const b = openWebView('https://site.test/b', opts);
-    expect(b).toBe(a);
+    expect(b).not.toBe(a);
     await flush();
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
     mockEnqueue.mock.calls[0][0].resolve({data: '', cookies: ''});
-    await a;
+    await Promise.all([a, b]);
+  });
+
+  it('silently retries after dismissal and does not reopen the dialog', async () => {
+    const a = openWebView('https://dismiss.test/a');
+    const b = openWebView('https://dismiss.test/b');
+    await flush();
+    mockEnqueue.mock.calls[0][0].reject(new Error('WAF_DIALOG_CANCELLED'));
+    expect((await a).data).toBe('page https://dismiss.test/a');
+    expect((await b).data).toBe('page https://dismiss.test/b');
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cancellation when the silent retry remains blocked', async () => {
+    mockFetch.mockResolvedValue({status: 403});
+    const a = openWebView('https://blocked.test/a');
+    const outcome = a.catch(error => error);
+    await flush();
+    mockEnqueue.mock.calls[0][0].reject(new Error('WAF_DIALOG_CANCELLED'));
+    expect((await outcome).message).toBe('WAF_DIALOG_CANCELLED');
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
   });
 
   it('does not leave an unhandled rejection when the dialog is cancelled', async () => {

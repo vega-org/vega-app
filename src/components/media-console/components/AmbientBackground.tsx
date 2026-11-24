@@ -14,6 +14,7 @@ import {
   validAmbientColors,
   blendAmbientHistory,
   validAmbientBars,
+  getAmbientSampleInterval,
 } from '../../../lib/player/ambient';
 
 const EMPTY: AmbientBars = {top: 0, bottom: 0, left: 0, right: 0};
@@ -23,9 +24,11 @@ type Props = {
   bars: AmbientBars;
   paused: boolean;
   intensity: number;
+  spread: number;
+  responseMs: number;
 };
 
-function AmbientBackground({videoView, bars, paused, intensity}: Props) {
+function AmbientBackground({videoView, bars, paused, intensity, spread, responseMs}: Props) {
   const [active, setActive] = useState(AppState.currentState === 'active');
   const [palette, setPalette] = useState<AmbientColors>(BLACK);
   const [confirmed, setConfirmed] = useState<{
@@ -35,6 +38,8 @@ function AmbientBackground({videoView, bars, paused, intensity}: Props) {
   const confirmedBars = confirmed?.geometry === bars ? confirmed.bounds : EMPTY;
   const latest = useRef<AmbientColors>(BLACK);
   const previousSample = useRef<AmbientColors | null>(null);
+  const response = useRef(responseMs);
+  useEffect(() => { response.current = responseMs; }, [responseMs]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', state =>
       setActive(state === 'active'),
@@ -53,7 +58,7 @@ function AmbientBackground({videoView, bars, paused, intensity}: Props) {
       return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    let interval = 250;
+    let interval = getAmbientSampleInterval(response.current);
     previousSample.current = null;
     const sample = async () => {
       try {
@@ -79,7 +84,7 @@ function AmbientBackground({videoView, bars, paused, intensity}: Props) {
         ) {
           // Include asynchronous readback/bridge delay in the budget too.
           // Schedule after completion, so captures and transitions never queue up.
-          interval = Math.max(250, Math.min(1500, (Date.now() - started) * 3));
+          interval = Math.max(getAmbientSampleInterval(response.current), Math.min(1500, (Date.now() - started) * 3));
           if (result.durationMs > 24) interval = 1500;
           if (result.durationMs > 80) return;
           const target = blendAmbientHistory(previousSample.current, result.colors);
@@ -110,7 +115,7 @@ function AmbientBackground({videoView, bars, paused, intensity}: Props) {
       importantForAccessibility="no-hide-descendants"
       style={StyleSheet.absoluteFill}>
       <NativeAmbientGlow palette={palette} bars={confirmedBars}
-        intensity={Math.max(0, Math.min(1, intensity))} style={StyleSheet.absoluteFill}
+        spread={spread} responseMs={responseMs} intensity={Math.max(0, Math.min(1, intensity))} style={StyleSheet.absoluteFill}
         pointerEvents="none" accessible={false} />
     </View>
   );

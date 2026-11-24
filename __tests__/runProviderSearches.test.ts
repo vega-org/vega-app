@@ -1,3 +1,5 @@
+jest.mock('../src/lib/storage/SettingsStorage', () => ({settingsStorage: {getVerificationWindowPolicy: () => 'ask'}}));
+import {useVerificationConsentStore} from '../src/lib/zustand/verificationConsentStore';
 import {runProviderSearches} from '../src/lib/search/runProviderSearches';
 import {useWafStore, type WafRequest} from '../src/lib/zustand/wafStore';
 import {
@@ -55,6 +57,7 @@ const started = (calls: Call[]) => calls.map(call => call.provider);
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => {
   useWafStore.setState({requests: []});
+  useVerificationConsentStore.setState({requests: []});
   jest.useRealTimers();
 });
 
@@ -218,4 +221,20 @@ it('reports synchronous search failures and cleans up the deadline', async () =>
   useWafStore.setState({requests: []});
   expect(outcomes).toEqual({a: {error: 'Provider unavailable'}});
   expect(jest.getTimerCount()).toBe(0);
+});
+
+
+it('holds the search deadline while the permission warning is open', async () => {
+  const run = start(['a']);
+  await flush();
+  await jest.advanceTimersByTimeAsync(10_000);
+  useVerificationConsentStore.setState({requests: [{id: 1, provider: 'a', url: 'https://a.test', finish: () => {}}]});
+  await jest.advanceTimersByTimeAsync(60_000);
+  expect(run.calls[0].signal.aborted).toBe(false);
+  useVerificationConsentStore.setState({requests: []});
+  await jest.advanceTimersByTimeAsync(14_999);
+  expect(run.calls[0].signal.aborted).toBe(false);
+  await jest.advanceTimersByTimeAsync(1);
+  await run.done;
+  expect(run.outcomes).toEqual({a: {error: 'Timed out'}});
 });

@@ -61,3 +61,9 @@ export function blendAmbientHistory(previous: AmbientColors | null, sampled: Amb
     return Math.round(current * 0.8 + before * 0.2).toString(16).padStart(2, '0');
   }).join('')) as AmbientColors;
 }
+
+/** Match sampling to smoothing; retain the existing 250ms cadence at the 220ms default. */
+export function getAmbientSampleInterval(responseMs: number): number {
+  const response = Number.isFinite(responseMs) ? Math.max(16, Math.min(1000, responseMs)) : 220;
+  return Math.max(33, Math.min(1000, Math.round(response * 250 / 220)));
+}

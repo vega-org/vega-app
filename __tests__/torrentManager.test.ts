@@ -1,4 +1,5 @@
 const mockAddTorrent = jest.fn();
+const mockClearStreamCache = jest.fn();
 
 jest.mock('react-native', () => ({
   Platform: {OS: 'android'},
@@ -6,6 +7,7 @@ jest.mock('react-native', () => ({
     TorrentModule: {
       initEngine: jest.fn(() => Promise.resolve({streamPort: 8080})),
       addTorrent: (...args: unknown[]) => mockAddTorrent(...args),
+      clearStreamCache: (...args: unknown[]) => mockClearStreamCache(...args),
     },
   },
 }));
@@ -65,5 +67,18 @@ describe('torrentManager.addTorrent', () => {
       null,
       null,
     );
+  });
+});
+
+describe('torrentManager.clearStreamCache', () => {
+  it('delegates to native TorrentModule.clearStreamCache', async () => {
+    mockClearStreamCache.mockResolvedValueOnce(true);
+    await expect(torrentManager.clearStreamCache()).resolves.toBe(true);
+    expect(mockClearStreamCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false when native cleanup fails', async () => {
+    mockClearStreamCache.mockRejectedValueOnce(new Error('disk error'));
+    await expect(torrentManager.clearStreamCache()).resolves.toBe(false);
   });
 });

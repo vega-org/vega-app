@@ -82,7 +82,8 @@ export function decidePlaybackError(
   const canRetry =
     current.loadedAt !== null &&
     (!current.retried || now - current.loadedAt >= PLAYBACK_RETRY_RESET_MS) &&
-    !isPermanentPlaybackError(getPlaybackErrorCode(event));
+    !isPermanentPlaybackError(getPlaybackErrorCode(event)) &&
+    !isContainerParsingError(event);
   if (!canRetry) {
     return {action: 'switch', state: current};
   }
@@ -102,4 +103,13 @@ export function getReloadStartMs(
     ? Math.max(1, Math.round(position * 1000))
     : 1;
   return ms === currentStartMs ? ms + 1 : ms;
+}
+
+/** Some Media3 extractor exceptions are wrapped as IO_UNSPECIFIED (2000). */
+export function isContainerParsingError(event: unknown): boolean {
+  const error = (event as {error?: {errorStackTrace?: string; errorException?: string; cause?: {message?: string}}})?.error;
+  const detail = [error?.errorStackTrace, error?.errorException, error?.cause?.message].join(' ');
+  const code = getPlaybackErrorCode(event);
+  return (code !== null && code >= 3000 && code < 4000) ||
+    /No valid varint length mask found|ParserException|MalformedContainer/i.test(detail);
 }

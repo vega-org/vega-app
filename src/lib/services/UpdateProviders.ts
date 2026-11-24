@@ -130,9 +130,10 @@ class UpdateProvidersService {
   /**
    * Update a specific provider
    */
-  async updateProvider(provider: ProviderExtension): Promise<boolean> {
+  async updateProvider(provider: ProviderExtension, options?: {automatic?: boolean; throwOnError?: boolean}): Promise<boolean> {
     try {
-      return await extensionManager.updateProvider(provider);
+      if (options?.automatic && !settingsStorage.isProviderAutoUpdateEnabled()) return false;
+      return await extensionManager.updateProvider(provider, options?.automatic ? () => settingsStorage.isProviderAutoUpdateEnabled() : undefined);
     } catch (error) {
       const isRateLimit =
         error instanceof Error &&
@@ -141,6 +142,7 @@ class UpdateProvidersService {
         throw error;
       }
       console.error('Error updating provider:', error);
+      if (options?.throwOnError) throw error;
       return false;
     }
   }
@@ -150,7 +152,7 @@ class UpdateProvidersService {
    */
   async updateProviders(
     providers: ProviderExtension[],
-    options?: {showNotifications?: boolean},
+    options?: {showNotifications?: boolean; automatic?: boolean},
   ): Promise<{
     updated: ProviderExtension[];
     failed: ProviderExtension[];
@@ -172,7 +174,9 @@ class UpdateProvidersService {
       }
 
       for (const provider of providers) {
-        const success = await this.updateProvider(provider);
+        if (options?.automatic && !settingsStorage.isProviderAutoUpdateEnabled()) break;
+        const success = await this.updateProvider(provider, options);
+        if (options?.automatic && !settingsStorage.isProviderAutoUpdateEnabled() && !success) break;
         if (success) {
           updated.push(provider);
         } else {
@@ -186,7 +190,7 @@ class UpdateProvidersService {
         const currentActive = useContentStore.getState().provider;
         if (currentActive) {
           const updatedActive = latestInstalled.find(
-            p => p.value === currentActive.value,
+            p => p.value === currentActive.value && p.source?.author === currentActive.source?.author,
           );
           if (updatedActive) {
             useContentStore.getState().setProvider(updatedActive);
@@ -208,19 +212,20 @@ class UpdateProvidersService {
    * Check for updates and automatically start updating if updates are available
    */
   async checkForUpdatesAndAutoUpdate(): Promise<UpdateInfo[]> {
+    if (!settingsStorage.isProviderAutoUpdateEnabled()) return [];
     try {
       const updateInfos = await this.checkForUpdates();
       const availableUpdates = updateInfos.filter(info => info.hasUpdate);
-      if (availableUpdates.length > 0) {
+      if (availableUpdates.length > 0 && settingsStorage.isProviderAutoUpdateEnabled()) {
         const providersToUpdate = availableUpdates.map(update => update.provider);
         const showNotifications = settingsStorage.isNotificationsEnabled();
-        await this.updateProviders(providersToUpdate, {showNotifications});
+        await this.updateProviders(providersToUpdate, {showNotifications, automatic:true});
       }
       return updateInfos;
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message.includes('rate limit')
+        error.message.includes('rate limit') && settingsStorage.isNotificationsEnabled() && settingsStorage.isProviderAutoUpdateEnabled()
       ) {
         await notificationService.displayUpdateNotification({
           id: 'rate-limit-warning',

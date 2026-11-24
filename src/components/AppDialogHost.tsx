@@ -21,7 +21,11 @@ const AppDialogHost = () => {
       primary={colors.primary}
       variant={dialog.variant}
       actions={dialog.actions}
-      onDismiss={dismissDialog}
+      progress={dialog.progress}
+      onDismiss={() => {
+        dismissDialog();
+        dialog.onDismiss?.();
+      }}
     />
   );
 };

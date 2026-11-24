@@ -41,6 +41,7 @@ export const pickRefreshedStream = (
   const matches = streams.filter(
     stream =>
       stream?.link &&
+      !stream.drm &&
       stream.server === record.server &&
       streamSourceType(stream) === record.sourceType &&
       (record.sourceType === 'hls' ||

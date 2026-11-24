@@ -1,3 +1,4 @@
+import type {SavedSubtitle, SubtitleInput} from '../../lib/subtitles/savedSubtitles';
 import React, {useCallback, useState} from 'react';
 import {Image, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -25,6 +26,9 @@ import {M3PaletteContext} from '../../theme/M3PaletteContext';
 import {isTV} from '../../lib/tv';
 
 interface RemotePlayerScreenProps {
+  savedSubtitles?: SavedSubtitle[];
+  onAddSavedSubtitle?: (track: SubtitleInput, origin: SavedSubtitle['origin']) => Promise<SavedSubtitle | undefined>;
+  onRemoveSavedSubtitle?: (id: string) => Promise<void>;
   title?: string;
   subtitle?: string;
   /** Portrait artwork shown in the card. */
@@ -51,6 +55,9 @@ interface RemotePlayerScreenProps {
 const BACKDROP_HEIGHT = 360;
 
 export const RemotePlayerScreen: React.FC<RemotePlayerScreenProps> = ({
+  savedSubtitles,
+  onAddSavedSubtitle,
+  onRemoveSavedSubtitle,
   title,
   subtitle,
   poster,
@@ -127,6 +134,9 @@ export const RemotePlayerScreen: React.FC<RemotePlayerScreenProps> = ({
         </SafeAreaView>
 
         <RemoteSettingsSheets
+          savedSubtitles={savedSubtitles}
+          onAddSavedSubtitle={onAddSavedSubtitle}
+          onRemoveSavedSubtitle={onRemoveSavedSubtitle}
           sheetType={activeSheet}
           onClose={() => setActiveSheet(null)}
           episodes={episodes}

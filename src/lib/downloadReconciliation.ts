@@ -12,6 +12,7 @@ import {
 } from './downloadId';
 import {isSafDownloadLocation} from './downloadLocation';
 import {notificationService} from './services/Notification';
+import {torrentManager} from './torrentManager';
 import useDownloadsStore, {
   type DownloadItem,
   type DownloadStatus,
@@ -220,6 +221,23 @@ const cleanupOrphanStaging = async (records: DownloadItem[]): Promise<void> => {
   );
 };
 
+const cleanupOrphanTorrentStreams = async (): Promise<void> => {
+  if (await torrentManager.clearStreamCache()) {
+    return;
+  }
+  const dirs = [
+    RNFS.DocumentDirectoryPath ? `${RNFS.DocumentDirectoryPath}/torrents` : '',
+    RNFS.CachesDirectoryPath ? `${RNFS.CachesDirectoryPath}/torrents` : '',
+  ].filter(Boolean);
+  await Promise.all(
+    dirs.map(async dir => {
+      if (await RNFS.exists(dir).catch(() => false)) {
+        await RNFS.unlink(dir).catch(() => undefined);
+      }
+    }),
+  );
+};
+
 export const reconcileDownloadState = async (): Promise<void> => {
   const records = Object.values(useDownloadsStore.getState().downloads);
   await notificationService
@@ -227,6 +245,7 @@ export const reconcileDownloadState = async (): Promise<void> => {
     .catch(() => undefined);
   await Promise.all(records.map(reconcileRecord));
   await cleanupOrphanStaging(records);
+  await cleanupOrphanTorrentStreams();
   const {scheduleQueuedDownloads} =
     require('./downloadManager') as typeof import('./downloadManager');
   await scheduleQueuedDownloads();

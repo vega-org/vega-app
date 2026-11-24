@@ -4,10 +4,49 @@ const {
   withDangerousMod,
   withMainApplication,
   withAppBuildGradle,
+  withProjectBuildGradle,
   withAndroidManifest,
 } = require('expo/config-plugins');
 
 function withCustomNativeModules(config) {
+  config = withProjectBuildGradle(config, cfg => {
+    const frescoMarker = '// Vega: Fresco image reference lifetime fix (issue #637).';
+    if (!cfg.modResults.contents.includes(frescoMarker)) {
+      // RN 0.86 still selects 3.6.0. Fresco 3.7.0 includes upstream #2839:
+      // read image info before drawable callbacks can close its reference.
+      // Align the entire group, including optional GIF/WebP and OkHttp modules.
+      cfg.modResults.contents += `
+${frescoMarker}
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.facebook.fresco') {
+                details.useVersion '3.7.0'
+                details.because 'Fresco 3.7 fixes the closed image reference startup crash (#637)'
+            }
+        }
+    }
+}
+`;
+    }
+    const marker = '// Vega: align Media3 with react-native-video and its FFmpeg decoder.';
+    if (!cfg.modResults.contents.includes(marker)) {
+      cfg.modResults.contents += `
+${marker}
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'androidx.media3') {
+                details.useVersion '1.8.0'
+                details.because 'react-native-video and the FFmpeg decoder require the Media3 1.8 API'
+            }
+        }
+    }
+}
+`;
+    }
+    return cfg;
+  });
   // 1. Copy the files over
   config = withDangerousMod(config, [
     'android',
@@ -39,15 +78,15 @@ function withCustomNativeModules(config) {
       if (fs.existsSync(sourceDir)) {
         const files = fs.readdirSync(sourceDir);
         for (const file of files) {
-          if (file.endsWith('.kt')) {
+          if (file.endsWith('.kt') || file.endsWith('.java')) {
             const sourceFile = path.join(sourceDir, file);
             const targetFile = path.join(targetDir, file);
 
             // Read the file and update the package name
             let content = fs.readFileSync(sourceFile, 'utf8');
             content = content.replace(
-              /^package com\.vega$/m,
-              `package ${packageName}`,
+              /^package com\.vega(;?)$/m,
+              (_, terminator) => `package ${packageName}${terminator}`,
             );
             // Imports between these files must follow the package rename,
             // or variant builds (e.g. vega.app) cannot resolve com.vega.*.
@@ -68,6 +107,15 @@ function withCustomNativeModules(config) {
         fs.cpSync(sourceJniDir, targetJniDir, {recursive: true});
       }
 
+      // Source-built ARMv7 FFmpegKit supplements the Maven artifact's 64-bit ABIs.
+      const armv7 = path.join(projectRoot, '.native', 'ffmpeg-armv7');
+      if (fs.existsSync(path.join(armv7, 'armeabi-v7a'))) {
+        fs.cpSync(path.join(armv7, 'armeabi-v7a'), path.join(targetJniDir, 'armeabi-v7a'), {recursive: true});
+        const licenses = path.join(armv7, 'licenses');
+        if (fs.existsSync(licenses)) fs.cpSync(licenses,
+          path.join(projectRoot, 'android/app/src/main/assets/ffmpeg-armv7'), {recursive: true});
+      }
+
       return cfg;
     },
   ]);
@@ -86,6 +134,7 @@ function withCustomNativeModules(config) {
       'VideoThumbnailPackage()',
       'AmbientVideoPackage()',
       'VideoDecoderPackage()',
+      'ExternalAppsPackage()',
       'ProviderHttpPackage()',
       'RemoteDeliveryPackage()',
       'DlnaPackage()',
@@ -162,6 +211,14 @@ function withCustomNativeModules(config) {
       );
     }
 
+    // The authenticated preview extractor uses Media3's callback future adapter.
+    if (!contents.includes('androidx.concurrent:concurrent-futures')) {
+      contents = contents.replace(
+        /dependencies\s*\{/,
+        match => `${match}\n    implementation 'androidx.concurrent:concurrent-futures:1.2.0'\n`,
+      );
+    }
+
     // Read the active player and rendering surface for confirmed HDR status.
     if (!contents.includes('androidx.media3:media3-ui')) {
       contents = contents.replace(
@@ -190,9 +247,34 @@ function withCustomNativeModules(config) {
       contents = contents.replace(
         /dependencies\s*\{/,
         match =>
-          `${match}\n    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.8'\n`,
+          `${match}\n    implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.9'\n`,
       );
     }
+
+    // Keep pre-existing native projects aligned with the source-built JNI API.
+    contents = contents.replace(/dev\.ffmpegkit-maintained:ffmpeg-kit-https:[^'"\s]+/g,
+      'dev.ffmpegkit-maintained:ffmpeg-kit-https:8.1.9');
+    const armv7Guard = '// Vega: require complete ARMv7 FFmpegKit in release builds';
+    // Migrate the old unconditional check in an existing Expo prebuild.
+    contents = contents.replace(
+      /(def verifyFfmpegArmv7 = tasks.register\('verifyFfmpegArmv7'\) \{\r?\n)(    doLast)/,
+      "$1    onlyIf { android.defaultConfig.ndk.abiFilters.contains('armeabi-v7a') }\n$2",
+    );
+    if (!contents.includes(armv7Guard)) contents += `
+${armv7Guard}
+def verifyFfmpegArmv7 = tasks.register('verifyFfmpegArmv7') {
+    onlyIf { android.defaultConfig.ndk.abiFilters.contains('armeabi-v7a') }
+    doLast {
+        ['ffmpegkit', 'ffmpegkit_abidetect', 'avcodec', 'avformat', 'avutil', 'avfilter', 'avdevice', 'swresample', 'swscale'].each { name ->
+            def library = file("src/main/jniLibs/armeabi-v7a/lib" + name + ".so")
+            if (!library.isFile()) throw new GradleException("Missing ARMv7 FFmpegKit: " + library + ". Run bash scripts/build-ffmpeg-armv7.sh before Expo prebuild.")
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name.startsWith('merge') && task.name.endsWith('ReleaseNativeLibs')) task.dependsOn(verifyFfmpegArmv7)
+}
+`;
 
     if (!contents.includes('libtorrent4j:2.1.0-39')) {
       contents = contents.replace(
@@ -208,6 +290,16 @@ function withCustomNativeModules(config) {
 
   // 4. Ensure RemoteDeliveryService is declared in AndroidManifest.xml
   config = withAndroidManifest(config, cfg => {
+    const manifest = cfg.modResults.manifest;
+    if (!manifest.queries) manifest.queries = [];
+    if (!manifest.queries[0]) manifest.queries[0] = {};
+    const queries = manifest.queries[0];
+    if (!queries.intent) queries.intent = [];
+    for (const [scheme, mime] of [['https', 'video/*'], ['http', 'video/*'], ['content', 'video/*'], ['https', 'application/octet-stream'], ['http', 'application/octet-stream'], ['magnet', null]]) {
+      if (!queries.intent.some(item => item.data?.some(data => data.$?.['android:scheme'] === scheme && (data.$?.['android:mimeType'] || null) === mime))) {
+        queries.intent.push({action: [{$: {'android:name': 'android.intent.action.VIEW'}}], data: [{$: {'android:scheme': scheme, ...(mime ? {'android:mimeType': mime} : {})}}]});
+      }
+    }
     const app = cfg.modResults.manifest.application?.[0];
     if (app) {
       if (!app.service) app.service = [];

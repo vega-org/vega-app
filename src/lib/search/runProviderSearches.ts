@@ -1,3 +1,4 @@
+import {useVerificationConsentStore} from '../zustand/verificationConsentStore';
 import {registerWafOperation} from '../services/wafSession';
 import {useWafStore} from '../zustand/wafStore';
 
@@ -62,11 +63,13 @@ export const runProviderSearches = async <P, T>({
     };
     // Watch from the start: even a captcha that opens and closes before the
     // first deadline must be excluded, without resetting the elapsed budget.
-    const unsubscribe = useWafStore.subscribe(state => {
-      if (state.requests.length > 0) pauseDeadline();
+    const updateDeadline = () => {
+      if (useWafStore.getState().requests.length > 0 || useVerificationConsentStore.getState().requests.length > 0) pauseDeadline();
       else resumeDeadline();
-    });
-    if (useWafStore.getState().requests.length === 0) resumeDeadline();
+    };
+    const unsubscribe = useWafStore.subscribe(updateDeadline);
+    const unsubscribeConsent = useVerificationConsentStore.subscribe(updateDeadline);
+    updateDeadline();
 
     const stop = () => controller.abort();
     signal.addEventListener('abort', stop);
@@ -94,6 +97,7 @@ export const runProviderSearches = async <P, T>({
     } finally {
       clearTimeout(timer);
       unsubscribe();
+      unsubscribeConsent();
       signal.removeEventListener('abort', stop);
       controller.signal.removeEventListener('abort', onAbort);
     }

@@ -1,3 +1,4 @@
+import type {PlaybackTimeline} from '../../../lib/player/liveTimeline';
 import React, {Dispatch, SetStateAction} from 'react';
 import {
   // ImageBackground,
@@ -25,6 +26,7 @@ interface BottomControlsProps {
   showTimeRemaining: boolean;
   currentTime: number;
   duration: number;
+  timeline?: PlaybackTimeline;
   seekColor: string;
   toggleTimer: () => void;
   resetControlTimeout: () => void;
@@ -51,6 +53,7 @@ export const BottomControls = ({
   panHandlers,
   disableSeekbar,
   duration,
+  timeline,
   seekColor,
   showDuration,
   showHours,
@@ -85,6 +88,7 @@ export const BottomControls = ({
       showHours={showHours}
       showTimeRemaining={showTimeRemaining}
       duration={duration}
+      timeline={timeline}
       time={currentTime}
       toggleTimer={toggleTimer}
       resetControlTimeout={resetControlTimeout}
