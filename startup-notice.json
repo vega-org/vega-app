@@ -1,18 +1,4 @@
 {
   "$schema": "./startup-notice.schema.json",
-  "notice": {
-    "id": "startup-notice-test-20261124",
-    "title": "Startup notice test",
-    "description": "This is a temporary test of Vega startup notices.",
-    "target": {
-      "maxVersion": "5.4.1",
-      "minVersion": "5.4.1"
-    },
-    "buttons": [
-      {
-        "url": "https://github.com/vega-org/vega-app",
-        "label": "Vega on GitHub"
-      }
-    ]
-  }
+  "notice": null
 }
