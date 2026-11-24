@@ -14,7 +14,7 @@ import * as Updates from 'expo-updates';
 import Constants from 'expo-constants';
 import {showAppDialog} from '../lib/zustand/appDialogStore';
 import {getCrashlytics, isFirebaseNativeReady} from '../lib/utils/firebaseSafe';
-import BootSplash from 'react-native-bootsplash';
+import {hideBootSplash} from '../lib/utils/bootSplash';
 
 interface GlobalErrorBoundaryProps {
   children: React.ReactNode;
@@ -58,7 +58,7 @@ export default class GlobalErrorBoundary extends React.Component<
       errorInfo,
     });
 
-    BootSplash.hide().catch(() => {});
+    hideBootSplash().catch(() => {});
 
     // Log error details for debugging
     this.logErrorDetails(error, errorInfo);

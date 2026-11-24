@@ -212,6 +212,19 @@ const StreamingTabButton = ({
   );
 };
 
+const getTabLabel = (
+  descriptors: BottomTabBarProps['descriptors'],
+  routeKey: string,
+  routeName: string,
+) => {
+  const descriptor = descriptors[routeKey];
+  return typeof descriptor?.options.tabBarLabel === 'string'
+    ? descriptor.options.tabBarLabel
+    : typeof descriptor?.options.title === 'string'
+      ? descriptor.options.title
+      : routeName;
+};
+
 const StreamingTabBar = ({
   state,
   descriptors,
@@ -233,56 +246,64 @@ const StreamingTabBar = ({
   const bottomBarPadding = Math.max(insets.bottom, 8);
   const activeTabKey = state.routes[state.index]?.key ?? null;
   const activeSubpage = useTabVisibilityStore(s => activeTabKey ? s.subpages[activeTabKey] : undefined);
+  const stateRef = React.useRef(state);
+  const navigationRef = React.useRef(navigation);
+
+  React.useLayoutEffect(() => {
+    stateRef.current = state;
+    navigationRef.current = navigation;
+  }, [navigation, state]);
 
   React.useLayoutEffect(() => {
     if (isTV) useTVNavigationStore.getState().setActiveTabKey(activeTabKey);
   }, [activeTabKey]);
 
-  const activateTab = (index: number, options?: {skipHaptic?: boolean}) => {
-    const route = state.routes[index];
-    if (!route) return false;
+  const activateTab = React.useCallback(
+    (index: number, options?: {skipHaptic?: boolean}) => {
+      const currentState = stateRef.current;
+      const currentNavigation = navigationRef.current;
+      const route = currentState.routes[index];
+      if (!route) return false;
 
-    const event = navigation.emit({
-      type: 'tabPress',
-      target: route.key,
-      canPreventDefault: true,
-    });
-    if (event.defaultPrevented) return false;
+      const event = currentNavigation.emit({
+        type: 'tabPress',
+        target: route.key,
+        canPreventDefault: true,
+      });
+      if (event.defaultPrevented) return false;
 
-    if (index !== state.index) {
-      if (!options?.skipHaptic && settingsStorage.isHapticFeedbackEnabled()) {
-        ReactNativeHapticFeedback.trigger('effectTick', {
-          enableVibrateFallback: true,
-          ignoreAndroidSystemSettings: false,
-        });
+      if (index !== currentState.index) {
+        if (!options?.skipHaptic && settingsStorage.isHapticFeedbackEnabled()) {
+          ReactNativeHapticFeedback.trigger('effectTick', {
+            enableVibrateFallback: true,
+            ignoreAndroidSystemSettings: false,
+          });
+        }
+        currentNavigation.navigate(route.name, route.params);
       }
-      navigation.navigate(route.name, route.params);
-    }
-    return true;
-  };
+      return true;
+    },
+    [],
+  );
 
-  const getTabLabel = (routeKey: string, routeName: string) => {
-    const descriptor = descriptors[routeKey];
-    return typeof descriptor?.options.tabBarLabel === 'string'
-      ? descriptor.options.tabBarLabel
-      : typeof descriptor?.options.title === 'string'
-        ? descriptor.options.title
-        : routeName;
-  };
+  const glassItems: GlassTabItem[] = React.useMemo(
+    () =>
+      state.routes.map(route => {
+        const descriptor = descriptors[route.key];
+        return {
+          key: route.key,
+          label: getTabLabel(descriptors, route.key, route.name),
+          icon: TAB_ICONS[route.name] ?? 'home',
+          accessibilityLabel: descriptor?.options.tabBarAccessibilityLabel,
+        };
+      }),
+    [descriptors, state.routes],
+  );
 
   if (glass) {
     const activeRoute = state.routes[state.index];
     const hiddenOnSubpage =
       hideGlassTabBarInSubpages && (activeSubpage ?? isTabRouteOnSubpage(activeRoute));
-    const glassItems: GlassTabItem[] = state.routes.map(route => {
-      const descriptor = descriptors[route.key];
-      return {
-        key: route.key,
-        label: getTabLabel(route.key, route.name),
-        icon: TAB_ICONS[route.name] ?? 'home',
-        accessibilityLabel: descriptor?.options.tabBarAccessibilityLabel,
-      };
-    });
     const hideOnKeyboard = Boolean(
       activeRoute
         ? descriptors[activeRoute.key]?.options.tabBarHideOnKeyboard
@@ -310,7 +331,7 @@ const StreamingTabBar = ({
         routeKey={route.key}
         routeName={route.name}
         isFocused={state.index === index}
-        label={getTabLabel(route.key, route.name)}
+        label={getTabLabel(descriptors, route.key, route.name)}
         icon={TAB_ICONS[route.name] ?? 'home'}
         accessibilityLabel={descriptor.options.tabBarAccessibilityLabel}
         isNavigationRail={isNavigationRail}

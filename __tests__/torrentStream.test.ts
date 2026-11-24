@@ -3,6 +3,7 @@ import {describe, expect, it, jest} from '@jest/globals';
 import {
   isDummyTorrentLink,
   isTorrentStream,
+  pickVideoFileIndex,
   resolveTorrentStream,
 } from '../src/lib/torrentStream';
 
@@ -96,5 +97,27 @@ describe('torrent stream helpers', () => {
       ),
     ).toBe(true);
     expect(isDummyTorrentLink('magnet:?xt=urn:btih:abc')).toBe(false);
+  });
+});
+
+describe('pickVideoFileIndex', () => {
+  it('picks the largest video file', () => {
+    expect(
+      pickVideoFileIndex([
+        {index: 0, name: 'sample.mkv', size: 10},
+        {index: 1, name: 'Movie.MKV', size: 900},
+        {index: 2, name: 'extras.iso', size: 5000},
+      ]),
+    ).toBe(1);
+  });
+
+  it('falls back to the first file when none is a video', () => {
+    expect(pickVideoFileIndex([{index: 0, name: 'readme.txt', size: 1}])).toBe(
+      0,
+    );
+  });
+
+  it('throws when the torrent has no files', () => {
+    expect(() => pickVideoFileIndex([])).toThrow('No files found in torrent');
   });
 });

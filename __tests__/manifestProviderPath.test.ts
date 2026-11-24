@@ -40,6 +40,16 @@ describe('fetchManifest provider path', () => {
     mockGet.mockReset();
   });
 
+  it('flags only providers with a boolean adult declaration', async () => {
+    mockGet.mockResolvedValue({data: [
+      entry('adult', {adult: true}),
+      entry('legacy'),
+      entry('invalid', {adult: 'true'}),
+    ]});
+    const providers = await extensionManager.fetchManifest(source, true);
+    expect(providers.map(provider => provider.adult)).toEqual([true, false, false]);
+  });
+
   it('keeps entries whose optional path is missing, null or empty', async () => {
     mockGet.mockResolvedValue({
       data: [

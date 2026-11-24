@@ -28,6 +28,8 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import {settingsStorage} from '../../lib/storage';
 import ProviderSourceManager from './components/ProviderSourceManager';
 import ProviderCard, {ProviderTestStatus} from './components/ProviderCard';
+import {isProviderVisible} from '../../lib/hooks/useVisibleProviders';
+import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
 import {
   ProviderDiagnosticError,
   testProvider,
@@ -108,6 +110,7 @@ const Extensions = ({navigation, route}: Props) => {
     state => state.setProvider,
   );
   const installedProviders = useContentStore(state => state.installedProviders);
+  const hideAdultProviders = useNavigationPreferencesStore(state => state.hideAdultProviders);
   const availableProviders = useContentStore(state => state.availableProviders);
   const setInstalledProviders = useContentStore(
     state => state.setInstalledProviders,
@@ -564,11 +567,12 @@ const Extensions = ({navigation, route}: Props) => {
         ...(existing || {}),
         ...item,
         hasSettings: Boolean(item.hasSettings || existing?.hasSettings),
+        adult: existing?.adult ?? item.adult,
       });
     }
 
-    return Array.from(providersMap.values());
-  }, [availableProviders, installedProviders]);
+    return Array.from(providersMap.values()).filter(item => isProviderVisible(item, hideAdultProviders));
+  }, [availableProviders, hideAdultProviders, installedProviders]);
 
   const installedKeys = useMemo(
     () => new Set(installedProviders.map(providerListKey)),

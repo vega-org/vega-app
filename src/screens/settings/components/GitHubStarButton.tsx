@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Linking, Pressable, View, findNodeHandle} from 'react-native';
+import {Linking, Pressable, Text, View, findNodeHandle} from 'react-native';
 import {AntDesign, Feather, MaterialCommunityIcons} from '@expo/vector-icons';
 import Animated, {
   FadeIn,
@@ -66,15 +66,15 @@ const GitHubStarButton = ({primary}: GitHubStarButtonProps) => {
 
   return (
     <Pressable
-      ref={buttonRef as any}
-      onLayout={() => setButtonHandle(findNodeHandle(buttonRef.current))}
+      ref={isTV ? (buttonRef as any) : undefined}
+      onLayout={isTV ? () => setButtonHandle(findNodeHandle(buttonRef.current)) : undefined}
       nextFocusDown={isTV ? buttonHandle ?? undefined : undefined}
       accessibilityRole="button"
       accessibilityLabel="Star Vega on GitHub"
       focusable={isTV ? true : undefined}
       isTVSelectable={isTV ? true : undefined}
-      onFocus={() => setIsFocused(true)}
-      onBlur={() => setIsFocused(false)}
+      onFocus={isTV ? () => setIsFocused(true) : undefined}
+      onBlur={isTV ? () => setIsFocused(false) : undefined}
       onPress={openGitHub}
       style={({pressed}) => ({
         borderColor: isTV && isFocused ? focusBorderColor : 'transparent',
@@ -103,12 +103,18 @@ const GitHubStarButton = ({primary}: GitHubStarButtonProps) => {
                 </Animated.View>
               ))}
           </View>
-          <Animated.Text
-            key={celebrating ? 'thanks' : 'star'}
-            entering={FadeIn.duration(180)}
-            className="text-white ml-3 text-base font-medium">
-            {celebrating ? 'You are a star!' : 'Star Vega on GitHub'}
-          </Animated.Text>
+          {celebrating ? (
+            <Animated.Text
+              key="thanks"
+              entering={FadeIn.duration(180)}
+              className="text-white ml-3 text-base font-medium">
+              You are a star!
+            </Animated.Text>
+          ) : (
+            <Text className="text-white ml-3 text-base font-medium">
+              Star Vega on GitHub
+            </Text>
+          )}
         </View>
         <Feather name="external-link" size={20} color="gray" />
       </Animated.View>

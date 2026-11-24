@@ -25,7 +25,7 @@ type AnimatedTabIconProps = {
   size?: number;
 };
 
-export function AnimatedTabIcon({
+export const AnimatedTabIcon = React.memo(function AnimatedTabIcon({
   name,
   active,
   color,
@@ -68,4 +68,4 @@ export function AnimatedTabIcon({
       )}
     </Svg>
   );
-}
+});

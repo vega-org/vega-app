@@ -48,13 +48,16 @@ describe('settings defaults', () => {
     expect(settingsStorage.isTelemetryOptIn()).toBe(true);
     expect(settingsStorage.isDohEnabled()).toBe(true);
     expect(settingsStorage.showTabBarLabels()).toBe(true);
+    expect(settingsStorage.isGlassTabBarEnabled()).toBe(true);
     expect(settingsStorage.hideGlassTabBarInSubpages()).toBe(true);
     expect(settingsStorage.showPlayerEpisodeSidebar()).toBe(true);
     expect(settingsStorage.isAutoPlayNextEpisodeEnabled()).toBe(true);
   });
 
   it('keeps intentional default-off preferences disabled', () => {
+    expect(settingsStorage.hideAdultProviders()).toBe(false);
     expect(settingsStorage.hideDownloadsTab()).toBe(false);
+    expect(settingsStorage.showHeroLibraryButton()).toBe(false);
     expect(settingsStorage.isAutoDownloadEnabled()).toBe(true); // Auto update defaults to on.
     expect(settingsStorage.hideSeekButtons()).toBe(false);
     expect(settingsStorage.isEnable2xGestureEnabled()).toBe(false);
@@ -68,6 +71,21 @@ describe('settings defaults', () => {
     expect(settingsStorage.isAutoCheckUpdateEnabled()).toBe(true);
     settingsStorage.setProviderAutoUpdateEnabled(true);
     expect(settingsStorage.isProviderAutoUpdateEnabled()).toBe(true);
+  });
+
+  it('persists the Hero Add to Library preference', () => {
+    settingsStorage.setShowHeroLibraryButton(true);
+    expect(settingsStorage.showHeroLibraryButton()).toBe(true);
+    expect(mockBooleanValues.get(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON)).toBe(true);
+
+    settingsStorage.setShowHeroLibraryButton(false);
+    expect(settingsStorage.showHeroLibraryButton()).toBe(false);
+    expect(mockBooleanValues.get(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON)).toBe(false);
+  });
+
+  it('honors an explicit Material bottom bar choice', () => {
+    settingsStorage.setGlassTabBarEnabled(false);
+    expect(settingsStorage.isGlassTabBarEnabled()).toBe(false);
   });
 
   it('keeps "ask for local file first" strictly opt-in', () => {

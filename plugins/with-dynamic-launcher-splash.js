@@ -1,5 +1,6 @@
 const fs = require('fs');
 const {addVideoPlayerAlias} = require('./video-player-intents');
+const {writeSplashVectorResources} = require('./splash-vector-resources');
 const path = require('path');
 const {
   withAndroidManifest,
@@ -118,6 +119,7 @@ const withLauncherStyles = config =>
     upsertStyle(styles, 'BootTheme.Base', 'Theme.BootSplash.EdgeToEdge', [
       ['postBootSplashTheme', '@style/AppTheme'],
       ['bootSplashBackground', '@color/bootsplash_background'],
+      ['android:windowBackground', '@drawable/vega_bootsplash_background'],
     ]);
     for (const variant of variants) {
       upsertStyle(styles, `BootTheme.${variant.id}`, 'BootTheme.Base', [
@@ -152,11 +154,43 @@ const bootThemeMethod = `  private fun getBootTheme(): Int {
 
 `;
 
+const enterAnimationCompleteMethod = `  override fun onEnterAnimationComplete() {
+    super.onEnterAnimationComplete()
+    AnimatedSplashHandoff.onEnterAnimationComplete(this)
+  }
+
+`;
+
 const bootSplashInitialization = `val bootTheme = getBootTheme()
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
       splashScreen.setSplashScreenTheme(bootTheme)
     }
-    RNBootSplash.init(this, bootTheme)`;
+    if (!AnimatedSplashHandoff.install(this, bootTheme)) {
+      RNBootSplash.init(this, bootTheme)
+    }`;
+
+const patchBootSplashInitialization = contents => {
+  let updated = contents
+    .replace(
+      /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
+      bootSplashInitialization,
+    )
+    .replace(
+      /RNBootSplash\.init\(this, bootTheme\)\r?\n    AnimatedSplashHandoff\.install\(this\)/,
+      'if (!AnimatedSplashHandoff.install(this, bootTheme)) {\n      RNBootSplash.init(this, bootTheme)\n    }',
+    )
+    .replace(
+      /(?<!  )RNBootSplash\.init\(this, bootTheme\)(?!\r?\n    \})/,
+      'if (!AnimatedSplashHandoff.install(this, bootTheme)) {\n      RNBootSplash.init(this, bootTheme)\n    }',
+    );
+  if (!updated.includes('override fun onEnterAnimationComplete()')) {
+    updated = updated.replace(
+      /  override fun onCreate\(savedInstanceState: Bundle\?\)/,
+      match => `${enterAnimationCompleteMethod}${match}`,
+    );
+  }
+  return updated;
+};
 
 const withLauncherMainActivity = config =>
   withMainActivity(config, activityConfig => {
@@ -169,11 +203,7 @@ const withLauncherMainActivity = config =>
         match => `${match}${bootThemeMethod}`,
       );
     }
-    contents = contents.replace(
-      /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
-      bootSplashInitialization,
-    );
-    activityConfig.modResults.contents = contents;
+    activityConfig.modResults.contents = patchBootSplashInitialization(contents);
     return activityConfig;
   });
 
@@ -186,11 +216,14 @@ const writeLauncherResources = resRoot => {
     const id = variant.id.toLowerCase();
     fs.writeFileSync(
       path.join(drawable, `ic_launcher_foreground_${id}.xml`),
-      `<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:gravity="center"
-    android:src="@mipmap/ic_launcher_foreground"
-    android:tint="${variant.color}"
-    android:tintMode="src_in" />\n`,
+      `<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="3%">
+    <bitmap
+        android:gravity="fill"
+        android:src="@mipmap/ic_launcher_foreground"
+        android:tint="${variant.color}"
+        android:tintMode="src_in" />
+</inset>\n`,
     );
     fs.writeFileSync(
       path.join(drawableV26, `ic_launcher_${id}.xml`),
@@ -214,23 +247,6 @@ const copyTvBannerResources = (projectRoot, resRoot) => {
   }
 };
 
-const copySplashResources = (projectRoot, resRoot) => {
-  const sourceRoot = path.join(projectRoot, 'assets', 'bootsplash', 'android');
-  for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
-    const bucket = `drawable-${density}`;
-    const sourceDir = path.join(sourceRoot, bucket);
-    const targetDir = path.join(resRoot, bucket);
-    fs.mkdirSync(targetDir, {recursive: true});
-    for (const variant of variants) {
-      const filename = `bootsplash_logo_${variant.id.toLowerCase()}.png`;
-      fs.copyFileSync(
-        path.join(sourceDir, filename),
-        path.join(targetDir, filename),
-      );
-    }
-  }
-};
-
 const patchGeneratedBootSplashFiles = (projectRoot, packageName) => {
   const mainActivityPath = path.join(
     projectRoot,
@@ -242,10 +258,8 @@ const patchGeneratedBootSplashFiles = (projectRoot, packageName) => {
     ...packageName.split('.'),
     'MainActivity.kt',
   );
-  let mainActivity = fs.readFileSync(mainActivityPath, 'utf8');
-  mainActivity = mainActivity.replace(
-    /RNBootSplash\.init\(this,\s*(?:R\.style\.BootTheme|getBootTheme\(\))\)/,
-    bootSplashInitialization,
+  const mainActivity = patchBootSplashInitialization(
+    fs.readFileSync(mainActivityPath, 'utf8'),
   );
   fs.writeFileSync(mainActivityPath, mainActivity, 'utf8');
 };
@@ -265,7 +279,7 @@ const withLauncherResources = config =>
       );
       writeLauncherResources(resRoot);
       copyTvBannerResources(projectRoot, resRoot);
-      copySplashResources(projectRoot, resRoot);
+      writeSplashVectorResources(projectRoot, resRoot, variants);
       patchGeneratedBootSplashFiles(
         projectRoot,
         modConfig.android?.package || 'com.vega',
@@ -280,3 +294,5 @@ module.exports = function withDynamicLauncherSplash(config) {
   config = withLauncherMainActivity(config);
   return withLauncherResources(config);
 };
+
+module.exports.writeLauncherResources = writeLauncherResources;

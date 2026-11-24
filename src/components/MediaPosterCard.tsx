@@ -68,6 +68,7 @@ interface MediaPosterCardProps {
   nextFocusRight?: number | null;
   onPress: () => void;
   onLongPress?: () => void;
+  onTouchRelease?: () => void;
   onFocus?: () => void;
   onLayout?: (event: any) => void;
 }
@@ -112,6 +113,7 @@ const MediaPosterCardBase = React.forwardRef<View, MediaPosterCardProps>(
       nextFocusRight,
       onPress,
       onLongPress,
+      onTouchRelease,
       onFocus,
       onLayout,
     },
@@ -182,6 +184,8 @@ const MediaPosterCardBase = React.forwardRef<View, MediaPosterCardProps>(
 
     return (
       <Animated.View
+        onTouchEnd={onTouchRelease}
+        onTouchCancel={onTouchRelease}
         style={{
           width,
           paddingVertical: 6,

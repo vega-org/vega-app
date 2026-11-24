@@ -78,6 +78,13 @@ import {ensureDownloadLocationAccess} from '../lib/downloadLocation';
 import {EpisodeLinkTarget} from '../lib/episodeLinks';
 import {Stream} from '../lib/providers/types';
 import {CURRENT_DOWNLOAD_STATUSES} from '../lib/zustand/downloadsStore';
+import {torrentManager} from '../lib/torrentManager';
+import {
+  isDummyTorrentLink,
+  isTorrentStream,
+  pickVideoFileIndex,
+  resolveTorrentStream,
+} from '../lib/torrentStream';
 
 const CONTROL_TEXT = '#F5F0EF';
 const CONTROL_TEXT_MUTED = '#D4CBC9';
@@ -103,6 +110,11 @@ interface SeasonListProps {
   synopsis?: string;
   refreshVersion?: number;
   quickDownload?: boolean;
+  onActiveSeasonChange?: (
+    season: Link,
+    index: number,
+    episodes: EpisodeLink[],
+  ) => void;
 }
 
 interface PlayHandlerProps {
@@ -426,6 +438,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   synopsis,
   refreshVersion,
   quickDownload,
+  onActiveSeasonChange,
 }) => {
   const manualMetadata = useMetadataOverrideStore(state => state.overrides[metadataOverrideKey(providerValue, routeParams.link)]);
   const colors = useM3Colors();
@@ -601,6 +614,30 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         : [],
     [activeSeason.directLinks, activeSeason.title, manualMetadata],
   );
+
+  useEffect(() => {
+    if (!onActiveSeasonChange || !activeSeason?.title) {
+      return;
+    }
+    const seasonIndex = Math.max(
+      0,
+      LinkList.findIndex(
+        item =>
+          item === activeSeason ||
+          (item.title === activeSeason.title &&
+            item.episodesLink === activeSeason.episodesLink),
+      ),
+    );
+    const episodes =
+      validEpisodes.length > 0 ? validEpisodes : validDirectLinks;
+    onActiveSeasonChange(activeSeason, seasonIndex, episodes);
+  }, [
+    LinkList,
+    activeSeason,
+    onActiveSeasonChange,
+    validDirectLinks,
+    validEpisodes,
+  ]);
 
   // Long seasons are shown in blocks of 50; the chosen block is remembered per season.
   const rangesOnEpisodes = validEpisodes.length > 0;
@@ -849,17 +886,69 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     [fetchStreams, providerValue],
   );
 
+  // Torrent kept streaming for the external player. External players cannot
+  // open magnet links, so they get the local stream server's URL instead.
+  const externalTorrentRef = useRef<string | null>(null);
+
+  const resolveExternalStreamUrl = useCallback(
+    async (stream: {link: string; type?: string}): Promise<string> => {
+      if (!isTorrentStream(stream)) {
+        return stream.link;
+      }
+      if (isDummyTorrentLink(stream.link)) {
+        throw new Error('Invalid torrent link');
+      }
+      ToastAndroid.show('Loading torrent...', ToastAndroid.SHORT);
+
+      // Only one torrent streams to the external player at a time.
+      const previous = externalTorrentRef.current;
+      externalTorrentRef.current = null;
+      if (previous) {
+        torrentManager.deleteTorrent(previous, true).catch(() => {});
+      }
+
+      const resolved = await resolveTorrentStream(stream.link, {
+        addTorrent: link => torrentManager.addTorrent(link),
+        deleteTorrent: hash => torrentManager.deleteTorrent(hash, true),
+        findVideoFileIndex: async hash =>
+          pickVideoFileIndex(await torrentManager.getFiles(hash)),
+        prepareVideoFile: (hash, fileIndex) =>
+          torrentManager.prepareVideoFile(
+            hash,
+            fileIndex,
+            false,
+            settingsStorage.isTorrentFullDownload(),
+          ),
+        getStreamUrl: (hash, fileIndex) =>
+          torrentManager.getStreamUrl(hash, fileIndex),
+        onAdded: hash => {
+          externalTorrentRef.current = hash;
+        },
+        isCancelled: () => false,
+      });
+      if (!resolved) {
+        throw new Error('Failed to load torrent');
+      }
+      resolved.preparation.catch(error =>
+        console.error('Failed to prepare torrent for external player:', error),
+      );
+      return resolved.streamUrl;
+    },
+    [],
+  );
+
   // Memoized external player opener
   const openExternalPlayer = useCallback(
     async (
-      streamUrl: string,
+      stream: {link: string; type?: string},
       headers?: Record<string, string>,
       title?: string,
     ) => {
       setShowServerModal(false);
       setVlcLoading(true);
 
-      await launchExternalPlayer(streamUrl, headers, title)
+      await resolveExternalStreamUrl(stream)
+        .then(streamUrl => launchExternalPlayer(streamUrl, headers, title))
         .catch(error => {
           console.error('Error opening external player:', error);
           ToastAndroid.show(
@@ -871,7 +960,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           setVlcLoading(false);
         });
     },
-    [],
+    [resolveExternalStreamUrl],
   );
 
   // Memoized play handler
@@ -1444,7 +1533,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         primary={primary}
         onPress={() =>
           openExternalPlayer(
-            item.link,
+            item,
             item.headers,
             `${metaTitle || ''} ${item.server || ''}`.trim(),
           )

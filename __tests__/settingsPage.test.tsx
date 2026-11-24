@@ -6,6 +6,7 @@ import {SettingsSearchAnchor} from '../src/components/ui/SettingsSearchTarget';
 import SettingsPage, {flattenSettingsChildren} from '../src/components/ui/SettingsPage';
 import SettingsSection from '../src/components/ui/SettingsSection';
 import TmdbApiKeyPreference from '../src/screens/settings/components/TmdbApiKeyPreference';
+import {searchSettings} from '../src/screens/settings/settingsSearch';
 
 let mockIdle: (() => void) | undefined;
 const mockCancel = jest.fn();
@@ -24,6 +25,26 @@ jest.mock('../src/components/ui/Text', () => require('react-native').Text);
 jest.mock('../src/components/ui/SettingsSection', () => ({children}: any) => children);
 jest.mock('../src/components/tv', () => ({TVFocusable: require('react-native').View}));
 jest.mock('@expo/vector-icons/MaterialCommunityIcons', () => 'Icon');
+
+it.each([
+  'Bottom bar style',
+  'Hide glass bar on subpages',
+  'Tab bar labels',
+  'Hide downloads tab',
+  'Hamburger menu',
+  'Continue watching',
+])('routes the %s search result to Appearance', label => {
+  expect(searchSettings(label, {isTV: false, isPlayStore: false})).toContainEqual(
+    expect.objectContaining({label, page: 'Appearance', route: 'Appearance'}),
+  );
+});
+
+it.each(['Bottom bar style', 'Hide glass bar on subpages'])(
+  'keeps %s out of TV search results',
+  label => {
+    expect(searchSettings(label, {isTV: true, isPlayStore: false})).toEqual([]);
+  },
+);
 
 it('does not mount offscreen sections during the initial phone render', () => {
   const mounted: number[] = [];

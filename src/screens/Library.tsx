@@ -104,6 +104,7 @@ const Library = () => {
 
   const updateNode = useCallback(
     (ref: React.RefObject<View | null>, setNode: (handle: number) => void) => {
+      if (!isTV) return;
       if (ref.current) {
         const handle = findNodeHandle(ref.current);
         if (handle) {
@@ -398,7 +399,7 @@ const Library = () => {
           <TVFocusable
             key={chip.id}
             ref={selected ? activeChipRef : undefined}
-            onLayout={selected ? updateActiveChipNode : undefined}
+            onLayout={isTV && selected ? updateActiveChipNode : undefined}
             accessibilityRole="tab"
             accessibilityState={{selected}}
             accessibilityLabel={`${chip.name}, ${chip.count} titles`}
@@ -497,7 +498,7 @@ const Library = () => {
     return (
       <MediaPosterCard
         ref={index === 0 ? firstCardRef : undefined}
-        onLayout={index === 0 ? updateFirstCardNode : undefined}
+        onLayout={isTV && index === 0 ? updateFirstCardNode : undefined}
         title={item.title}
         poster={item.poster}
         width={itemWidth}
@@ -694,7 +695,7 @@ const Library = () => {
                 {visibleItems.length > 0 ? (
                   <TVFocusable
                     ref={selectButtonRef}
-                    onLayout={updateSelectButtonNode}
+                    onLayout={isTV ? updateSelectButtonNode : undefined}
                     accessibilityRole="button"
                     accessibilityLabel="Select items"
                     nextFocusRight={selectButtonNode ?? undefined}

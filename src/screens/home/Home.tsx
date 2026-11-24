@@ -8,6 +8,8 @@ import {
 import {RefreshControl, ScrollView, View, Modal, Pressable} from 'react-native';
 import {FlashList} from '@shopify/flash-list';
 import Slider from '../../components/Slider';
+import {useBrowsingProvider, useVisibleInstalledProviders} from '../../lib/hooks/useVisibleProviders';
+import useTitlePreviewStore from '../../lib/zustand/titlePreviewStore';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {useFocusEffect, useIsFocused} from '@react-navigation/native';
 import HeroOptimized from '../../components/Hero';
@@ -62,6 +64,7 @@ const homeRowType = (row: HomeRow) =>
 const HOME_DRAW_DISTANCE = isTV ? 800 : 250;
 
 const Home = ({}: Props) => {
+  const holdPreviewActive = useTitlePreviewStore(state => state.activePreview?.dismissOnRelease === true);
   const colors = useM3Colors();
   const floatingTabBarInset = useFloatingTabBarInset();
   const isFocused = useIsFocused();
@@ -82,7 +85,7 @@ const Home = ({}: Props) => {
     [],
   );
 
-  const provider = useContentStore(state => state.provider);
+  const provider = useBrowsingProvider();
   const pendingProvider = React.useRef<ProviderExtension | null>(null);
   const selectProvider = useCallback((item: ProviderExtension) => {
     pendingProvider.current = item;
@@ -100,7 +103,8 @@ const Home = ({}: Props) => {
       useContentStore.getState().setProvider(selected);
     }
   }, []);
-  const installedProviders = useContentStore(state => state.installedProviders);
+  const installedProviders = useVisibleInstalledProviders();
+  const hasInstalledProviders = useContentStore(state => state.installedProviders.length > 0);
   const setHeroes = useHeroStore(state => state.setHeroes);
 
   // React Query for home page data with better error handling
@@ -235,6 +239,7 @@ const Home = ({}: Props) => {
         scrollKey={item.key}
         error={item.error}
         deferPosts={item.deferPosts}
+        enableHoldPreview
       />
     ),
     [providerValue],
@@ -283,7 +288,13 @@ const Home = ({}: Props) => {
   ) {
     return <ScrollView contentContainerStyle={{flexGrow: 1, paddingTop: isTV ? 12 : 32, paddingBottom: isTV ? 0 : floatingTabBarInset}}>
       {showContinueWatching && <ContinueWatching localOnly />}
-      <View style={{flex: 1, minHeight: 400}}><Tutorial /></View>
+      <View style={{flex: 1, minHeight: 400}}>
+        {hasInstalledProviders && installedProviders.length === 0 ? (
+          <AppText role="bodyLarge" style={{padding: 20, color: colors.onSurfaceVariant}}>
+            Your installed providers are hidden. Change the 18+ provider setting in Preferences.
+          </AppText>
+        ) : <Tutorial />}
+      </View>
     </ScrollView>;
   }
 
@@ -318,6 +329,7 @@ const Home = ({}: Props) => {
             <StatusBar style="light" />
 
             <FlashList
+              scrollEnabled={!holdPreviewActive}
               data={staged.rows}
               onViewableItemsChanged={staged.onViewableItemsChanged}
               renderItem={renderRow}

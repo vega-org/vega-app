@@ -21,6 +21,10 @@ jest.mock('../src/lib/zustand/contentStore', () => {
   useStore.getState = () => state;
   return {__esModule: true, default: useStore};
 });
+jest.mock('../src/lib/zustand/navigationPreferencesStore', () => ({
+  __esModule: true,
+  default: (select: any) => select({hideAdultProviders: false}),
+}));
 jest.mock('../src/lib/tv', () => ({isTV: false}));
 jest.mock('../src/theme/M3PaletteContext', () => ({useM3Colors: () => ({})}));
 jest.mock('../src/components/Slider', () => 'Slider');

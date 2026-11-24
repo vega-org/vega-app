@@ -24,7 +24,10 @@ import {
   createNavigationContainerRef,
 } from '@react-navigation/native';
 import {BlurTargetView} from 'expo-blur';
-import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {
+  createBottomTabNavigator,
+  type BottomTabBarProps,
+} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import 'react-native-reanimated';
@@ -33,7 +36,7 @@ import WebView from './screens/WebView';
 import SearchResults from './screens/SearchResults';
 // import DisableProviders from './screens/settings/DisableProviders';
 import About, {checkForUpdate} from './screens/settings/About';
-import BootSplash from 'react-native-bootsplash';
+import {hideBootSplash, SPLASH_FALLBACK_HIDE_MS} from './lib/utils/bootSplash';
 import {SystemBars} from 'react-native-edge-to-edge';
 import {enableFreeze, enableScreens} from 'react-native-screens';
 import Preferences from './screens/settings/Preference';
@@ -41,6 +44,7 @@ import PlayerSettings from './screens/settings/PlayerSettings';
 import PlayerControlSettings from './screens/settings/PlayerControlSettings';
 import Appearance from './screens/settings/Appearance';
 import DataManagement from './screens/settings/DataManagement';
+import FollowedShows from './screens/settings/FollowedShows';
 import {M3ThemeProvider} from './theme/M3ThemeProvider';
 import {AppState, Linking, LogBox, Platform, useWindowDimensions, View} from 'react-native';
 import {vegaCastService} from './lib/remote/vegaCastService';
@@ -57,6 +61,11 @@ import Constants from 'expo-constants';
 import {settingsStorage, migrateWatchProgressFromCacheStorage} from './lib/storage';
 import {syncParallelStreaming} from './lib/parallelStreaming';
 import {updateProvidersService} from './lib/services/UpdateProviders';
+import {checkStartupNotice} from './lib/services/startupNotice';
+import {
+  checkFollowedShowsIfDue,
+  syncEpisodeCheckSchedule,
+} from './lib/services/episodeCheckService';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {queryClient} from './lib/client';
 import GlobalErrorBoundary from './components/GlobalErrorBoundary';
@@ -88,12 +97,19 @@ import {
 } from './lib/sync/syncService';
 import StreamingTabBar from './components/navigation/StreamingTabBar';
 import {
+  createTabBarOverlayStore,
+  TabBarOverlayOutlet,
+  TabBarOverlayPublisher,
+} from './components/navigation/TabBarOverlayHost';
+import {
   FloatingTabBarInsetContext,
   getGlassTabBarClearance,
   isTabRouteOnSubpage,
 } from './components/navigation/FloatingTabBarInsetContext';
 import AppDialogHost from './components/AppDialogHost';
+import TitlePreviewHost from './components/TitlePreviewHost';
 import {RemoteVolumeToast} from './components/remote-player/RemoteVolumeToast';
+import useTitlePreviewStore from './lib/zustand/titlePreviewStore';
 import {
   getAnalytics,
   getCrashlytics,
@@ -179,6 +195,8 @@ export type SettingsStackParamList = {
   Extensions: {addSource?: string; requestId?: number} | undefined;
   DownloadsStack: undefined;
   DataManagement: SettingsSearchParams;
+  FollowedShows: SettingsSearchParams;
+  Info: {link: string; provider?: string; poster?: string};
 };
 
 export type DownloadsStackParamList = {
@@ -219,6 +237,9 @@ const openVideoIntent = (payload: VideoIntentPayload): void => {
   });
 };
 let pendingDownloadsNavigation = false;
+let pendingInfoNavigation:
+  | {link: string; provider?: string; poster?: string}
+  | undefined;
 let pendingAddSource: SourceIntentPayload | undefined;
 
 LogBox.ignoreLogs([
@@ -241,6 +262,25 @@ export const openDownloadsScreen = (): void => {
     return;
   }
   navigationRef.navigate('TabStack', {screen: 'DownloadsStack'});
+};
+
+export const openInfoScreen = (params: {
+  link: string;
+  provider?: string;
+  poster?: string;
+}): void => {
+  if (!navigationRef.isReady()) {
+    pendingInfoNavigation = params;
+    return;
+  }
+  pendingInfoNavigation = undefined;
+  navigationRef.navigate('TabStack', {
+    screen: 'HomeStack',
+    params: {
+      screen: 'Info',
+      params,
+    },
+  });
 };
 
 // Opens Extensions with the add source dialog prefilled. The user still
@@ -371,20 +411,32 @@ const settingsTabOptions = {
   tabBarIcon: makeTabIcon('cog', 'cog-outline'),
 };
 
-function TabBlurScene({children, onReady}: {
+function TabScreenInsetProvider({
+  children,
+  route,
+  navigation,
+  floatingTabBarInset,
+  hideGlassTabBarInSubpages,
+}: {
   children: React.ReactNode;
-  onReady: (target: View) => void;
+  route: TabScreenLayoutProps['route'];
+  navigation: TabScreenLayoutProps['navigation'];
+  floatingTabBarInset: number;
+  hideGlassTabBarInSubpages: boolean;
 }) {
-  const target = React.useRef<View>(null);
-
-  React.useEffect(() => {
-    if (target.current) onReady(target.current);
-  }, [onReady]);
+  const onSubpage = useTabVisibilityStore(state => state.subpages[route.key]);
+  const routeWithState = navigation
+    .getState()
+    ?.routes.find(item => item.key === route.key);
+  const hiddenOnSubpage =
+    hideGlassTabBarInSubpages &&
+    (onSubpage ?? isTabRouteOnSubpage(routeWithState ?? route));
+  const tabInset = hiddenOnSubpage ? 0 : floatingTabBarInset;
 
   return (
-    <BlurTargetView ref={target} style={{flex: 1}}>
+    <FloatingTabBarInsetContext.Provider value={tabInset}>
       {children}
-    </BlurTargetView>
+    </FloatingTabBarInsetContext.Provider>
   );
 }
 
@@ -472,6 +524,16 @@ function SettingsStackScreen() {
       <SettingsStack.Screen name="PlayerControlSettings" component={PlayerControlSettings} options={subpageOptions} />
       <SettingsStack.Screen name="DataManagement" component={DataManagement} options={subpageOptions} />
       <SettingsStack.Screen
+        name="FollowedShows"
+        component={FollowedShows}
+        options={subpageOptions}
+      />
+      <SettingsStack.Screen
+        name="Info"
+        component={Info}
+        options={subpageOptions}
+      />
+      <SettingsStack.Screen
         name="Preferences"
         component={Preferences}
         options={subpageOptions}
@@ -499,7 +561,6 @@ type TabScreenLayoutProps = Parameters<
 >[0];
 
 function TabStack() {
-  const subpages = useTabVisibilityStore(state => state.subpages);
   // Native tab retention can leave inactive Screen roots above Home on Android.
   // Use the navigator's native detach policy until retention is touch-safe.
   const insets = useSafeAreaInsets();
@@ -528,49 +589,47 @@ function TabStack() {
     }),
     [isLargeScreen],
   );
-  const [blurTargets, setBlurTargets] = useState<Record<string, View>>({});
   const useAndroidBlurTarget = Platform.OS === 'android' && !isTV;
+  const useGlassOverlay = !isLargeScreen && glassTabBar;
+  const blurTargetRef = React.useRef<View>(null);
+  const [blurTarget, setBlurTarget] = useState<View | undefined>(undefined);
+  const [overlayStore] = useState(createTabBarOverlayStore);
+
+  useEffect(() => {
+    if (useAndroidBlurTarget && blurTargetRef.current) {
+      setBlurTarget(blurTargetRef.current);
+    }
+  }, [useAndroidBlurTarget]);
+
   const renderScreenLayout = useCallback(
-    ({children, route, navigation}: TabScreenLayoutProps) => {
-      const routeWithState = navigation
-        .getState()
-        ?.routes.find(item => item.key === route.key);
-      const hiddenOnSubpage =
-        hideGlassTabBarInSubpages && (subpages[route.key] ?? isTabRouteOnSubpage(routeWithState));
-      const tabInset = hiddenOnSubpage ? 0 : floatingTabBarInset;
-      const content = useAndroidBlurTarget ? (
-        <TabBlurScene
-          onReady={target => {
-            setBlurTargets(previous =>
-              previous[route.name] === target
-                ? previous
-                : {...previous, [route.name]: target},
-            );
-          }}>
-          {children}
-        </TabBlurScene>
-      ) : (
-        children
-      );
-      return (
-        <FloatingTabBarInsetContext.Provider value={tabInset}>
-          {content}
-        </FloatingTabBarInsetContext.Provider>
-      );
-    },
-    [floatingTabBarInset, hideGlassTabBarInSubpages, useAndroidBlurTarget, subpages],
+    ({children, route, navigation}: TabScreenLayoutProps) => (
+      <TabScreenInsetProvider
+        route={route}
+        navigation={navigation}
+        floatingTabBarInset={floatingTabBarInset}
+        hideGlassTabBarInSubpages={hideGlassTabBarInSubpages}>
+        {children}
+      </TabScreenInsetProvider>
+    ),
+    [floatingTabBarInset, hideGlassTabBarInSubpages],
   );
+
+  const renderTabBar = useCallback(
+    (props: BottomTabBarProps) =>
+      useAndroidBlurTarget && useGlassOverlay ? (
+        <TabBarOverlayPublisher store={overlayStore} tabBarProps={props} />
+      ) : (
+        <StreamingTabBar {...props} />
+      ),
+    [overlayStore, useAndroidBlurTarget, useGlassOverlay],
+  );
+
   const tabs = (
     <Tab.Navigator
       screenListeners={navigationWorkListeners}
       detachInactiveScreens
       screenLayout={renderScreenLayout}
-      tabBar={props => (
-        <StreamingTabBar
-          {...props}
-          blurTarget={blurTargets[props.state.routes[props.state.index]?.name]}
-        />
-      )}
+      tabBar={renderTabBar}
       screenOptions={screenOptions}>
       <Tab.Screen
         name="HomeStack"
@@ -601,7 +660,21 @@ function TabStack() {
       />
     </Tab.Navigator>
   );
-  return tabs;
+
+  if (!useAndroidBlurTarget) {
+    return tabs;
+  }
+
+  return (
+    <View style={{flex: 1}}>
+      <BlurTargetView ref={blurTargetRef} style={{flex: 1}}>
+        {tabs}
+      </BlurTargetView>
+      {useGlassOverlay ? (
+        <TabBarOverlayOutlet store={overlayStore} blurTarget={blurTarget} />
+      ) : null}
+    </View>
+  );
 }
 
 const App = () => {
@@ -623,8 +696,8 @@ const App = () => {
   // Safety fallback to ensure splash is hidden
   useEffect(() => {
     const timer = setTimeout(() => {
-      BootSplash.hide({fade: true}).catch(() => {});
-    }, 1200);
+      hideBootSplash({fade: true}).catch(() => {});
+    }, SPLASH_FALLBACK_HIDE_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -760,9 +833,20 @@ const App = () => {
   useEffect(() => {
     // Start automatic update checking at app startup
     updateProvidersService.startAutomaticUpdateCheck();
+    syncEpisodeCheckSchedule().catch(() => {});
+    const cancelIdleCheck = scheduleWhenIdle(() => {
+      checkFollowedShowsIfDue().catch(() => {});
+    }, 1500);
+    const appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        checkFollowedShowsIfDue().catch(() => {});
+      }
+    });
 
     // Cleanup on unmount
     return () => {
+      cancelIdleCheck();
+      appStateSub.remove();
       updateProvidersService.stopAutomaticUpdateCheck();
     };
   }, []);
@@ -787,6 +871,13 @@ const App = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const version = Constants.expoConfig?.version;
+    if (!version) return;
+    const build = Constants.expoConfig?.extra?.startupNoticeBuild ?? 'standalone';
+    return scheduleWhenIdle(signal => checkStartupNotice(version, build, signal), 1800);
+  }, []);
+
   useEffect(() => subscribeSourceIntent(openAddSourceScreen), []);
   useEffect(() => subscribeVideoIntent(openVideoIntent), []);
   useEffect(() => {
@@ -800,8 +891,11 @@ const App = () => {
     if (pendingDownloadsNavigation) {
       openDownloadsScreen();
     }
+    if (pendingInfoNavigation) {
+      openInfoScreen(pendingInfoNavigation);
+    }
     // Hide bootsplash
-    await BootSplash.hide({fade: true});
+    await hideBootSplash({fade: true});
     const initialSource = pendingAddSource ?? (await getInitialSourceIntent());
     if (initialSource) {
       openAddSourceScreen(initialSource);
@@ -820,6 +914,7 @@ const App = () => {
 
   const handleNavigationStateChange = useCallback(async () => {
     syncTabVisibility(navigationRef.getRootState());
+    useTitlePreviewStore.getState().dismissPreview();
     if (hasFirebase) {
       await logScreenView();
     }
@@ -854,6 +949,7 @@ const App = () => {
               <VerificationConsentDialog />
               <WafWebViewDialog />
               <RemoteVolumeToast />
+              <TitlePreviewHost />
               {/* Isolated realm that runs untrusted provider code. Must stay
                 mounted for the app lifetime: every provider call is dispatched
                 into it. */}

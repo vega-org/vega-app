@@ -29,6 +29,11 @@ export interface AppDialogAction {
   dismissOnPress?: boolean;
 }
 
+export interface AppDialogDismissOption {
+  label: string;
+  onCheckedDismiss: () => void;
+}
+
 interface AppDialogProps {
   visible: boolean;
   title: string;
@@ -38,6 +43,7 @@ interface AppDialogProps {
   primary: string;
   variant?: AppDialogVariant;
   actions?: AppDialogAction[];
+  dismissOption?: AppDialogDismissOption;
   onDismiss: () => void;
 }
 
@@ -62,6 +68,7 @@ const AppDialog = ({
   messageFormat = 'plain',
   variant = 'info',
   actions = [{label: 'OK', variant: 'primary'}],
+  dismissOption,
   onDismiss,
 }: AppDialogProps) => {
   const appearance = variantStyles[variant];
@@ -69,18 +76,70 @@ const AppDialog = ({
   const hostTheme = useM3HostTheme();
   const iconColor = colors[appearance.colorRole];
   const confirmAction = actions[actions.length - 1];
-  const dismissAction = actions.length > 1 ? actions[0] : undefined;
+  const secondaryActions = actions.slice(0, -1);
+  const [checkedOption, setCheckedOption] = React.useState<AppDialogDismissOption>();
+  const checked = dismissOption !== undefined && checkedOption === dismissOption;
+
+  const handleDismiss = () => {
+    if (checked) {
+      dismissOption.onCheckedDismiss();
+      setCheckedOption(undefined);
+    }
+    onDismiss();
+  };
 
   const handleAction = (action: AppDialogAction) => {
     action.onPress?.();
     if (action.dismissOnPress !== false) {
-      onDismiss();
+      handleDismiss();
     }
+  };
+
+  const renderNativeAction = (action: AppDialogAction, isConfirm: boolean, index?: number) => {
+    const color = !isConfirm
+      ? colors.onSurfaceVariant
+      : action.variant === 'destructive' ? colors.error : colors.primary;
+    return (
+      <TextButton
+        key={index}
+        {...({
+          testID: action.testID,
+          onPress: () => handleAction(action),
+        } as any)}
+        enabled={!action.disabled}
+        onClick={() => handleAction(action)}
+        colors={{contentColor: color}}>
+        <Text
+          color={String(color)}
+          style={{typography: 'labelLarge', fontWeight: '700'}}>
+          {action.label}
+        </Text>
+      </TextButton>
+    );
   };
 
   if (!visible) {
     return null;
   }
+
+  const dismissCheckbox = dismissOption ? (
+    <TVFocusable
+      onPress={() => setCheckedOption(checked ? undefined : dismissOption)}
+      accessibilityLabel={dismissOption.label}
+      accessibilityRole="checkbox"
+      accessibilityState={{checked}}
+      registerScreenFocus={false}
+      style={{alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 48}}>
+      <MaterialCommunityIcons
+        name={checked ? 'checkbox-marked' : 'checkbox-blank-outline'}
+        size={24}
+        color={checked ? colors.primary : colors.onSurfaceVariant}
+      />
+      <ReactNativeText style={{color: colors.onSurface, flexShrink: 1}}>
+        {dismissOption.label}
+      </ReactNativeText>
+    </TVFocusable>
+  ) : null;
 
   const progressBar = progress === null ? (
     <ActivityIndicator color={colors.primary} />
@@ -111,7 +170,7 @@ const AppDialog = ({
         visible={visible}
         transparent
         animationType="fade"
-        onRequestClose={onDismiss}>
+        onRequestClose={handleDismiss}>
         <View
           style={{
             alignItems: 'center',
@@ -180,17 +239,20 @@ const AppDialog = ({
               )}
               {progressBar}
             </ScrollView>
+            {dismissCheckbox}
 
             <View
               style={{
                 flexDirection: 'row',
+                flexWrap: 'wrap',
                 gap: 12,
                 justifyContent: 'flex-end',
               }}>
-              {dismissAction ? (
+              {secondaryActions.map((dismissAction, index) => (
                 <TVFocusable
+                  key={index}
                   testID={dismissAction.testID}
-                  hasTVPreferredFocus={confirmAction?.variant === 'destructive'}
+                  hasTVPreferredFocus={index === 0 && confirmAction?.variant === 'destructive'}
                   onPress={() => handleAction(dismissAction)}
                   disabled={dismissAction.disabled}
                   borderRadius={12}
@@ -211,7 +273,7 @@ const AppDialog = ({
                     {dismissAction.label}
                   </ReactNativeText>
                 </TVFocusable>
-              ) : null}
+              ))}
 
               {confirmAction ? (
                 <TVFocusable
@@ -263,7 +325,7 @@ const AppDialog = ({
             titleContentColor: colors.onSurface,
             textContentColor: colors.onSurfaceVariant,
           }}
-          onDismissRequest={onDismiss}>
+          onDismissRequest={handleDismiss}>
           <AlertDialog.Title>
             <RNHostView matchContents>
               <View
@@ -341,11 +403,14 @@ const AppDialog = ({
               </RNHostView>
             ) : (
               <Column modifiers={[fillMaxWidth()]}>
-                <Text
-                  color={String(colors.onSurfaceVariant)}
-                  style={{typography: 'bodyMedium'}}>
-                  {message}
-                </Text>
+                <RNHostView matchContents>
+                  <ScrollView nestedScrollEnabled style={{maxHeight: 300}}>
+                    <ReactNativeText
+                      style={{color: colors.onSurfaceVariant, fontSize: 14}}>
+                      {message}
+                    </ReactNativeText>
+                  </ScrollView>
+                </RNHostView>
                 {progress !== undefined && (
                   <LinearProgressIndicator
                     progress={progress}
@@ -357,49 +422,30 @@ const AppDialog = ({
               </Column>
             )}
           </AlertDialog.Text>
-          {dismissAction ? (
+          {!dismissCheckbox && secondaryActions.length === 1 ? (
             <AlertDialog.DismissButton>
-              <TextButton
-                {...({
-                  testID: dismissAction.testID,
-                  onPress: () => handleAction(dismissAction),
-                } as any)}
-                enabled={!dismissAction.disabled}
-                onClick={() => handleAction(dismissAction)}
-                colors={{contentColor: colors.onSurfaceVariant}}>
-                <Text
-                  color={String(colors.onSurfaceVariant)}
-                  style={{typography: 'labelLarge', fontWeight: '700'}}>
-                  {dismissAction.label}
-                </Text>
-              </TextButton>
+              {renderNativeAction(secondaryActions[0], false)}
             </AlertDialog.DismissButton>
           ) : null}
-          {confirmAction ? (
+          {dismissCheckbox ? (
             <AlertDialog.ConfirmButton>
-              <TextButton
-                {...({
-                  testID: confirmAction.testID,
-                  onPress: () => handleAction(confirmAction),
-                } as any)}
-                enabled={!confirmAction.disabled}
-                onClick={() => handleAction(confirmAction)}
-                colors={{
-                  contentColor:
-                    confirmAction.variant === 'destructive'
-                      ? colors.error
-                      : colors.primary,
-                }}>
-                <Text
-                  color={String(
-                    confirmAction.variant === 'destructive'
-                      ? colors.error
-                      : colors.primary,
-                  )}
-                  style={{typography: 'labelLarge', fontWeight: '700'}}>
-                  {confirmAction.label}
-                </Text>
-              </TextButton>
+              <Column modifiers={[fillMaxWidth()]}>
+                <RNHostView matchContents>{dismissCheckbox}</RNHostView>
+                {actions.length > 0 && (
+                  <Column horizontalAlignment="end" modifiers={[fillMaxWidth()]}>
+                    {actions.map((action, index) => renderNativeAction(action, true, index))}
+                  </Column>
+                )}
+              </Column>
+            </AlertDialog.ConfirmButton>
+          ) : confirmAction ? (
+            <AlertDialog.ConfirmButton>
+              {secondaryActions.length > 1 ? (
+                <Column horizontalAlignment="end">
+                  {secondaryActions.map((action, index) => renderNativeAction(action, false, index))}
+                  {renderNativeAction(confirmAction, true)}
+                </Column>
+              ) : renderNativeAction(confirmAction, true)}
             </AlertDialog.ConfirmButton>
           ) : null}
         </AlertDialog>
