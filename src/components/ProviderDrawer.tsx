@@ -10,7 +10,10 @@ import {isTV} from '../lib/tv';
 import {TVFocusable, TVFocusGuide} from './tv';
 import {useTVFocusBorderColor} from '../lib/tv/useTVFocusBorderColor';
 import ProviderIcon from './ProviderIcon';
+import ProviderAdultBadge from './ProviderAdultBadge';
+import {useBrowsingProvider, useVisibleInstalledProviders} from '../lib/hooks/useVisibleProviders';
 import ReorderableProviderList from './ReorderableProviderList';
+import {useFloatingTabBarInset} from './navigation/FloatingTabBarInsetContext';
 
 interface ProviderDrawerProps {
   onClose: () => void;
@@ -26,14 +29,15 @@ const ProviderDrawer = ({
   isOpen = true,
   onSelectProvider,
 }: ProviderDrawerProps) => {
-  const provider = useContentStore(state => state.provider);
+  const provider = useBrowsingProvider();
   const setProvider = useContentStore(state => state.setProvider);
-  const installedProviders = useContentStore(state => state.installedProviders);
+  const installedProviders = useVisibleInstalledProviders();
   const hasSelectedProvider = installedProviders.some(
     item => item.value === provider.value,
   );
   const primary = useM3Colors().primary;
   const insets = useSafeAreaInsets();
+  const floatingTabBarInset = useFloatingTabBarInset();
   const focusBorderColor = useTVFocusBorderColor(primary);
   const mountTimeRef = React.useRef<number>(Date.now());
   const closeRef = React.useRef<View>(null);
@@ -124,7 +128,8 @@ const ProviderDrawer = ({
         style={{flex: 1}}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          className="flex-1 px-2">
+          className="flex-1 px-2"
+          contentContainerStyle={{paddingBottom: Math.max(64, floatingTabBarInset)}}>
           {/* TV keeps a plain list: rows are picked with the remote. */}
           {isTV &&
             installedProviders.map((item, index) => {
@@ -178,6 +183,7 @@ const ProviderDrawer = ({
                           }}>
                           {item.display_name}
                         </Text>
+                        {item.adult === true && <ProviderAdultBadge />}
                       </View>
                       {isSelected && (
                         <MaterialIcons name="check" size={22} color={primary} />
@@ -195,7 +201,6 @@ const ProviderDrawer = ({
               onSelect={handleSelectProvider}
             />
           )}
-          <View className="h-16" />
         </ScrollView>
       </TVFocusGuide>
     </TVFocusGuide>

@@ -19,9 +19,11 @@ interface ContentOverviewProps {
   headerPosterAspectRatio?: number;
   genres?: string[];
   inLibrary: boolean;
+  isFollowing?: boolean;
   isLoading: boolean;
   logo?: string;
   onBack: () => void;
+  onFollowShow?: () => void;
   onOpenMenu?: () => void;
   backButtonRef?: React.RefObject<View | null>;
   onBackButtonLayout?: () => void;
@@ -159,9 +161,11 @@ const ContentOverview = ({
   headerPosterAspectRatio,
   genres,
   inLibrary,
+  isFollowing = false,
   isLoading,
   logo,
   onBack,
+  onFollowShow,
   onOpenMenu,
   backButtonRef,
   onBackButtonLayout,
@@ -378,7 +382,15 @@ const ContentOverview = ({
             marginHorizontal: -4,
             marginTop: 18,
           }}>
-          <InfoAction icon="magnify" label="Search" onPress={onSearchTitle} />
+          {onFollowShow ? (
+            <InfoAction
+              icon={isFollowing ? 'bell-ring' : 'bell-plus-outline'}
+              label={isFollowing ? 'Following' : 'Follow'}
+              onPress={onFollowShow}
+            />
+          ) : (
+            <InfoAction icon="magnify" label="Search" onPress={onSearchTitle} />
+          )}
           {onOpenWeb ? (
             <InfoAction icon="web" label="Web" onPress={onOpenWeb} />
           ) : null}

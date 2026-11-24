@@ -225,6 +225,9 @@ module.exports = () => {
         },
         hasFirebase: HAS_FIREBASE,
         isPlayStore: IS_PLAYSTORE,
+        startupNoticeBuild: IS_PLAYSTORE
+          ? 'playstore'
+          : process.env.GITHUB_ACTIONS === 'true' ? 'github' : 'standalone',
         isTV: IS_TV,
         tmdbApiKey,
         proxyApiUrl,

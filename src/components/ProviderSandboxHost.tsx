@@ -1,61 +1,60 @@
-import React, {useCallback, useEffect, useRef} from 'react';
-import {View} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {AppState, View} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {SANDBOX_RUNTIME} from '../lib/sandbox/generated/sandboxRuntime.generated';
 import {sandboxBridge} from '../lib/sandbox/sandboxBridge';
+import {buildSandboxHtml, SANDBOX_ORIGIN} from '../lib/sandbox/sandboxHtml';
 
-const CSP = [
-  "default-src 'none'",
-  "script-src 'unsafe-inline' 'unsafe-eval' blob:",
-  'worker-src blob:',
-  "connect-src 'none'",
-  "img-src 'none'",
-  "style-src 'none'",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-].join('; ');
-
-const SANDBOX_ORIGIN = 'https://provider-sandbox.invalid/';
-
-const escapeInlineScript = (runtime: string): string =>
-  runtime
-    .replace(/<\/script/gi, '<\\/script')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-
-const buildHtml = (runtime: string): string => `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${CSP}">
-</head>
-<body>
-<script>${escapeInlineScript(runtime)}</script>
-</body>
-</html>`;
+const SANDBOX_SOURCE = {
+  html: buildSandboxHtml(SANDBOX_RUNTIME),
+  baseUrl: SANDBOX_ORIGIN,
+};
 
 const ProviderSandboxHost = () => {
   const webViewRef = useRef<WebView>(null);
+  const hostIdRef = useRef<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const inject = useCallback((script: string) => {
     webViewRef.current?.injectJavaScript(script);
   }, []);
 
-  const requestReload = useCallback(() => {
-    sandboxBridge.handleReload();
-    webViewRef.current?.reload();
+  const remountWebView = useCallback(() => {
+    setReloadKey(current => current + 1);
+  }, []);
+
+  const handleProcessTerminated = useCallback(() => {
+    if (hostIdRef.current !== null) {
+      sandboxBridge.handleReload(hostIdRef.current);
+    }
+    setReloadKey(current => current + 1);
   }, []);
 
   useEffect(() => {
-    sandboxBridge.register(inject, requestReload);
-    return () => sandboxBridge.unregister();
-  }, [inject, requestReload]);
+    const hostId = sandboxBridge.register(
+      inject,
+      remountWebView,
+      'foreground',
+    );
+    hostIdRef.current = hostId;
+    const appStateSub = AppState.addEventListener('change', state => {
+      if (state === 'active' && hostIdRef.current !== null) {
+        sandboxBridge.ensureReady(hostIdRef.current);
+      }
+    });
+    return () => {
+      appStateSub.remove();
+      hostIdRef.current = null;
+      sandboxBridge.unregister(hostId);
+    };
+  }, [inject, remountWebView]);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
-    sandboxBridge.handleSandboxMessage(event.nativeEvent.data);
+    sandboxBridge.handleSandboxMessage(
+      event.nativeEvent.data,
+      hostIdRef.current ?? undefined,
+    );
   }, []);
 
   return (
@@ -63,8 +62,9 @@ const ProviderSandboxHost = () => {
       pointerEvents="none"
       style={{width: 0, height: 0, opacity: 0, position: 'absolute'}}>
       <WebView
+        key={reloadKey}
         ref={webViewRef}
-        source={{html: buildHtml(SANDBOX_RUNTIME), baseUrl: SANDBOX_ORIGIN}}
+        source={SANDBOX_SOURCE}
         originWhitelist={['https://provider-sandbox.invalid']}
         javaScriptEnabled={true}
         domStorageEnabled={false}
@@ -83,8 +83,8 @@ const ProviderSandboxHost = () => {
         onShouldStartLoadWithRequest={request =>
           request.url === SANDBOX_ORIGIN || request.url === 'about:blank'
         }
-        onRenderProcessGone={requestReload}
-        onContentProcessDidTerminate={requestReload}
+        onRenderProcessGone={handleProcessTerminated}
+        onContentProcessDidTerminate={handleProcessTerminated}
         style={{width: 0, height: 0}}
       />
     </View>

@@ -5,6 +5,7 @@ import notifee, {
   EventType,
   AndroidForegroundServiceType,
   AndroidLaunchActivityFlag,
+  AndroidStyle,
   AuthorizationStatus,
 } from '@notifee/react-native';
 import {settingsStorage} from '../storage';
@@ -61,6 +62,7 @@ class NotificationService {
   private _defaultChannelId = 'default';
   private _downloadChannelId = 'download';
   private _updateChannelId = 'update';
+  private _episodesChannelId = 'episodes';
   private _downloadForegroundId = 'downloadForegroundService';
   private initialized = false;
   private permissionRequest?: Promise<boolean>;
@@ -120,6 +122,13 @@ class NotificationService {
       name: 'Update Notifications',
       importance: AndroidImportance.DEFAULT,
       description: 'Notifications for app and provider updates',
+    });
+
+    await notifee.createChannel({
+      id: this._episodesChannelId,
+      name: 'Episode Notifications',
+      importance: AndroidImportance.HIGH,
+      description: 'Notifications when new episodes drop for followed shows',
     });
   }
 
@@ -549,6 +558,22 @@ class NotificationService {
       return;
     }
     if (
+      type === EventType.PRESS &&
+      detail.notification?.data?.navigationTarget === 'info'
+    ) {
+      const data = detail.notification?.data;
+      const link = typeof data?.link === 'string' ? data.link : undefined;
+      const provider =
+        typeof data?.provider === 'string' ? data.provider : undefined;
+      const poster = typeof data?.poster === 'string' ? data.poster : undefined;
+      if (link) {
+        const {openInfoScreen} =
+          require('../../App') as typeof import('../../App');
+        openInfoScreen({link, provider, poster});
+      }
+      return;
+    }
+    if (
       type === EventType.ACTION_PRESS &&
       (downloadAction === 'cancel-download' ||
         downloadAction === 'pause-download' ||
@@ -625,6 +650,55 @@ class NotificationService {
       title: title,
       body: body,
       progress: progress,
+    });
+  }
+
+  async displayEpisodeNotification({
+    show,
+    newEpisodes,
+  }: {
+    show: {
+      id: string;
+      title: string;
+      link: string;
+      provider: string;
+      poster: string;
+      seasonTitle: string;
+    };
+    newEpisodes: Array<{title: string}>;
+  }): Promise<string> {
+    await this.ensureInitialized();
+    const count = newEpisodes.length;
+    const episodeTitles = newEpisodes.slice(0, 5).map(episode => episode.title.trim() || 'New episode');
+    const additionalCount = count - episodeTitles.length;
+    const displayedTitles = additionalCount > 0 ? [...episodeTitles, `+${additionalCount} more`] : episodeTitles;
+    const title =
+      count === 1
+        ? `New episode: ${show.title}`
+        : `${count} new episodes: ${show.title}`;
+    const body = `${show.seasonTitle} • ${displayedTitles.join(', ')}`;
+
+    return notifee.displayNotification({
+      id: `episode:${show.id}`,
+      title,
+      body,
+      data: {
+        navigationTarget: 'info',
+        link: show.link,
+        provider: show.provider,
+        poster: show.poster,
+      },
+      android: {
+        channelId: this._episodesChannelId,
+        smallIcon: 'ic_notification',
+        pressAction: this.getAppLaunchPressAction('default'),
+        autoCancel: true,
+        style: count > 1 ? {
+          type: AndroidStyle.INBOX,
+          lines: displayedTitles,
+          summary: show.seasonTitle,
+        } : undefined,
+      },
     });
   }
 

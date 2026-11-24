@@ -22,6 +22,10 @@ export enum SettingsKeys {
   HIDE_GLASS_TAB_BAR_IN_SUBPAGES = 'hideGlassTabBarInSubpages',
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
+  SHOW_HERO_LIBRARY_BUTTON = 'showHeroLibraryButton',
+  HIDE_ADULT_PROVIDERS = 'hideAdultProviders',
+  HOLD_PREVIEW_ENABLED = 'holdPreviewEnabled',
+  HOLD_PREVIEW_ONLY_WHILE_HOLDING = 'holdPreviewOnlyWhileHolding',
   CUSTOM_COLOR = 'customColor',
   ACCENT_SOURCE = 'accentSource',
   LAUNCHER_ICON = 'launcherIcon',
@@ -327,7 +331,7 @@ export class SettingsStorage {
   }
 
   isGlassTabBarEnabled(): boolean {
-    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, false);
+    return mainStorage.getBool(SettingsKeys.GLASS_TAB_BAR, true);
   }
 
   setGlassTabBarEnabled(enabled: boolean): void {
@@ -360,6 +364,41 @@ export class SettingsStorage {
 
   setShowContinueWatching(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_CONTINUE_WATCHING, show);
+  }
+
+  showHeroLibraryButton(): boolean {
+    return mainStorage.getBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, false);
+  }
+
+  hideAdultProviders(): boolean {
+    return mainStorage.getBool(SettingsKeys.HIDE_ADULT_PROVIDERS, false);
+  }
+
+  setHideAdultProviders(hide: boolean): void {
+    mainStorage.setBool(SettingsKeys.HIDE_ADULT_PROVIDERS, hide);
+  }
+
+  setShowHeroLibraryButton(show: boolean): void {
+    mainStorage.setBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, show);
+  }
+
+  isHoldPreviewEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.HOLD_PREVIEW_ENABLED, true);
+  }
+
+  setHoldPreviewEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.HOLD_PREVIEW_ENABLED, enabled);
+  }
+
+  isHoldPreviewOnlyWhileHolding(): boolean {
+    return mainStorage.getBool(
+      SettingsKeys.HOLD_PREVIEW_ONLY_WHILE_HOLDING,
+      false,
+    );
+  }
+
+  setHoldPreviewOnlyWhileHolding(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.HOLD_PREVIEW_ONLY_WHILE_HOLDING, enabled);
   }
 
   isHapticFeedbackEnabled(): boolean {

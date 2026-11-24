@@ -1,4 +1,7 @@
-jest.mock('../src/lib/storage/StorageService', () => ({createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()})}));
+jest.mock('../src/lib/storage/StorageService', () => ({
+  mainStorage: {getArray: () => [], getString: () => undefined, getObject: () => undefined, getBool: () => false, getNumber: () => undefined},
+  createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()}),
+}));
 import {beforeEach, describe, expect, it, jest} from '@jest/globals';
 
 jest.mock('react-native-mmkv-storage', () => ({

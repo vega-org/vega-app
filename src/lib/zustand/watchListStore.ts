@@ -1,11 +1,13 @@
 import {create} from 'zustand';
 import useLocalContentStore from './localContentStore';
+import useFollowedShowsStore from './followedShowsStore';
 import {localContentId, localLibraryItem} from '../localContent/library';
-import {watchListStorage, WatchListItem} from '../storage';
 import {
   createCollectionId,
   getItemCollectionIds,
+  watchListStorage,
   type LibraryCollection,
+  type WatchListItem,
 } from '../storage/WatchListStorage';
 
 // Reuse the WatchListItem interface from our storage
@@ -37,8 +39,12 @@ const useWatchListStore = create<WatchListStore>()((set, get) => ({
   removeItem: link => {
     const id = localContentId(link);
     if (id) {useLocalContentStore.getState().hideFromLibrary(id); return;}
+    const removed = get().watchList.find(item => item.link === link);
     const newWatchList = watchListStorage.removeFromWatchList(link);
     set({watchList: newWatchList});
+    if (removed) {
+      useFollowedShowsStore.getState().unfollowRemovedShows('library', [removed]);
+    }
   },
 
   // Add item using storage service
@@ -52,6 +58,10 @@ const useWatchListStore = create<WatchListStore>()((set, get) => ({
   setItemCollections: (item, ids) => {
     const id = localContentId(item.link);
     if (id) {useLocalContentStore.getState().setCollections(id, ids); return;}
+    if (ids.length === 0) {
+      get().removeItem(item.link);
+      return;
+    }
     set({watchList: watchListStorage.setItemCollections(item, ids)});
   },
 
@@ -64,6 +74,7 @@ const useWatchListStore = create<WatchListStore>()((set, get) => ({
       useLocalContentStore.getState().setCollections(title.id, getItemCollectionIds(item, existingIds).filter(id => id !== collectionId));
     }
     let watchList = watchListStorage.getWatchList();
+    const removed: WatchList[] = [];
     for (const item of watchList) {
       if (!targets.has(item.link)) {
         continue;
@@ -72,8 +83,10 @@ const useWatchListStore = create<WatchListStore>()((set, get) => ({
         id => id !== collectionId,
       );
       watchList = watchListStorage.setItemCollections(item, ids);
+      if (ids.length === 0) removed.push(item);
     }
     set({watchList});
+    useFollowedShowsStore.getState().unfollowRemovedShows('library', removed);
   },
 
   createCollection: draft => {

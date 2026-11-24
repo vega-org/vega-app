@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 import type {
   AppDialogAction,
+  AppDialogDismissOption,
   AppDialogVariant,
 } from '../../components/AppDialog';
 
@@ -12,6 +13,7 @@ export interface GlobalAppDialog {
   messageFormat?: 'plain' | 'markdown';
   variant?: AppDialogVariant;
   actions?: AppDialogAction[];
+  dismissOption?: AppDialogDismissOption;
 }
 
 interface AppDialogState {

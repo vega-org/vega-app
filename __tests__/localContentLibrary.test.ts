@@ -1,5 +1,8 @@
-jest.mock('../src/lib/storage/StorageService', () => ({createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()})}));
-jest.mock('../src/lib/storage', () => ({watchListStorage: {
+jest.mock('../src/lib/storage/StorageService', () => ({
+  mainStorage: {getArray: () => [], getString: () => undefined, getObject: () => undefined, getBool: () => false, getNumber: () => undefined},
+  createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()}),
+}));
+jest.mock('../src/lib/storage/WatchListStorage', () => ({...jest.requireActual('../src/lib/storage/WatchListStorage') as object, watchListStorage: {
   getWatchList: () => [{title: 'Remote', link: 'https://remote/show', poster: '', provider: 'p'}],
   getCollections: () => [{id: 'watchlist', name: 'Watchlist'}],
   setItemCollections: jest.fn(), addToWatchList: jest.fn(), removeFromWatchList: jest.fn(),
@@ -8,7 +11,7 @@ jest.mock('../src/lib/storage', () => ({watchListStorage: {
 import useWatchListStore from '../src/lib/zustand/watchListStore';
 import useLocalContentStore from '../src/lib/zustand/localContentStore';
 import {localLibraryItem} from '../src/lib/localContent/library';
-import {watchListStorage} from '../src/lib/storage';
+import {watchListStorage} from '../src/lib/storage/WatchListStorage';
 
 const title = {id: 'content://folder', rootUri: 'content://folder', folderUri: 'content://folder', name: 'Local show',
   episodes: [], useMetadataTitles: true, collections: ['watchlist']};

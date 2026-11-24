@@ -1,11 +1,13 @@
 import {Pressable, ScrollView, View, TextInput, StyleSheet} from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Slider from '../components/Slider';
+import useTitlePreviewStore from '../lib/zustand/titlePreviewStore';
 import ScreenSafeArea from '../components/ui/ScreenSafeArea';
 import React, {useEffect, useState, useRef, useCallback, useMemo} from 'react';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {SearchStackParamList} from '../App';
 import {providerManager} from '../lib/services/ProviderManager';
+import {useVisibleInstalledProviders} from '../lib/hooks/useVisibleProviders';
 import useContentStore from '../lib/zustand/contentStore';
 import AppText from '../components/ui/Text';
 import LoadingIndicator from '../components/ui/LoadingIndicator';
@@ -39,9 +41,10 @@ const activeFirst = (providers: ProviderExtension[]) => {
 };
 
 const SearchResults = ({route, navigation}: Props): React.ReactElement => {
+  const holdPreviewActive = useTitlePreviewStore(state => state.activePreview?.dismissOnRelease === true);
   const colors = useM3Colors();
   const floatingTabBarInset = useFloatingTabBarInset();
-  const storeProviders = useContentStore(state => state.installedProviders);
+  const storeProviders = useVisibleInstalledProviders();
   // Reordering providers in the drawer makes a new array with the same
   // providers. Only a real install or removal should restart the searches.
   const providersKey = storeProviders.map(p => p.value).sort().join('|');
@@ -208,6 +211,7 @@ const SearchResults = ({route, navigation}: Props): React.ReactElement => {
           providerValue={item.value}
           isSearch={true}
           error={loadingState?.error}
+          enableHoldPreview
         />
       );
     },
@@ -235,7 +239,7 @@ const SearchResults = ({route, navigation}: Props): React.ReactElement => {
 
   return (
     <ScreenSafeArea className="h-full w-full bg-m3-background">
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView scrollEnabled={!holdPreviewActive} showsVerticalScrollIndicator={false}>
         <View className="mt-6 px-4 flex flex-row items-center gap-x-3">
           {isTV ? (
             <TVFocusable

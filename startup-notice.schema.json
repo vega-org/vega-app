@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vega startup notice",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "notice"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "notice": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "\\S"
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minVersion": {
+              "type": "string",
+              "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[\\w.-]+)?(?:\\+[\\w.-]+)?$",
+              "description": "Minimum app version, inclusive."
+            },
+            "maxVersion": {
+              "type": "string",
+              "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[\\w.-]+)?(?:\\+[\\w.-]+)?$",
+              "description": "Maximum app version, inclusive."
+            },
+            "builds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "playstore",
+                  "github"
+                ]
+              }
+            }
+          }
+        },
+        "buttons": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "url"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "\\S"
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri",
+                "pattern": "^https?://[^\\s/\\\\?#@]+(?:[/?#]|$)"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

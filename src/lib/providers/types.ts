@@ -10,6 +10,12 @@ export interface ProvidersList {
   flag: string;
 }
 
+export interface PostPreview {
+  url: string;
+  type?: 'video' | 'gif' | 'image';
+  headers?: Record<string, string>;
+}
+
 export interface Post {
   title: string;
   link: string;
@@ -19,6 +25,10 @@ export interface Post {
   borderRadius?: number;
   tag?: string;
   cornerTag?: string;
+  preview?: string | PostPreview;
+  previewVideo?: string;
+  previewGif?: string;
+  previewHeaders?: Record<string, string>;
 }
 
 export declare enum TextTrackType {

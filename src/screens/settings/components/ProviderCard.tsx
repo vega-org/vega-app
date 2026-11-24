@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import {TVFocusable} from '../../../components/tv';
+import ProviderAdultBadge from '../../../components/ProviderAdultBadge';
 import type {ProviderExtension} from '../../../lib/storage/extensionStorage';
 import {useM3Colors} from '../../../theme/M3PaletteContext';
 import {useTVFocusBorderColor} from '../../../lib/tv/useTVFocusBorderColor';
@@ -144,6 +145,7 @@ const ProviderCard = ({
           </View>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', marginTop: 4}}>
             <MetadataChip icon="web" label={provider.type || 'Unknown'} />
+            {provider.adult === true && <ProviderAdultBadge />}
             {provider.source?.author && (
               <MetadataChip icon="account" label={provider.source.author} />
             )}

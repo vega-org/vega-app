@@ -31,6 +31,8 @@ import {useTVFocusBorderColor} from '../../../lib/tv/useTVFocusBorderColor';
 import {TVFocusable} from '../../../components/tv';
 import {findNodeHandle} from 'react-native';
 import useTVNavigationStore from '../../../lib/zustand/tvNavigationStore';
+import {isTV} from '../../../lib/tv';
+import {scheduleWhenIdle} from '../../../lib/performance/idleWork';
 
 const DnsPreference = () => {
   const colors = useM3Colors();
@@ -87,16 +89,26 @@ const DnsPreference = () => {
   }, [showArgsEditor, isArgsInputFocused, isCustomUrlFocused]);
 
   useEffect(() => {
-    getWarpStatus()
-      .then(res => {
-        if (res.running && res.port) setWarpPort(res.port);
-      })
-      .catch(() => { });
-    getByeDpiStatus()
-      .then(res => {
-        if (res.running && res.port) setByeDpiPort(res.port);
-      })
-      .catch(() => { });
+    return scheduleWhenIdle(
+      signal => {
+        getWarpStatus()
+          .then(res => {
+            if (!signal.aborted && res.running && res.port) {
+              setWarpPort(res.port);
+            }
+          })
+          .catch(() => {});
+        getByeDpiStatus()
+          .then(res => {
+            if (!signal.aborted && res.running && res.port) {
+              setByeDpiPort(res.port);
+            }
+          })
+          .catch(() => {});
+      },
+      0,
+      true,
+    );
   }, []);
 
   const initialProvider = settingsStorage.isDohEnabled()
@@ -231,17 +243,25 @@ const DnsPreference = () => {
     <View className="p-4">
       {/* Cloudflare WARP Section */}
       <TVFocusable
-        ref={warpRef}
-        onLayout={() => {
-          if (warpRef.current) setWarpHandle(findNodeHandle(warpRef.current));
-        }}
-        onFocus={() => {
-          if (warpRef.current) {
-            const h = findNodeHandle(warpRef.current);
-            if (h) useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
-          }
-        }}
-        nextFocusRight={warpHandle}
+        ref={isTV ? warpRef : undefined}
+        onLayout={
+          isTV
+            ? () => {
+                if (warpRef.current) setWarpHandle(findNodeHandle(warpRef.current));
+              }
+            : undefined
+        }
+        onFocus={
+          isTV
+            ? () => {
+                if (warpRef.current) {
+                  const h = findNodeHandle(warpRef.current);
+                  if (h) useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
+                }
+              }
+            : undefined
+        }
+        nextFocusRight={isTV ? warpHandle : undefined}
         accessibilityRole="switch"
         accessibilityState={{checked: warpEnabled}}
         accessibilityLabel="Cloudflare WARP Mode"
@@ -318,17 +338,25 @@ const DnsPreference = () => {
       {/* ByeDPI Section */}
       <View className="mb-4">
         <TVFocusable
-          ref={byeDpiRef}
-          onLayout={() => {
-            if (byeDpiRef.current) setByeDpiHandle(findNodeHandle(byeDpiRef.current));
-          }}
-          onFocus={() => {
-            if (byeDpiRef.current) {
-              const h = findNodeHandle(byeDpiRef.current);
-              if (h) useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
-            }
-          }}
-          nextFocusRight={byeDpiHandle}
+          ref={isTV ? byeDpiRef : undefined}
+          onLayout={
+            isTV
+              ? () => {
+                  if (byeDpiRef.current) setByeDpiHandle(findNodeHandle(byeDpiRef.current));
+                }
+              : undefined
+          }
+          onFocus={
+            isTV
+              ? () => {
+                  if (byeDpiRef.current) {
+                    const h = findNodeHandle(byeDpiRef.current);
+                    if (h) useTVNavigationStore.getState().setActiveScreenFocusHandle(h);
+                  }
+                }
+              : undefined
+          }
+          nextFocusRight={isTV ? byeDpiHandle : undefined}
           accessibilityRole="switch"
           accessibilityState={{checked: byeDpiEnabled}}
           accessibilityLabel="ByeDPI Anti-DPI Mode"
@@ -646,4 +674,4 @@ const DnsPreference = () => {
   );
 };
 
-export default DnsPreference;
+export default React.memo(DnsPreference);
