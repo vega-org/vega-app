@@ -142,10 +142,10 @@ const ProviderCard = ({
               }}>
               v{provider.version || 'Unknown'}
             </Text>
+            {provider.adult === true && <ProviderAdultBadge />}
           </View>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', marginTop: 4}}>
             <MetadataChip icon="web" label={provider.type || 'Unknown'} />
-            {provider.adult === true && <ProviderAdultBadge />}
             {provider.source?.author && (
               <MetadataChip icon="account" label={provider.source.author} />
             )}

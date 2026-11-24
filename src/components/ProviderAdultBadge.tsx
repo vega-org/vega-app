@@ -8,10 +8,12 @@ export default function ProviderAdultBadge() {
     <Text
       accessibilityLabel="18 plus provider"
       style={{
+        alignSelf: 'center',
         backgroundColor: colors.errorContainer,
         color: colors.onErrorContainer,
         borderRadius: 4,
         paddingHorizontal: 4,
+        paddingVertical: 2,
         marginLeft: 4,
         fontSize: 10,
         fontWeight: '700',
