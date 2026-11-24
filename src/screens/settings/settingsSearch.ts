@@ -28,11 +28,21 @@ const entries: SearchEntry[] = [
   {label: 'Bottom bar style', page: 'Appearance', route: 'Appearance', keywords: 'ios glass material navigation style', phoneOnly: true},
   {label: 'Hide glass bar on subpages', page: 'Appearance', route: 'Appearance', keywords: 'glass bottom bar navigation hide subpages detail pages', phoneOnly: true},
   ...['Preferences', 'Auto update providers', 'Provider verification windows', 'Haptic feedback',
-    'Hero Add to Library', 'Disable drawer', 'External downloader', 'Skip in-app webview', 'Excluded qualities',
+    'Hold to preview', 'Hero Add to Library', 'Disable drawer', 'External downloader', 'Skip in-app webview', 'Excluded qualities',
     'TMDB API key', 'Download location', 'Reset download location', 'Connections per download',
     'Automatically try next server'].map(
-    (label): SearchEntry => ({label, page: 'Preferences', route: 'Preferences', target: label === 'TMDB API key' ? 'Custom TMDB API key' : undefined}),
+    (label): SearchEntry => ({
+      label,
+      page: 'Preferences',
+      route: 'Preferences',
+      target: label === 'TMDB API key' ? 'Custom TMDB API key' : undefined,
+      keywords:
+        label === 'Hold to preview'
+          ? 'preview trailer gif video hold long press'
+          : undefined,
+    }),
   ),
+  {label: 'Only show preview while holding', page: 'Preferences', route: 'Preferences', keywords: 'preview hold release trailer gif video', phoneOnly: true},
   ...['Player settings', 'Open videos from other apps', 'Playback speed', 'Ambient lighting',
     'Ambient intensity', 'Ambient spread', 'Ambient responsiveness', 'External player',
     'Notification media controls', 'Hide seek buttons', 'Seek interval', 'Auto play next episode',

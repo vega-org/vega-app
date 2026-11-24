@@ -228,6 +228,13 @@ allprojects {
         match => `${match}\n    implementation 'androidx.work:work-runtime-ktx:2.10.0'\n`,
       );
     }
+
+    if (!contents.includes('androidx.webkit:webkit')) {
+      contents = contents.replace(
+        /dependencies\s*\{/,
+        match => `${match}\n    implementation 'androidx.webkit:webkit:1.14.0'\n`,
+      );
+    }
     if (!contents.includes('androidx.media3:media3-ui')) {
       contents = contents.replace(
         /dependencies\s*\{/,

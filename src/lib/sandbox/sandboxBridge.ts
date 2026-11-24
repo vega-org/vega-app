@@ -11,14 +11,25 @@ import {registerWafOperation} from '../services/wafSession';
 /**
  * Native side transport for the provider sandbox.
  *
- * Owns the single hidden WebView that hosts provider workers, correlates
- * invokes by token, relays RPC frames, and enforces the invoke timeout from the
- * native side as a backstop to the document's own timer.
+ * Owns foreground/background WebView hosts that run provider workers,
+ * correlates invokes by token, relays RPC frames, and enforces the invoke
+ * timeout from the native side as a backstop to the document's own timer.
  */
+
+export type SandboxHostKind = 'foreground' | 'background';
 
 type Injector = (script: string) => void;
 
+interface SandboxHost {
+  id: number;
+  kind: SandboxHostKind;
+  injector: Injector;
+  requestReload: () => void;
+  ready: boolean;
+}
+
 interface PendingInvoke {
+  hostId: number | null;
   wafScope: AbortSignal;
   releaseWafScope: () => void;
   controller: AbortController;
@@ -44,66 +55,150 @@ const randomToken = (): string => {
 class SandboxBridge {
   private activeInvokes = 0;
   private readonly maxActiveInvokes = 2;
-  private injector: Injector | null = null;
-  private ready = false;
+  private nextHostId = 1;
+  private foregroundHost: SandboxHost | null = null;
+  private backgroundHost: SandboxHost | null = null;
+  private activeHostId: number | null = null;
   private readonly queue: HostMessage[] = [];
   private readonly pending = new Map<string, PendingInvoke>();
-  private reloadRequester: (() => void) | null = null;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Returns true while a foreground or background sandbox host is attached. */
-  isRegistered(): boolean {
-    return this.injector !== null;
+  private getHostById(id: number): SandboxHost | null {
+    if (this.foregroundHost?.id === id) return this.foregroundHost;
+    if (this.backgroundHost?.id === id) return this.backgroundHost;
+    return null;
   }
 
-  /** Called by the host component once the WebView is mounted. */
-  register(injector: Injector, requestReload: () => void): void {
-    this.injector = injector;
-    this.reloadRequester = requestReload;
-    this.startReadyTimer();
+  private getActiveHost(): SandboxHost | null {
+    if (this.activeHostId !== null) {
+      const active = this.getHostById(this.activeHostId);
+      if (active) return active;
+    }
+    return this.foregroundHost ?? this.backgroundHost;
   }
 
-  unregister(): void {
-    this.injector = null;
-    this.ready = false;
+  private clearReadyTimer(): void {
     if (this.readyTimer) {
       clearTimeout(this.readyTimer);
       this.readyTimer = null;
     }
-    this.queue.length = 0;
-    for (const token of Array.from(this.pending.keys())) {
-      this.settle(token, new Error('Provider sandbox was torn down'));
+  }
+
+  /** Returns true while a foreground or background sandbox host is attached. */
+  isRegistered(): boolean {
+    return this.getActiveHost() !== null;
+  }
+
+  /** Returns true while the currently active sandbox host has reported ready. */
+  isReady(): boolean {
+    return Boolean(this.getActiveHost()?.ready);
+  }
+
+  /** Called by the host component or headless runner once the WebView is mounted. */
+  register(
+    injector: Injector,
+    requestReload: () => void,
+    kind: SandboxHostKind = 'foreground',
+  ): number {
+    const host: SandboxHost = {
+      id: this.nextHostId++,
+      kind,
+      injector,
+      requestReload,
+      ready: false,
+    };
+    if (kind === 'foreground') {
+      this.foregroundHost = host;
+      if (this.backgroundHost === null) {
+        this.activeHostId = host.id;
+        this.startReadyTimer();
+      }
+    } else {
+      this.backgroundHost = host;
+      this.activeHostId = host.id;
+      this.startReadyTimer();
+    }
+    return host.id;
+  }
+
+  unregister(hostId?: number): void {
+    if (hostId === undefined) {
+      this.foregroundHost = null;
+      this.backgroundHost = null;
+      this.activeHostId = null;
+      this.clearReadyTimer();
+      this.queue.length = 0;
+      for (const token of Array.from(this.pending.keys())) {
+        this.settle(token, new Error('Provider sandbox was torn down'));
+      }
+      return;
+    }
+
+    const wasActive = this.activeHostId === hostId;
+    if (this.foregroundHost?.id === hostId) {
+      this.foregroundHost = null;
+    } else if (this.backgroundHost?.id === hostId) {
+      this.backgroundHost = null;
+    } else {
+      return;
+    }
+
+    for (const [token, entry] of Array.from(this.pending.entries())) {
+      if (entry.hostId === hostId) {
+        this.settle(token, new Error('Provider sandbox was torn down'));
+      }
+    }
+
+    if (!wasActive) {
+      return;
+    }
+
+    const fallback = this.foregroundHost ?? this.backgroundHost;
+    if (!fallback) {
+      this.activeHostId = null;
+      this.clearReadyTimer();
+      this.queue.length = 0;
+      for (const token of Array.from(this.pending.keys())) {
+        this.settle(token, new Error('Provider sandbox was torn down'));
+      }
+      return;
+    }
+
+    this.activeHostId = fallback.id;
+    this.clearReadyTimer();
+    if (fallback.ready) {
+      this.flush();
+    } else if (this.pending.size > 0) {
+      this.startReadyTimer();
     }
   }
 
-  private post(message: HostMessage): void {
-    const invocation =
-      message.type === 'invoke' ? this.pending.get(message.token) : undefined;
-    if (message.type === 'invoke' && !invocation) return;
-    if (invocation && this.activeInvokes >= this.maxActiveInvokes) {
-      this.queue.push(message);
+  /** Promotes a ready foreground host or reloads a stalled host if its ready timer expired. */
+  ensureReady(hostId?: number): void {
+    const host =
+      hostId !== undefined ? this.getHostById(hostId) : this.getActiveHost();
+    if (!host) {
       return;
     }
-    if (!this.injector || !this.ready) {
-      this.queue.push(message);
+    if (host === this.foregroundHost && host.ready) {
+      this.activeHostId = host.id;
+      this.clearReadyTimer();
+      this.flush();
       return;
     }
-    if (invocation) {
-      invocation.started = true;
-      this.activeInvokes++;
-      clearTimeout(invocation.timer);
-      invocation.timer = setTimeout(() => {
-        // Block admission before settling: settle flushes queued invokes,
-        // but a timed-out host is about to be reloaded.
-        this.ready = false;
-        this.settle(
-          message.token,
-          new Error(`Provider ${invocation.providerValue} timed out`),
-        );
-        this.handleReload();
-        this.reloadRequester?.();
-      }, SANDBOX_INVOKE_TIMEOUT_MS + 5_000);
+    if (host.ready) {
+      return;
     }
+    if (host.id === this.activeHostId && this.readyTimer) {
+      return;
+    }
+    if (host.id === this.activeHostId) {
+      this.startReadyTimer();
+    }
+    host.requestReload();
+  }
+
+  private injectMessage(host: SandboxHost, message: HostMessage): void {
     // The frame goes in as a JSON-quoted string literal: JSON.stringify
     // escapes quotes and backslashes, so provider data cannot break out of
     // the injected script. U+2028/U+2029 are escaped by hand because older
@@ -114,7 +209,7 @@ class SandboxBridge {
     const frame = JSON.stringify(message)
       .replace(/\u2028/g, '\\u2028')
       .replace(/\u2029/g, '\\u2029');
-    this.injector(`window.__sandboxReceive(${JSON.stringify(frame)});true;`);
+    host.injector(`window.__sandboxReceive(${JSON.stringify(frame)});true;`);
     if (frame.length > 64 * 1024) {
       console.log(
         `[ProviderPerf] post ${message.type} ${Math.round(
@@ -124,8 +219,62 @@ class SandboxBridge {
     }
   }
 
+  private post(message: HostMessage): void {
+    const invocation =
+      message.type === 'invoke' ||
+      message.type === 'rpc-result' ||
+      message.type === 'cancel'
+        ? this.pending.get(message.token)
+        : undefined;
+    if (message.type === 'invoke') {
+      if (!invocation) return;
+      if (this.activeInvokes >= this.maxActiveInvokes) {
+        this.queue.push(message);
+        return;
+      }
+      const host = this.getActiveHost();
+      if (!host || !host.ready) {
+        this.queue.push(message);
+        return;
+      }
+      invocation.started = true;
+      invocation.hostId = host.id;
+      this.activeInvokes++;
+      clearTimeout(invocation.timer);
+      const timedOutHostId = host.id;
+      invocation.timer = setTimeout(() => {
+        // Block admission before settling: settle flushes queued invokes,
+        // but a timed-out host is about to be reloaded.
+        const timedOutHost = this.getHostById(timedOutHostId);
+        if (timedOutHost) {
+          timedOutHost.ready = false;
+        }
+        this.settle(
+          message.token,
+          new Error(`Provider ${invocation.providerValue} timed out`),
+        );
+        this.handleReload(timedOutHostId);
+        timedOutHost?.requestReload();
+      }, SANDBOX_INVOKE_TIMEOUT_MS + 5_000);
+      this.injectMessage(host, message);
+      return;
+    }
+
+    const targetHost =
+      invocation?.hostId != null
+        ? this.getHostById(invocation.hostId)
+        : this.getActiveHost();
+    if (!targetHost || !targetHost.ready) {
+      if (message.type === 'cancel') return;
+      this.queue.push(message);
+      return;
+    }
+    this.injectMessage(targetHost, message);
+  }
+
   private flush(): void {
-    if (!this.ready) {
+    const activeHost = this.getActiveHost();
+    if (!activeHost || !activeHost.ready) {
       return;
     }
     const queued = this.queue.splice(0, this.queue.length);
@@ -135,17 +284,18 @@ class SandboxBridge {
   }
 
   private startReadyTimer(): void {
-    if (this.readyTimer) {
-      clearTimeout(this.readyTimer);
-    }
+    this.clearReadyTimer();
     this.readyTimer = setTimeout(() => {
       this.readyTimer = null;
-      if (this.ready) {
+      const host = this.getActiveHost();
+      if (!host || host.ready) {
         return;
       }
       this.queue.length = 0;
-      for (const token of Array.from(this.pending.keys())) {
-        this.settle(token, new Error('Provider sandbox failed to start'));
+      for (const [token, entry] of Array.from(this.pending.entries())) {
+        if (entry.hostId === null || entry.hostId === host.id) {
+          this.settle(token, new Error('Provider sandbox failed to start'));
+        }
       }
     }, 15_000);
   }
@@ -176,7 +326,7 @@ class SandboxBridge {
   }
 
   /** WebView `onMessage` handler. */
-  handleSandboxMessage = (raw: string): void => {
+  handleSandboxMessage = (raw: string, hostId?: number): void => {
     let message: SandboxMessage;
     try {
       message = JSON.parse(raw) as SandboxMessage;
@@ -186,16 +336,30 @@ class SandboxBridge {
     if (!message || typeof message !== 'object') {
       return;
     }
+    const targetHost =
+      hostId !== undefined ? this.getHostById(hostId) : this.getActiveHost();
+    if (hostId !== undefined && !targetHost) {
+      return;
+    }
 
     switch (message.type) {
-      case 'ready':
-        this.ready = true;
-        if (this.readyTimer) {
-          clearTimeout(this.readyTimer);
-          this.readyTimer = null;
+      case 'ready': {
+        if (!targetHost) {
+          return;
         }
-        this.flush();
+        targetHost.ready = true;
+        if (
+          targetHost === this.foregroundHost &&
+          this.activeHostId !== targetHost.id
+        ) {
+          this.activeHostId = targetHost.id;
+        }
+        if (targetHost.id === this.activeHostId) {
+          this.clearReadyTimer();
+          this.flush();
+        }
         return;
+      }
 
       case 'log':
         if (message.level === 'error') {
@@ -210,6 +374,9 @@ class SandboxBridge {
       case 'rpc': {
         const entry = this.pending.get(message.token);
         if (!entry) {
+          return;
+        }
+        if (hostId !== undefined && entry.hostId !== hostId) {
           return;
         }
         handleProviderRpc(
@@ -241,17 +408,24 @@ class SandboxBridge {
         return;
       }
 
-      case 'result':
+      case 'result': {
+        const entry = this.pending.get(message.token);
+        if (!entry) {
+          return;
+        }
+        if (hostId !== undefined && entry.hostId !== hostId) {
+          return;
+        }
         if (message.error) {
           this.settle(message.token, new Error(message.error));
         } else {
-          const entry = this.pending.get(message.token);
-          if (entry && message.state) {
+          if (message.state) {
             onStateSaved?.(entry.providerValue, entry.author, message.state);
           }
           this.settle(message.token, null, message.result);
         }
         return;
+      }
     }
   };
 
@@ -296,6 +470,7 @@ class SandboxBridge {
       const controller = new AbortController();
       const wafScope = signal ?? controller.signal;
       this.pending.set(token, {
+        hostId: null,
         controller,
         wafScope,
         releaseWafScope: registerWafOperation(wafScope),
@@ -308,6 +483,12 @@ class SandboxBridge {
         onAbort,
         signal,
       });
+
+      const activeHost = this.getActiveHost();
+      if (activeHost && !activeHost.ready && !this.readyTimer) {
+        this.startReadyTimer();
+        activeHost.requestReload();
+      }
 
       this.post({
         type: 'invoke',
@@ -322,13 +503,28 @@ class SandboxBridge {
   }
 
   /** Called by the host component when the WebView reloads. */
-  handleReload(): void {
-    this.ready = false;
-    this.queue.length = 0;
-    for (const token of Array.from(this.pending.keys())) {
-      this.settle(token, new Error('Provider sandbox reloaded'));
+  handleReload(hostId?: number): void {
+    const host =
+      hostId !== undefined ? this.getHostById(hostId) : this.getActiveHost();
+    if (!host) {
+      return;
     }
-    this.startReadyTimer();
+    host.ready = false;
+    if (host.id === this.activeHostId) {
+      this.queue.length = 0;
+      for (const [token, entry] of Array.from(this.pending.entries())) {
+        if (entry.hostId === host.id || entry.hostId === null) {
+          this.settle(token, new Error('Provider sandbox reloaded'));
+        }
+      }
+      this.startReadyTimer();
+      return;
+    }
+    for (const [token, entry] of Array.from(this.pending.entries())) {
+      if (entry.hostId === host.id) {
+        this.settle(token, new Error('Provider sandbox reloaded'));
+      }
+    }
   }
 }
 

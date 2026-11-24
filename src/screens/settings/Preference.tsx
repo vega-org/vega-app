@@ -89,6 +89,18 @@ const Preferences = ({navigation}: any) => {
   const setShowHeroLibraryButton = useNavigationPreferencesStore(
     state => state.setShowHeroLibraryButton,
   );
+  const holdPreviewEnabled = useNavigationPreferencesStore(
+    state => state.holdPreviewEnabled,
+  );
+  const setHoldPreviewEnabled = useNavigationPreferencesStore(
+    state => state.setHoldPreviewEnabled,
+  );
+  const holdPreviewOnlyWhileHolding = useNavigationPreferencesStore(
+    state => state.holdPreviewOnlyWhileHolding,
+  );
+  const setHoldPreviewOnlyWhileHolding = useNavigationPreferencesStore(
+    state => state.setHoldPreviewOnlyWhileHolding,
+  );
 
   const [hapticFeedback, setHapticFeedback] = useState(() =>
     settingsStorage.isHapticFeedbackEnabled(),
@@ -171,6 +183,20 @@ const Preferences = ({navigation}: any) => {
                 setHapticFeedback(next);
               }}
             />
+            <SettingsSwitchRow
+              title="Hold to preview"
+              description="Hold a title on Home or Search to preview its video or GIF"
+              value={holdPreviewEnabled}
+              onValueChange={setHoldPreviewEnabled}
+            />
+            {!isTV && holdPreviewEnabled ? (
+              <SettingsSwitchRow
+                title="Only show preview while holding"
+                description="Close the title preview as soon as you lift your finger"
+                value={holdPreviewOnlyWhileHolding}
+                onValueChange={setHoldPreviewOnlyWhileHolding}
+              />
+            ) : null}
             <SettingsSwitchRow
               title="Hero Add to Library"
               description="Show the Add to Library button beside Watch now on Home"

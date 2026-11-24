@@ -216,11 +216,14 @@ const writeLauncherResources = resRoot => {
     const id = variant.id.toLowerCase();
     fs.writeFileSync(
       path.join(drawable, `ic_launcher_foreground_${id}.xml`),
-      `<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:gravity="center"
-    android:src="@mipmap/ic_launcher_foreground"
-    android:tint="${variant.color}"
-    android:tintMode="src_in" />\n`,
+      `<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="3%">
+    <bitmap
+        android:gravity="fill"
+        android:src="@mipmap/ic_launcher_foreground"
+        android:tint="${variant.color}"
+        android:tintMode="src_in" />
+</inset>\n`,
     );
     fs.writeFileSync(
       path.join(drawableV26, `ic_launcher_${id}.xml`),
@@ -291,3 +294,5 @@ module.exports = function withDynamicLauncherSplash(config) {
   config = withLauncherMainActivity(config);
   return withLauncherResources(config);
 };
+
+module.exports.writeLauncherResources = writeLauncherResources;

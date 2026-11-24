@@ -5,6 +5,7 @@ import React, {
   memo,
   useCallback,
   useMemo,
+  useEffect,
   useLayoutEffect,
   useRef,
 } from 'react';
@@ -14,6 +15,14 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useNavigation} from '@react-navigation/native';
 import {HomeStackParamList} from '../App';
 import useContentStore from '../lib/zustand/contentStore';
+import useNavigationPreferencesStore from '../lib/zustand/navigationPreferencesStore';
+import useTitlePreviewStore from '../lib/zustand/titlePreviewStore';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import {settingsStorage} from '../lib/storage';
+import {
+  resolvePostPreview,
+  type ResolvedPostPreview,
+} from '../lib/providers/postPreview';
 import SkeletonLoader from './Skeleton';
 import MediaPosterCard, {parseAspectRatio} from './MediaPosterCard';
 import {useM3Colors} from '../theme/M3PaletteContext';
@@ -38,9 +47,51 @@ const SliderSeparator = () => <View style={{width: 14}} />;
 // One memoized cell per post, so the press handler stays stable and
 // MediaPosterCard skips re-rendering when the list re-renders.
 const SliderPosterItem = memo(
-  ({item, onPressItem}: {item: Post; onPressItem: (item: Post) => void}) => {
+  ({
+    item,
+    enableHoldPreview,
+    onPressItem,
+    onPreviewStart,
+    onPreviewRelease,
+  }: {
+    item: Post;
+    enableHoldPreview: boolean;
+    onPressItem: (item: Post) => void;
+    onPreviewStart: (item: Post, preview: ResolvedPostPreview) => number;
+    onPreviewRelease: (sessionId: number) => void;
+  }) => {
     const ratio = parseAspectRatio(item.aspectRatio, 2 / 3);
     const cardWidth = ratio > 1.2 ? 220 : ratio > 0.85 ? 150 : 124;
+    const preview = useMemo(
+      () => (enableHoldPreview ? resolvePostPreview(item) : null),
+      [enableHoldPreview, item],
+    );
+    const activeSessionIdRef = useRef<number | null>(null);
+    const handleLongPress = useCallback(() => {
+      if (!preview) {
+        return;
+      }
+      activeSessionIdRef.current = onPreviewStart(item, preview);
+    }, [item, onPreviewStart, preview]);
+    const handleTouchRelease = useCallback(() => {
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId === null) {
+        return;
+      }
+      activeSessionIdRef.current = null;
+      onPreviewRelease(sessionId);
+    }, [onPreviewRelease]);
+
+    useEffect(
+      () => () => {
+        const sessionId = activeSessionIdRef.current;
+        if (sessionId !== null) {
+          activeSessionIdRef.current = null;
+          onPreviewRelease(sessionId);
+        }
+      },
+      [onPreviewRelease],
+    );
     const handlePress = useCallback(
       () => onPressItem(item),
       [onPressItem, item],
@@ -55,6 +106,8 @@ const SliderPosterItem = memo(
         borderRadius={item.borderRadius}
         cornerTag={item.cornerTag || item.tag}
         onPress={handlePress}
+        onLongPress={preview ? handleLongPress : undefined}
+        onTouchRelease={preview ? handleTouchRelease : undefined}
       />
     );
   },
@@ -70,6 +123,7 @@ const Slider = ({
   isSearch = false,
   error,
   deferPosts = false,
+  enableHoldPreview = false,
 }: {
   isLoading: boolean;
   title: string;
@@ -80,11 +134,15 @@ const Slider = ({
   isSearch?: boolean;
   error?: string;
   deferPosts?: boolean;
+  enableHoldPreview?: boolean;
 }): React.ReactElement => {
   // Explicit row providers must not subscribe recycled/offscreen rows to the
   // global selection change before Home supplies their new data.
   const fallbackProviderValue = useContentStore(state =>
     providerValue ? undefined : state.provider?.value,
+  );
+  const holdPreviewEnabled = useNavigationPreferencesStore(state =>
+    enableHoldPreview ? (state?.holdPreviewEnabled ?? true) : false,
   );
   const colors = useM3Colors();
   const focusBorderColor = useTVFocusBorderColor();
@@ -92,6 +150,9 @@ const Slider = ({
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const [isSelected, setSelected] = React.useState('');
   const listRef = useRef<FlatList<Post>>(null);
+  const holdPreviewActive = useTitlePreviewStore(
+    state => enableHoldPreview && state.activePreview?.dismissOnRelease === true,
+  );
   const pendingOffset = useRef<number | undefined>(undefined);
   const interactionKey = `home-row:${scrollKey ?? title}`;
   React.useEffect(() => () => {
@@ -153,11 +214,49 @@ const Slider = ({
     [navigation, providerValue, fallbackProviderValue],
   );
 
+  const handlePreviewStart = useCallback(
+    (item: Post, preview: ResolvedPostPreview) => {
+      if (settingsStorage.isHapticFeedbackEnabled()) {
+        ReactNativeHapticFeedback.trigger('effectClick', {
+          enableVibrateFallback: true,
+          ignoreAndroidSystemSettings: false,
+        });
+      }
+      const dismissOnRelease =
+        !isTV &&
+        useNavigationPreferencesStore.getState().holdPreviewOnlyWhileHolding;
+      return useTitlePreviewStore.getState().showPreview({
+        preview,
+        dismissOnRelease,
+        onOpenDetails: () => handleItemPress(item),
+      });
+    },
+    [handleItemPress],
+  );
+
+  const handlePreviewRelease = useCallback((sessionId: number) => {
+    const active = useTitlePreviewStore.getState().activePreview;
+    if (active?.sessionId === sessionId && active.dismissOnRelease) {
+      useTitlePreviewStore.getState().dismissPreview(sessionId);
+    }
+  }, []);
+
   const renderItem = useCallback(
     ({item}: {item: Post}) => (
-      <SliderPosterItem item={item} onPressItem={handleItemPress} />
+      <SliderPosterItem
+        item={item}
+        enableHoldPreview={holdPreviewEnabled}
+        onPressItem={handleItemPress}
+        onPreviewStart={handlePreviewStart}
+        onPreviewRelease={handlePreviewRelease}
+      />
     ),
-    [handleItemPress],
+    [
+      handleItemPress,
+      handlePreviewRelease,
+      handlePreviewStart,
+      holdPreviewEnabled,
+    ],
   );
 
   const keyExtractor = useCallback(
@@ -252,6 +351,7 @@ const Slider = ({
         </View>
       ) : (
         <FlatList
+          scrollEnabled={!holdPreviewActive}
           key={isTV ? undefined : scrollKey}
           ref={listRef}
           onScrollBeginDrag={() => { restoreOffset(); beginUIInteraction(interactionKey + ":drag"); }}

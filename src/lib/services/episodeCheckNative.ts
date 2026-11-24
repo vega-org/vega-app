@@ -1,6 +1,7 @@
 import {NativeModules, Platform} from 'react-native';
 
 export const BACKGROUND_SANDBOX_MESSAGE_EVENT = 'VegaBackgroundSandboxMessage';
+export const BACKGROUND_SANDBOX_RELOAD_EVENT = 'VegaBackgroundSandboxReload';
 
 interface EpisodeCheckNativeModule {
   schedule(intervalHours: number, wifiOnly: boolean): Promise<boolean>;

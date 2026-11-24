@@ -23,6 +23,8 @@ export enum SettingsKeys {
   HIDE_DOWNLOADS_TAB = 'hideDownloadsTab',
   SHOW_CONTINUE_WATCHING = 'showContinueWatching',
   SHOW_HERO_LIBRARY_BUTTON = 'showHeroLibraryButton',
+  HOLD_PREVIEW_ENABLED = 'holdPreviewEnabled',
+  HOLD_PREVIEW_ONLY_WHILE_HOLDING = 'holdPreviewOnlyWhileHolding',
   CUSTOM_COLOR = 'customColor',
   ACCENT_SOURCE = 'accentSource',
   LAUNCHER_ICON = 'launcherIcon',
@@ -369,6 +371,25 @@ export class SettingsStorage {
 
   setShowHeroLibraryButton(show: boolean): void {
     mainStorage.setBool(SettingsKeys.SHOW_HERO_LIBRARY_BUTTON, show);
+  }
+
+  isHoldPreviewEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.HOLD_PREVIEW_ENABLED, true);
+  }
+
+  setHoldPreviewEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.HOLD_PREVIEW_ENABLED, enabled);
+  }
+
+  isHoldPreviewOnlyWhileHolding(): boolean {
+    return mainStorage.getBool(
+      SettingsKeys.HOLD_PREVIEW_ONLY_WHILE_HOLDING,
+      false,
+    );
+  }
+
+  setHoldPreviewOnlyWhileHolding(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.HOLD_PREVIEW_ONLY_WHILE_HOLDING, enabled);
   }
 
   isHapticFeedbackEnabled(): boolean {

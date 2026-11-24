@@ -106,7 +106,9 @@ import {
   isTabRouteOnSubpage,
 } from './components/navigation/FloatingTabBarInsetContext';
 import AppDialogHost from './components/AppDialogHost';
+import TitlePreviewHost from './components/TitlePreviewHost';
 import {RemoteVolumeToast} from './components/remote-player/RemoteVolumeToast';
+import useTitlePreviewStore from './lib/zustand/titlePreviewStore';
 import {
   getAnalytics,
   getCrashlytics,
@@ -904,6 +906,7 @@ const App = () => {
 
   const handleNavigationStateChange = useCallback(async () => {
     syncTabVisibility(navigationRef.getRootState());
+    useTitlePreviewStore.getState().dismissPreview();
     if (hasFirebase) {
       await logScreenView();
     }
@@ -938,6 +941,7 @@ const App = () => {
               <VerificationConsentDialog />
               <WafWebViewDialog />
               <RemoteVolumeToast />
+              <TitlePreviewHost />
               {/* Isolated realm that runs untrusted provider code. Must stay
                 mounted for the app lifetime: every provider call is dispatched
                 into it. */}

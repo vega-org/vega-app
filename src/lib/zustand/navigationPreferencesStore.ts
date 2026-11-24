@@ -12,6 +12,10 @@ interface NavigationPreferencesState {
   setShowContinueWatching: (show: boolean) => void;
   showHeroLibraryButton: boolean;
   setShowHeroLibraryButton: (show: boolean) => void;
+  holdPreviewEnabled: boolean;
+  setHoldPreviewEnabled: (enabled: boolean) => void;
+  holdPreviewOnlyWhileHolding: boolean;
+  setHoldPreviewOnlyWhileHolding: (enabled: boolean) => void;
 }
 
 const useNavigationPreferencesStore = create<NavigationPreferencesState>(
@@ -40,6 +44,28 @@ const useNavigationPreferencesStore = create<NavigationPreferencesState>(
     setShowHeroLibraryButton: show => {
       settingsStorage.setShowHeroLibraryButton(show);
       set({showHeroLibraryButton: show});
+    },
+    holdPreviewEnabled:
+      typeof settingsStorage.isHoldPreviewEnabled === 'function'
+        ? settingsStorage.isHoldPreviewEnabled()
+        : true,
+    setHoldPreviewEnabled: enabled => {
+      if (typeof settingsStorage.setHoldPreviewEnabled === 'function') {
+        settingsStorage.setHoldPreviewEnabled(enabled);
+      }
+      set({holdPreviewEnabled: enabled});
+    },
+    holdPreviewOnlyWhileHolding:
+      typeof settingsStorage.isHoldPreviewOnlyWhileHolding === 'function'
+        ? settingsStorage.isHoldPreviewOnlyWhileHolding()
+        : false,
+    setHoldPreviewOnlyWhileHolding: enabled => {
+      if (
+        typeof settingsStorage.setHoldPreviewOnlyWhileHolding === 'function'
+      ) {
+        settingsStorage.setHoldPreviewOnlyWhileHolding(enabled);
+      }
+      set({holdPreviewOnlyWhileHolding: enabled});
     },
   }),
 );

@@ -8,6 +8,7 @@ import {
 import {RefreshControl, ScrollView, View, Modal, Pressable} from 'react-native';
 import {FlashList} from '@shopify/flash-list';
 import Slider from '../../components/Slider';
+import useTitlePreviewStore from '../../lib/zustand/titlePreviewStore';
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {useFocusEffect, useIsFocused} from '@react-navigation/native';
 import HeroOptimized from '../../components/Hero';
@@ -62,6 +63,7 @@ const homeRowType = (row: HomeRow) =>
 const HOME_DRAW_DISTANCE = isTV ? 800 : 250;
 
 const Home = ({}: Props) => {
+  const holdPreviewActive = useTitlePreviewStore(state => state.activePreview?.dismissOnRelease === true);
   const colors = useM3Colors();
   const floatingTabBarInset = useFloatingTabBarInset();
   const isFocused = useIsFocused();
@@ -235,6 +237,7 @@ const Home = ({}: Props) => {
         scrollKey={item.key}
         error={item.error}
         deferPosts={item.deferPosts}
+        enableHoldPreview
       />
     ),
     [providerValue],
@@ -318,6 +321,7 @@ const Home = ({}: Props) => {
             <StatusBar style="light" />
 
             <FlashList
+              scrollEnabled={!holdPreviewActive}
               data={staged.rows}
               onViewableItemsChanged={staged.onViewableItemsChanged}
               renderItem={renderRow}

@@ -1,4 +1,4 @@
-import {DeviceEventEmitter} from 'react-native';
+import {AppState, DeviceEventEmitter} from 'react-native';
 import type {EpisodeLink, Link} from '../providers/types';
 import {
   getEpisodeUpdateIntervalHours,
@@ -14,6 +14,7 @@ import {buildSandboxHtml, SANDBOX_ORIGIN} from '../sandbox/sandboxHtml';
 import {SANDBOX_RUNTIME} from '../sandbox/generated/sandboxRuntime.generated';
 import {
   BACKGROUND_SANDBOX_MESSAGE_EVENT,
+  BACKGROUND_SANDBOX_RELOAD_EVENT,
   episodeCheckNative,
 } from './episodeCheckNative';
 
@@ -166,7 +167,14 @@ export const fetchSeasonEpisodesForCheck = async (
           resolvedEpisodesLink: show.episodesLink,
         };
       }
-    } catch {
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        isSandboxTeardownError(error) ||
+        isRetryableSandboxError(error)
+      ) {
+        throw error;
+      }
       // Fall through to refresh the season link from getInfo.
     }
   }
@@ -206,6 +214,17 @@ export const fetchSeasonEpisodesForCheck = async (
   };
 };
 
+const isAbortError = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'AbortError';
+
+const isSandboxTeardownError = (error: unknown): boolean =>
+  error instanceof Error && error.message === 'Provider sandbox was torn down';
+
+const isRetryableSandboxError = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error.message === 'Provider sandbox reloaded' ||
+    error.message === 'Provider sandbox failed to start');
+
 let activeCheckPromise: Promise<EpisodeCheckSummary> | null = null;
 
 export {syncEpisodeCheckSchedule} from '../zustand/followedShowsStore';
@@ -240,6 +259,8 @@ export const checkFollowedShows = async ({
     let updatedShows = 0;
     let newEpisodeCount = 0;
     let errors = 0;
+    let abortedByLifecycle = false;
+    let retriedSandboxRecovery = false;
 
     try {
       if (trigger === 'background') {
@@ -248,12 +269,29 @@ export const checkFollowedShows = async ({
 
       for (const show of shows) {
         if (signal?.aborted) {
+          abortedByLifecycle = true;
           break;
         }
         const checkedAt = Date.now();
         try {
-          const {episodes, resolvedEpisodesLink} =
-            await fetchSeasonEpisodesForCheck(show, signal);
+          let fetchResult: {episodes: EpisodeLink[]; resolvedEpisodesLink?: string};
+          try {
+            fetchResult = await fetchSeasonEpisodesForCheck(show, signal);
+          } catch (error) {
+            if (
+              isRetryableSandboxError(error) &&
+              !retriedSandboxRecovery &&
+              sandboxBridge.isRegistered() &&
+              !signal?.aborted
+            ) {
+              retriedSandboxRecovery = true;
+              sandboxBridge.ensureReady?.();
+              fetchResult = await fetchSeasonEpisodesForCheck(show, signal);
+            } else {
+              throw error;
+            }
+          }
+          const {episodes, resolvedEpisodesLink} = fetchResult;
           checkedCount++;
           if (!useFollowedShowsStore.getState().shows.some(
             current => current.id === show.id && current.createdAt === show.createdAt,
@@ -297,6 +335,10 @@ export const checkFollowedShows = async ({
             lastError: undefined,
           });
         } catch (error) {
+          if (isAbortError(error) || isSandboxTeardownError(error)) {
+            abortedByLifecycle = true;
+            break;
+          }
           errors++;
           const message =
             error instanceof Error && error.message
@@ -309,7 +351,11 @@ export const checkFollowedShows = async ({
         }
       }
 
-      useFollowedShowsStore.getState().setLastCheckedAt(Date.now(), trigger === 'background');
+      if (!abortedByLifecycle) {
+        useFollowedShowsStore
+          .getState()
+          .setLastCheckedAt(Date.now(), trigger === 'background');
+      }
       return {checkedCount, updatedShows, newEpisodeCount, errors};
     } finally {
       useFollowedShowsStore.getState().setChecking(false);
@@ -353,39 +399,75 @@ export const runHeadlessEpisodeCheck = async (): Promise<void> => {
     }
   }
 
+  const appState = AppState?.currentState;
+  const hasReadyForeground =
+    sandboxBridge.isRegistered() &&
+    (sandboxBridge.isReady?.() ?? true) &&
+    appState !== 'background' &&
+    appState !== 'inactive';
   const attachedBackgroundSandbox =
-    !sandboxBridge.isRegistered() && episodeCheckNative.isAvailable();
+    episodeCheckNative.isAvailable() && !hasReadyForeground;
 
+  const html = buildSandboxHtml(SANDBOX_RUNTIME);
+  let backgroundHostId: number | undefined;
+  let hasRegisteredBackgroundHost = false;
   let messageSub: {remove: () => void} | undefined;
-  if (attachedBackgroundSandbox) {
-    const html = buildSandboxHtml(SANDBOX_RUNTIME);
-    messageSub = DeviceEventEmitter.addListener(
-      BACKGROUND_SANDBOX_MESSAGE_EVENT,
-      (raw: string) => {
-        sandboxBridge.handleSandboxMessage(raw);
-      },
-    );
-    sandboxBridge.register(
-      script => episodeCheckNative.injectBackgroundSandbox(script),
-      () => {
-        episodeCheckNative
-          .startBackgroundSandbox(html, SANDBOX_ORIGIN)
-          .catch(() => {});
-      },
-    );
-    await episodeCheckNative.startBackgroundSandbox(html, SANDBOX_ORIGIN);
-  }
+  let reloadSub: {remove: () => void} | undefined;
+  let disposed = false;
 
   try {
-    await checkFollowedShows({trigger: 'background'});
-    if (updateInterval === 'custom' && customSchedule) {
+    if (attachedBackgroundSandbox) {
+      messageSub = DeviceEventEmitter.addListener(
+        BACKGROUND_SANDBOX_MESSAGE_EVENT,
+        (raw: string) => {
+          if (!disposed) {
+            sandboxBridge.handleSandboxMessage(raw, backgroundHostId);
+          }
+        },
+      );
+      reloadSub = DeviceEventEmitter.addListener(
+        BACKGROUND_SANDBOX_RELOAD_EVENT,
+        () => {
+          if (!disposed) {
+            sandboxBridge.handleReload(backgroundHostId);
+            episodeCheckNative
+              .startBackgroundSandbox(html, SANDBOX_ORIGIN)
+              .catch(() => {});
+          }
+        },
+      );
+      backgroundHostId = sandboxBridge.register(
+        script => episodeCheckNative.injectBackgroundSandbox(script),
+        () => {
+          if (!disposed) {
+            episodeCheckNative
+              .startBackgroundSandbox(html, SANDBOX_ORIGIN)
+              .catch(() => {});
+          }
+        },
+        'background',
+      );
+      hasRegisteredBackgroundHost = true;
+      await episodeCheckNative.startBackgroundSandbox(html, SANDBOX_ORIGIN);
+    }
+
+    const summary = await checkFollowedShows({trigger: 'background'});
+    if (
+      updateInterval === 'custom' &&
+      customSchedule &&
+      (summary.checkedCount > 0 || summary.errors > 0)
+    ) {
       store.advanceCustomSchedule(customSchedule.nextAt);
       await syncEpisodeCheckSchedule();
     }
   } finally {
+    disposed = true;
     if (attachedBackgroundSandbox) {
-      sandboxBridge.unregister();
+      if (hasRegisteredBackgroundHost) {
+        sandboxBridge.unregister(backgroundHostId);
+      }
       messageSub?.remove();
+      reloadSub?.remove();
       await episodeCheckNative.stopBackgroundSandbox().catch(() => {});
     }
   }

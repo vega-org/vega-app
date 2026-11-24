@@ -68,8 +68,11 @@ jest.mock('../src/lib/services/dohService', () => ({
 jest.mock('../src/lib/sandbox/sandboxBridge', () => ({
   sandboxBridge: {
     isRegistered: jest.fn(() => true),
-    register: jest.fn(),
+    isReady: jest.fn(() => true),
+    register: jest.fn(() => 1),
     unregister: jest.fn(),
+    ensureReady: jest.fn(),
+    handleReload: jest.fn(),
     handleSandboxMessage: jest.fn(),
   },
 }));
@@ -80,6 +83,7 @@ jest.mock('../src/lib/sandbox/generated/sandboxRuntime.generated', () => ({
 
 jest.mock('../src/lib/services/episodeCheckNative', () => ({
   BACKGROUND_SANDBOX_MESSAGE_EVENT: 'VegaBackgroundSandboxMessage',
+  BACKGROUND_SANDBOX_RELOAD_EVENT: 'VegaBackgroundSandboxReload',
   episodeCheckNative: {
     isAvailable: jest.fn(() => true),
     schedule: jest.fn(async () => true),
@@ -115,7 +119,10 @@ beforeEach(() => {
   (require('../src/lib/storage/StorageService').mainStorage as any).__clear();
   jest.clearAllMocks();
   mockSandboxBridge.isRegistered.mockReturnValue(true);
+  mockSandboxBridge.isReady.mockReturnValue(true);
+  mockSandboxBridge.register.mockReturnValue(1);
   mockEpisodeCheckNative.isAvailable.mockReturnValue(true);
+  mockEpisodeCheckNative.startBackgroundSandbox.mockResolvedValue(true);
   useFollowedShowsStore.getState().reloadFromStorage();
   useFollowedShowsStore.getState().setChecking(false);
   useWatchListStore.setState({watchList: [], collections: []});
@@ -490,5 +497,98 @@ describe('followed shows checks and background runner', () => {
     expect(
       mockEpisodeCheckNative.startBackgroundSandbox,
     ).not.toHaveBeenCalled();
+  });
+
+  it('aborts on sandbox teardown without saving lastError or falling through to getMetaData', async () => {
+    useFollowedShowsStore.getState().followShow({
+      link: 'https://p.test/teardown',
+      provider: 'provA',
+      providerName: 'Provider A',
+      title: 'Teardown Show',
+      poster: '',
+      seasonTitle: 'Season 1',
+      seasonIndex: 0,
+      episodesLink: 'https://p.test/teardown/s1',
+      ...buildEpisodeSnapshot([{title: 'Episode 1', link: 'https://p.test/t/e1'}]),
+    });
+    mockGetProviderModules.mockReturnValue({
+      modules: {episodes: 'code', meta: 'code'},
+    });
+    mockGetEpisodes.mockRejectedValueOnce(
+      new Error('Provider sandbox was torn down'),
+    );
+
+    const summary = await checkFollowedShows({trigger: 'foreground'});
+
+    expect(summary.errors).toBe(0);
+    expect(mockGetMetaData).not.toHaveBeenCalled();
+    expect(useFollowedShowsStore.getState().shows[0].lastError).toBeUndefined();
+    expect(useFollowedShowsStore.getState().lastCheckedAt).toBeUndefined();
+  });
+
+  it('retries once on recoverable sandbox errors and recovers cleanly', async () => {
+    useFollowedShowsStore.getState().followShow({
+      link: 'https://p.test/retry',
+      provider: 'provA',
+      providerName: 'Provider A',
+      title: 'Retry Show',
+      poster: '',
+      seasonTitle: 'Season 1',
+      seasonIndex: 0,
+      episodesLink: 'https://p.test/retry/s1',
+      ...buildEpisodeSnapshot([{title: 'Episode 1', link: 'https://p.test/r/e1'}]),
+    });
+    mockGetProviderModules.mockReturnValue({modules: {episodes: 'code'}});
+    mockGetEpisodes
+      .mockRejectedValueOnce(new Error('Provider sandbox failed to start'))
+      .mockResolvedValueOnce([
+        {title: 'Episode 1', link: 'https://p.test/r/e1'},
+        {title: 'Episode 2', link: 'https://p.test/r/e2'},
+      ]);
+
+    const summary = await checkFollowedShows({trigger: 'manual'});
+
+    expect(mockSandboxBridge.ensureReady).toHaveBeenCalledTimes(1);
+    expect(summary).toEqual({
+      checkedCount: 1,
+      updatedShows: 1,
+      newEpisodeCount: 1,
+      errors: 0,
+    });
+    expect(useFollowedShowsStore.getState().shows[0].lastError).toBeUndefined();
+  });
+
+  it('attaches background sandbox when foreground is unready and cleans up on start failure', async () => {
+    const store = useFollowedShowsStore.getState();
+    store.setUpdateInterval('24h');
+    store.followShow({
+      link: 'https://p.test/unready-fg',
+      provider: 'provBg',
+      providerName: 'Provider BG',
+      title: 'Unready FG Show',
+      poster: '',
+      seasonTitle: 'Season 1',
+      seasonIndex: 0,
+      episodesLink: 'https://p.test/u/s1',
+      ...buildEpisodeSnapshot([{title: 'Episode 1', link: 'https://p.test/u/e1'}]),
+    });
+
+    mockSandboxBridge.isRegistered.mockReturnValue(true);
+    mockSandboxBridge.isReady.mockReturnValue(false);
+    mockSandboxBridge.register.mockReturnValue(7);
+    mockEpisodeCheckNative.startBackgroundSandbox.mockRejectedValueOnce(
+      new Error('WebView init failed'),
+    );
+
+    await expect(runHeadlessEpisodeCheck()).rejects.toThrow(
+      'WebView init failed',
+    );
+    expect(mockSandboxBridge.register).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.any(Function),
+      'background',
+    );
+    expect(mockSandboxBridge.unregister).toHaveBeenCalledWith(7);
+    expect(mockEpisodeCheckNative.stopBackgroundSandbox).toHaveBeenCalledTimes(1);
   });
 });

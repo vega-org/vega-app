@@ -2,13 +2,20 @@ package com.vega
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -41,6 +48,8 @@ import java.util.concurrent.TimeUnit
 private const val EPISODE_CHECK_WORK_NAME = "vega_episode_check"
 private const val EPISODE_CHECK_HEADLESS_TASK = "VegaEpisodeCheck"
 private const val BACKGROUND_SANDBOX_EVENT = "VegaBackgroundSandboxMessage"
+private const val BACKGROUND_SANDBOX_RELOAD_EVENT = "VegaBackgroundSandboxReload"
+private const val TAG = "EpisodeCheck"
 
 class EpisodeCheckPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
@@ -58,6 +67,13 @@ class EpisodeCheckModule(
     private var backgroundWebView: WebView? = null
 
     override fun getName(): String = "EpisodeCheck"
+
+    private fun emitBackgroundEvent(event: String, data: String) {
+        if (!reactContext.hasActiveReactInstance()) return
+        reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(event, data)
+    }
 
     @ReactMethod
     fun schedule(intervalHours: Int, wifiOnly: Boolean, promise: Promise) =
@@ -115,7 +131,7 @@ class EpisodeCheckModule(
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "NewApi")
     @ReactMethod
     fun startBackgroundSandbox(html: String, baseUrl: String, promise: Promise) {
         mainHandler.post {
@@ -130,6 +146,21 @@ class EpisodeCheckModule(
                     settings.setSupportMultipleWindows(false)
                     settings.javaScriptCanOpenWindowsAutomatically = false
                     settings.mediaPlaybackRequiresUserGesture = true
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                            val level = consoleMessage?.messageLevel()
+                            if (
+                                level == ConsoleMessage.MessageLevel.ERROR ||
+                                level == ConsoleMessage.MessageLevel.WARNING
+                            ) {
+                                VegaLog.w(
+                                    TAG,
+                                    "Background sandbox console [$level]: ${consoleMessage.message()}",
+                                )
+                            }
+                            return false
+                        }
+                    }
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
                             view: WebView?,
@@ -138,16 +169,66 @@ class EpisodeCheckModule(
                             val target = request?.url?.toString() ?: return true
                             return target != baseUrl && target != "about:blank"
                         }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
+                        ) {
+                            if (request?.isForMainFrame == true) {
+                                VegaLog.w(
+                                    TAG,
+                                    "Background sandbox load error (${error?.errorCode}): ${error?.description}",
+                                )
+                            }
+                        }
+
+                        override fun onRenderProcessGone(
+                            view: WebView?,
+                            detail: RenderProcessGoneDetail?,
+                        ): Boolean {
+                            val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                detail?.didCrash() == true
+                            } else {
+                                false
+                            }
+                            VegaLog.w(
+                                TAG,
+                                "Background sandbox render process gone (didCrash=$crashed)",
+                            )
+                            if (view === backgroundWebView) {
+                                destroyWebViewOnMain()
+                            }
+                            emitBackgroundEvent(
+                                BACKGROUND_SANDBOX_RELOAD_EVENT,
+                                "render-process-gone",
+                            )
+                            return true
+                        }
                     }
-                    addJavascriptInterface(
-                        BackgroundSandboxBridge(reactContext),
-                        "ReactNativeWebView",
-                    )
-                    loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                        WebViewCompat.addWebMessageListener(
+                            this,
+                            "ReactNativeWebView",
+                            setOf("*"),
+                        ) { _, message, _, _, _ ->
+                            val data = message.data ?: return@addWebMessageListener
+                            emitBackgroundEvent(BACKGROUND_SANDBOX_EVENT, data)
+                        }
+                    } else {
+                        addJavascriptInterface(
+                            BackgroundSandboxBridge(reactContext),
+                            "ReactNativeWebView",
+                        )
+                    }
                 }
                 backgroundWebView = webView
+                webView.onResume()
+                webView.resumeTimers()
+                webView.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
                 promise.resolve(true)
             } catch (error: Throwable) {
+                destroyWebViewOnMain()
                 promise.reject("BACKGROUND_SANDBOX_START_ERROR", error.message, error)
             }
         }
@@ -182,16 +263,19 @@ class EpisodeCheckModule(
     private fun destroyWebViewOnMain() {
         val current = backgroundWebView ?: return
         backgroundWebView = null
-        try {
-            current.stopLoading()
-            current.removeJavascriptInterface("ReactNativeWebView")
-            current.loadUrl("about:blank")
-            current.destroy()
-        } catch (_: Throwable) {
+        runCatching { current.stopLoading() }
+        runCatching {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                WebViewCompat.removeWebMessageListener(current, "ReactNativeWebView")
+            } else {
+                current.removeJavascriptInterface("ReactNativeWebView")
+            }
         }
+        runCatching { current.loadUrl("about:blank") }
+        runCatching { current.destroy() }
     }
 
-    private class BackgroundSandboxBridge(
+    class BackgroundSandboxBridge(
         private val context: ReactApplicationContext,
     ) {
         @JavascriptInterface
