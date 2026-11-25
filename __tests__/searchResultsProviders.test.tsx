@@ -6,9 +6,6 @@ import {providerManager} from '../src/lib/services/ProviderManager';
 jest.mock('../src/lib/services/ProviderManager', () => ({
   providerManager: {getSearchPosts: jest.fn()},
 }));
-jest.mock('../src/lib/zustand/verificationConsentStore', () => ({
-  useVerificationConsentStore: require('zustand').create(() => ({requests: []})),
-}));
 jest.mock('../src/lib/zustand/contentStore', () => {
   const state = {
     provider: {value: 'c'},
@@ -21,10 +18,6 @@ jest.mock('../src/lib/zustand/contentStore', () => {
   useStore.getState = () => state;
   return {__esModule: true, default: useStore};
 });
-jest.mock('../src/lib/zustand/navigationPreferencesStore', () => ({
-  __esModule: true,
-  default: (select: any) => select({hideAdultProviders: false}),
-}));
 jest.mock('../src/lib/tv', () => ({isTV: false}));
 jest.mock('../src/theme/M3PaletteContext', () => ({useM3Colors: () => ({})}));
 jest.mock('../src/components/Slider', () => 'Slider');
@@ -135,27 +128,6 @@ it('does not claim no results when every source failed', async () => {
   expect(text(tree)).not.toContain('No results found');
   expect(text(tree)).toContain('Could not search for');
   expect(text(tree)).toContain('5 sources failed to search.');
-  act(() => tree.unmount());
-});
-
-it('shows providers that have the searched title above ones that do not', async () => {
-  let tree!: renderer.ReactTestRenderer;
-  await act(async () => {
-    tree = renderer.create(<SearchResults {...props} />);
-  });
-  pending.c.resolve([{title: 'Other Movie', link: 'other', image: ''}]);
-  await flush();
-  pending.a.resolve([
-    {title: 'Dune: Part Two', link: 'dune2', image: ''},
-    {title: 'Dune', link: 'dune', image: ''},
-  ]);
-  await flush();
-  const rows = tree.root.findAllByType('Slider' as any);
-  expect(rows.map(row => row.props.title)).toEqual(['A', 'C']);
-  expect(rows[0].props.posts.map((post: any) => post.title)).toEqual([
-    'Dune',
-    'Dune: Part Two',
-  ]);
   act(() => tree.unmount());
 });
 

@@ -17,10 +17,6 @@ import {TVFocusGuide, TVFocusable} from '../components/tv';
 import {isTV} from '../lib/tv';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import {runProviderSearches} from '../lib/search/runProviderSearches';
-import {
-  insertRowByTier,
-  rankPostsByTitle,
-} from '../lib/search/rankSearchResults';
 import type {ProviderExtension} from '../lib/storage/extensionStorage';
 import {useFloatingTabBarInset} from '../components/navigation/FloatingTabBarInsetContext';
 
@@ -33,7 +29,6 @@ interface SearchPageData {
   providerValue: string;
   value: string;
   name: string;
-  tier: number;
 }
 
 // The selected provider is searched first, the rest in installed order.
@@ -87,10 +82,8 @@ const SearchResults = ({route, navigation}: Props): React.ReactElement => {
   const searchDataRef = useRef<SearchPageData[]>([]);
   const emptyResultsRef = useRef<SearchPageData[]>([]);
 
-  // Rows that contain the searched title go above rows that only share a
-  // word with it, whichever provider answered first.
   const updateSearchData = useCallback((newData: SearchPageData) => {
-    searchDataRef.current = insertRowByTier(searchDataRef.current, newData);
+    searchDataRef.current = [...searchDataRef.current, newData];
     setSearchData(searchDataRef.current);
   }, []);
 
@@ -136,15 +129,13 @@ const SearchResults = ({route, navigation}: Props): React.ReactElement => {
             updateLoading(item.value, {isLoading: false, error: outcome.error});
             return;
           }
-          const ranked = rankPostsByTitle(outcome.posts, route.params.filter);
           const newData = {
             title: item.display_name,
-            Posts: ranked.posts,
+            Posts: outcome.posts,
             filter: route.params.filter,
             providerValue: item.value,
             value: item.value,
             name: item.display_name,
-            tier: ranked.tier,
           };
           if (newData.Posts.length > 0) {
             updateSearchData(newData);
