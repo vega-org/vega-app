@@ -163,6 +163,34 @@ const FollowedShowRow = ({
           </AppText>
         </View>
       </TVFocusable>
+      {show.lastError ? (
+        <TVFocusable
+          registerScreenFocus={false}
+          accessibilityRole="button"
+          accessibilityLabel={`Show check error for ${show.title}`}
+          borderRadius={20}
+          onPress={() =>
+            showAppDialog({
+              title: 'Check failed',
+              message: show.lastError ?? '',
+              actions: [{label: 'OK'}],
+            })
+          }
+          style={{
+            width: 40,
+            height: 40,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 20,
+            backgroundColor: colors.errorContainer,
+          }}>
+          <MaterialCommunityIcons
+            name="information-outline"
+            size={20}
+            color={colors.onErrorContainer}
+          />
+        </TVFocusable>
+      ) : null}
       <TVFocusable
         registerScreenFocus={false}
         accessibilityRole="button"

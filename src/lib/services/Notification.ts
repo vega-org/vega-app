@@ -653,6 +653,17 @@ class NotificationService {
     });
   }
 
+  private getEpisodeLargeIcon(poster: unknown): string | undefined {
+    if (typeof poster !== 'string') {
+      return undefined;
+    }
+    const trimmed = poster.trim();
+    if (!/^https?:\/\/[^/\s]+/i.test(trimmed)) {
+      return undefined;
+    }
+    return trimmed;
+  }
+
   async displayEpisodeNotification({
     show,
     newEpisodes,
@@ -677,6 +688,7 @@ class NotificationService {
         ? `New episode: ${show.title}`
         : `${count} new episodes: ${show.title}`;
     const body = `${show.seasonTitle} • ${displayedTitles.join(', ')}`;
+    const largeIcon = this.getEpisodeLargeIcon(show.poster);
 
     return notifee.displayNotification({
       id: `episode:${show.id}`,
@@ -691,6 +703,7 @@ class NotificationService {
       android: {
         channelId: this._episodesChannelId,
         smallIcon: 'ic_notification',
+        ...(largeIcon ? {largeIcon} : {}),
         pressAction: this.getAppLaunchPressAction('default'),
         autoCancel: true,
         style: count > 1 ? {

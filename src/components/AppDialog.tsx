@@ -404,7 +404,7 @@ const AppDialog = ({
             ) : (
               <Column modifiers={[fillMaxWidth()]}>
                 <RNHostView matchContents>
-                  <ScrollView nestedScrollEnabled style={{maxHeight: 300}}>
+                  <ScrollView nestedScrollEnabled style={{maxHeight: 300, width: 280}}>
                     <ReactNativeText
                       style={{color: colors.onSurfaceVariant, fontSize: 14}}>
                       {message}
