@@ -2,6 +2,7 @@ import {MaterialCommunityIcons} from '@expo/vector-icons';
 import React from 'react';
 import {ActivityIndicator, Text, View} from 'react-native';
 import {useM3Colors} from '../../../theme/M3PaletteContext';
+import {TVFocusable} from '../../../components/tv';
 
 export type ProviderTestStatus = 'untested' | 'testing' | 'working' | 'failed';
 
@@ -121,5 +122,54 @@ export const MetadataChip = ({
         {label}
       </Text>
     </View>
+  );
+};
+
+/**
+ * Marks an installed provider that its author disabled in the manifest. The
+ * chip opens an explanation, because the provider still works from cache but
+ * no longer receives updates.
+ */
+export const DeprecatedProviderChip = ({
+  itemKey,
+  onPress,
+}: {
+  itemKey: string;
+  onPress: () => void;
+}) => {
+  const colors = useM3Colors();
+  return (
+    <TVFocusable
+      testID={`provider-deprecated-${itemKey}`}
+      accessibilityRole="button"
+      accessibilityLabel="Provider removed by its author. Tap for details."
+      onPress={onPress}
+      borderRadius={10}
+      focusScale={1.08}
+      style={{
+        marginRight: 8,
+        marginTop: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: colors.errorContainer,
+        borderRadius: 10,
+      }}>
+      <MaterialCommunityIcons
+        name="information"
+        size={15}
+        color={colors.error}
+      />
+      <Text
+        style={{
+          marginLeft: 6,
+          fontSize: 12,
+          fontWeight: '700',
+          color: colors.onErrorContainer,
+        }}>
+        Deprecated
+      </Text>
+    </TVFocusable>
   );
 };

@@ -29,6 +29,7 @@ import {settingsStorage} from '../../lib/storage';
 import ProviderSourceManager from './components/ProviderSourceManager';
 import ProviderCard, {ProviderTestStatus} from './components/ProviderCard';
 import {isProviderVisible} from '../../lib/hooks/useVisibleProviders';
+import {deprecatedProviderKeys} from '../../lib/providers/deprecatedProviders';
 import useNavigationPreferencesStore from '../../lib/zustand/navigationPreferencesStore';
 import {
   ProviderDiagnosticError,
@@ -145,6 +146,7 @@ const Extensions = ({navigation, route}: Props) => {
   const [activeSourceAuthor, setActiveSourceAuthor] = useState<string>(
     extensionStorage.getProviderSource()?.author || '',
   );
+  const [deprecatedKeys, setDeprecatedKeys] = useState<Set<string>>(new Set());
   const showDialog = (
     title: string,
     message: string,
@@ -214,6 +216,9 @@ const Extensions = ({navigation, route}: Props) => {
       : [];
     setInstalledProviders(installed);
     setAvailableProviders(available.filter(item => item && !item.disabled));
+    // The manifest keeps disabled providers, so an installed one can still be
+    // recognised as withdrawn by its author.
+    setDeprecatedKeys(deprecatedProviderKeys(available, selectedAuthor));
     setActiveSourceAuthor(selectedAuthor);
   };
 
@@ -609,6 +614,25 @@ const Extensions = ({navigation, route}: Props) => {
           testStatus={providerTestStatuses[itemKey] || 'untested'}
           hasUpdate={hasUpdate}
           hasSettings={item.hasSettings}
+          deprecated={isInstalled && deprecatedKeys.has(itemKey)}
+          onDeprecatedPress={() =>
+            showDialog(
+              'Provider removed by its author',
+              `${
+                item.display_name || 'This provider'
+              } was withdrawn by its author and is no longer listed. It still works from the installed copy, but it will not receive fixes or updates. Uninstalling it is recommended.`,
+              'warning',
+              [
+                {label: 'Keep', variant: 'default'},
+                {
+                  label: 'Uninstall',
+                  variant: 'destructive',
+                  testID: `deprecated-uninstall-${item.value}`,
+                  onPress: () => handleUninstallProvider(item),
+                },
+              ],
+            )
+          }
           primary={primary}
           onActivate={() => handleSetActiveProvider(item)}
           onInstall={() => handleInstallProvider(item)}
@@ -628,6 +652,7 @@ const Extensions = ({navigation, route}: Props) => {
       updatingProvider,
       updatesByKey,
       providerTestStatuses,
+      deprecatedKeys,
       primary,
     ],
   );

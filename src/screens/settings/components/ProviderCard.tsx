@@ -13,6 +13,7 @@ import {useM3Colors} from '../../../theme/M3PaletteContext';
 import {useTVFocusBorderColor} from '../../../lib/tv/useTVFocusBorderColor';
 import {isTV} from '../../../lib/tv/constants';
 import {
+  DeprecatedProviderChip,
   MetadataChip,
   ProviderStatusBadge,
   ProviderTestStatus,
@@ -31,6 +32,8 @@ interface ProviderCardProps {
   testStatus: ProviderTestStatus;
   hasUpdate: boolean;
   hasSettings?: boolean;
+  deprecated?: boolean;
+  onDeprecatedPress?: () => void;
   primary: string;
   onActivate: () => void;
   onInstall: () => void;
@@ -50,6 +53,8 @@ const ProviderCard = ({
   testStatus,
   hasUpdate,
   hasSettings,
+  deprecated,
+  onDeprecatedPress,
   primary,
   onActivate,
   onInstall,
@@ -145,6 +150,12 @@ const ProviderCard = ({
             {provider.adult === true && <ProviderAdultBadge />}
           </View>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', marginTop: 4}}>
+            {deprecated && onDeprecatedPress && (
+              <DeprecatedProviderChip
+                itemKey={itemKey}
+                onPress={onDeprecatedPress}
+              />
+            )}
             <MetadataChip icon="web" label={provider.type || 'Unknown'} />
             {provider.source?.author && (
               <MetadataChip icon="account" label={provider.source.author} />
