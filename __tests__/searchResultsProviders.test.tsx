@@ -6,6 +6,13 @@ import {providerManager} from '../src/lib/services/ProviderManager';
 jest.mock('../src/lib/services/ProviderManager', () => ({
   providerManager: {getSearchPosts: jest.fn()},
 }));
+jest.mock('../src/lib/zustand/verificationConsentStore', () => ({
+  useVerificationConsentStore: require('zustand').create(() => ({requests: []})),
+}));
+jest.mock('../src/lib/zustand/navigationPreferencesStore', () => ({
+  __esModule: true,
+  default: (select: any) => select({hideAdultProviders: false}),
+}));
 jest.mock('../src/lib/zustand/contentStore', () => {
   const state = {
     provider: {value: 'c'},
