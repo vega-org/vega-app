@@ -257,16 +257,30 @@ const Settings = ({navigation}: Props) => {
 
   useFocusEffect(
     useCallback(() => {
-      if (!isTV) return () => setSearchFocused(false);
+      const currentlyFocusedInput = () =>
+        (TextInput as any).currentlyFocusedInput?.() ||
+        (TextInput as any).State?.currentlyFocusedInput?.();
 
       const backAction = () => {
-        const currentlyFocused =
-          (TextInput as any).currentlyFocusedInput?.() ||
-          (TextInput as any).State?.currentlyFocusedInput?.();
+        const currentlyFocused = currentlyFocusedInput();
         if (currentlyFocused || Keyboard.isVisible()) {
           (currentlyFocused as any)?.blur?.();
           Keyboard.dismiss();
+          if (!isTV) setSearchFocused(false);
           return true;
+        }
+        // Touch devices have no other way out of the search panel, and the tab
+        // navigator would otherwise take the press.
+        if (!isTV) {
+          if (searchFocused) {
+            setSearchFocused(false);
+            return true;
+          }
+          if (searching) {
+            setSearchQuery('');
+            return true;
+          }
+          return false;
         }
         if (navigation.canGoBack()) {
           navigation.goBack();
@@ -283,7 +297,7 @@ const Settings = ({navigation}: Props) => {
         backHandler.remove();
         setSearchFocused(false);
       };
-    }, [navigation, tabNavigation]),
+    }, [isTV, navigation, searching, searchFocused, tabNavigation]),
   );
 
   const providersList = useMemo(
