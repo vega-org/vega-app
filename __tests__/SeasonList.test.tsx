@@ -1,4 +1,5 @@
 jest.mock('../src/lib/externalApps', () => ({usesExternalApp: () => false, openExternalApp: jest.fn().mockResolvedValue(null)}));
+jest.mock('../src/lib/torrentOwnership', () => ({releaseTorrent: jest.fn().mockResolvedValue(undefined)}));
 jest.mock('../src/lib/storage/StorageService', () => ({createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()})}));
 import React from 'react';
 jest.mock('../src/lib/quickDownload', () => ({queueQuickDownload: jest.fn()}));

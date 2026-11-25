@@ -17,6 +17,7 @@ import {
   BackHandler,
   findNodeHandle,
   UIManager,
+  AppState,
 } from 'react-native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
@@ -79,6 +80,8 @@ import {EpisodeLinkTarget} from '../lib/episodeLinks';
 import {Stream} from '../lib/providers/types';
 import {CURRENT_DOWNLOAD_STATUSES} from '../lib/zustand/downloadsStore';
 import {torrentManager} from '../lib/torrentManager';
+import {releaseTorrent} from '../lib/torrentOwnership';
+import {splitStreamTags} from '../lib/streamTags';
 import {
   isDummyTorrentLink,
   isTorrentStream,
@@ -377,16 +380,16 @@ export const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
 const ServerRowItem = ({
   item,
   index,
-  primary,
   onPress,
 }: {
   item: any;
   index: number;
-  primary: string;
   onPress: () => void;
 }) => {
   const [tvFocused, setTvFocused] = useState(false);
   const focusBorderColor = useTVFocusBorderColor();
+  const {quality, tags} = splitStreamTags(item);
+  const chips = [...(quality ? [quality] : []), ...(tags || [])];
   return (
     <TVFocusable
       key={`server-${index}-${item.server}`}
@@ -403,7 +406,6 @@ const ServerRowItem = ({
         marginBottom: 8,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         padding: 12,
         backgroundColor: tvFocused ? '#262626' : LEGACY_TERTIARY_BACKGROUND,
         borderRadius: 14,
@@ -411,7 +413,7 @@ const ServerRowItem = ({
         borderColor: tvFocused ? focusBorderColor : 'rgba(255,255,255,0.08)',
       }}
       onPress={onPress}>
-      <View>
+      <View style={{flex: 1, minWidth: 0}}>
         <Text
           className="text-lg capitalize font-bold"
           style={{color: CONTROL_TEXT}}>
@@ -420,8 +422,23 @@ const ServerRowItem = ({
         <Text className="text-xs" style={{color: CONTROL_TEXT_MUTED}}>
           {item.type ? `Format: ${item.type.toUpperCase()}` : ''}
         </Text>
+        {chips.length > 0 && (
+          <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+            {chips.map((tag, tagIndex) => (
+              <View
+                key={`tag-${tagIndex}`}
+                className="rounded-md px-2 py-0.5"
+                style={{backgroundColor: 'rgba(255,255,255,0.12)'}}>
+                <Text
+                  className="text-[10px] font-bold uppercase tracking-wider"
+                  style={{color: CONTROL_TEXT}}>
+                  {tag}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
-      <MaterialCommunityIcons name="vlc" size={24} color={primary} />
     </TVFocusable>
   );
 };
@@ -889,9 +906,59 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
   // Torrent kept streaming for the external player. External players cannot
   // open magnet links, so they get the local stream server's URL instead.
   const externalTorrentRef = useRef<string | null>(null);
+  const torrentCancelledRef = useRef(false);
+  const externalPlaybackStartedRef = useRef(false);
+
+  // Leaving the screen cancels a load in flight and releases its torrent. A
+  // torrent handed off to the external player keeps running while that player
+  // is in front, then is released once the user is back in Vega.
+  useEffect(() => {
+    torrentCancelledRef.current = false;
+    return () => {
+      torrentCancelledRef.current = true;
+      const hash = externalTorrentRef.current;
+      externalTorrentRef.current = null;
+      if (!hash) return;
+      if (
+        !externalPlaybackStartedRef.current ||
+        AppState.currentState === 'active'
+      ) {
+        releaseTorrent(hash).catch(() => {});
+        return;
+      }
+      const sub = AppState.addEventListener('change', state => {
+        if (state !== 'active') return;
+        sub.remove();
+        releaseTorrent(hash).catch(() => {});
+      });
+    };
+  }, []);
+
+  // Coming back to Vega means the external player was closed or left, so the
+  // torrent it streamed is released. Waiting for a background transition
+  // first avoids releasing it before the player has even opened.
+  useEffect(() => {
+    let leftVega = false;
+    const sub = AppState.addEventListener('change', state => {
+      if (!externalPlaybackStartedRef.current) return;
+      if (state === 'background') {
+        leftVega = true;
+        return;
+      }
+      if (state !== 'active' || !leftVega) return;
+      leftVega = false;
+      const hash = externalTorrentRef.current;
+      externalTorrentRef.current = null;
+      externalPlaybackStartedRef.current = false;
+      if (hash) {
+        releaseTorrent(hash).catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const resolveExternalStreamUrl = useCallback(
-    async (stream: {link: string; type?: string}): Promise<string> => {
+    async (stream: {link: string; type?: string}): Promise<string | null> => {
       if (!isTorrentStream(stream)) {
         return stream.link;
       }
@@ -903,13 +970,14 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       // Only one torrent streams to the external player at a time.
       const previous = externalTorrentRef.current;
       externalTorrentRef.current = null;
+      externalPlaybackStartedRef.current = false;
       if (previous) {
-        torrentManager.deleteTorrent(previous, true).catch(() => {});
+        releaseTorrent(previous).catch(() => {});
       }
 
       const resolved = await resolveTorrentStream(stream.link, {
         addTorrent: link => torrentManager.addTorrent(link),
-        deleteTorrent: hash => torrentManager.deleteTorrent(hash, true),
+        deleteTorrent: hash => releaseTorrent(hash),
         findVideoFileIndex: async hash =>
           pickVideoFileIndex(await torrentManager.getFiles(hash)),
         prepareVideoFile: (hash, fileIndex) =>
@@ -924,14 +992,16 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         onAdded: hash => {
           externalTorrentRef.current = hash;
         },
-        isCancelled: () => false,
+        isCancelled: () => torrentCancelledRef.current,
       });
       if (!resolved) {
+        if (torrentCancelledRef.current) return null;
         throw new Error('Failed to load torrent');
       }
-      resolved.preparation.catch(error =>
-        console.error('Failed to prepare torrent for external player:', error),
-      );
+      // External players give up on a stream that has no data yet, so the
+      // first pieces are downloaded before the URL is handed over.
+      await resolved.preparation;
+      if (torrentCancelledRef.current) return null;
       return resolved.streamUrl;
     },
     [],
@@ -948,9 +1018,18 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       setVlcLoading(true);
 
       await resolveExternalStreamUrl(stream)
-        .then(streamUrl => launchExternalPlayer(streamUrl, headers, title))
+        .then(async streamUrl => {
+          if (!streamUrl) return;
+          await launchExternalPlayer(streamUrl, headers, title);
+          externalPlaybackStartedRef.current = true;
+        })
         .catch(error => {
           console.error('Error opening external player:', error);
+          const hash = externalTorrentRef.current;
+          externalTorrentRef.current = null;
+          if (hash) {
+            releaseTorrent(hash).catch(() => {});
+          }
           ToastAndroid.show(
             'Failed to open external player',
             ToastAndroid.SHORT,
@@ -1530,7 +1609,6 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         key={`server-${index}-${item.server}`}
         item={item}
         index={index}
-        primary={primary}
         onPress={() =>
           openExternalPlayer(
             item,
