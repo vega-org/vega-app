@@ -416,7 +416,7 @@ const Gestures = ({
   );
 
   const show2xToast = useCallback(() => {
-    setToastMessage('2Ã— speed');
+    setToastMessage('2× speed');
     toastOpacity.value = withTiming(1, { duration: 150 });
   }, [toastOpacity]);
 
@@ -805,7 +805,7 @@ const Gestures = ({
           setDisplayVolume(currentVolume.volume);
           setDisplayBrightness(currentBrightness);
 
-          console.log('Original settings stored:ðŸ”¥', {
+          console.log('Original settings stored:🔥', {
             volume: currentVolume,
             brightness: currentBrightness,
           });

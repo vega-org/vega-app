@@ -187,7 +187,7 @@ class VegaCastService {
       const media=this.media;
       if(media&&media.id===message.mediaId&&message.delivery==='phone-proxy'){
         this.media={...media,delivery:'phone-proxy',attempt:1};
-        void remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast Ã‚Â· phone-assisted playback',isPlaying:true}).catch(()=>{});
+        void remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast · phone-assisted playback',isPlaying:true}).catch(()=>{});
       }
       return;
     }
@@ -314,7 +314,7 @@ class VegaCastService {
         subtitles.push({...track,type:track.type||/\.(srt|vtt|ass|ssa|ttml)(?:[?#]|$)/i.exec(track.uri)?.[1],uri:subtitle.streamUrl});
       }
       if(generation!==this.generation)throw new Error('Source changed while preparing proxy');
-      await remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast Ã‚Â· proxy ready',isPlaying:false});
+      await remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast · proxy ready',isPlaying:false});
       if(generation!==this.generation)throw new Error('Source changed while preparing proxy');
       return{source:{url:prepared.streamUrl,format:media.source.format},subtitles};
     }catch(error){for(const key of owned){this.sessions.delete(key);await remoteDeliveryService.cleanupSession(key).catch(()=>{});}if(!this.sessions.size)await remoteDeliveryService.stopForegroundService().catch(()=>{});throw error;}
@@ -358,7 +358,7 @@ class VegaCastService {
         subtitles.push({...track,type:track.type||/\.(srt|vtt|ass|ssa|ttml)(?:[?#]|$)/i.exec(track.uri)?.[1],uri:sub.streamUrl});
       }
       if(generation!==this.generation)return;
-      await remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast Ã‚Â· phone-assisted playback',isPlaying:true});
+      await remoteDeliveryService.startForegroundService({title:media.title,subtitle:'Vega Cast · phone-assisted playback',isPlaying:true});
       const replacement:CastMedia={...media,source:{url:prepared.streamUrl,format:mode==='ffmpeg'?'mp4':media.source.format},subtitles,delivery:'phone-proxy',attempt:1,processing:mode==='ffmpeg'?'remuxed':'original'};
       replacement.proxy={source:replacement.source,subtitles};
       await this.prepareSecureDelivery(replacement);

@@ -35,7 +35,7 @@ const qualityDetail = (q: RemoteQuality): string =>
         ? `${(q.bitrate / 1e6).toFixed(1)} Mbps`
         : `${Math.round(q.bitrate / 1e3)} kbps`
       : undefined,
-    q.width && q.height ? `${q.width}Ã—${q.height}` : q.resolution,
+    q.width && q.height ? `${q.width}×${q.height}` : q.resolution,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -462,7 +462,7 @@ export const RemoteSettingsSheets: React.FC<RemoteSettingsSheetsProps> = ({
         return (
           <>
             {audioTracks.length === 0 ? (
-              <RemoteSheetEmpty text="Reading audio tracksâ€¦" />
+              <RemoteSheetEmpty text="Reading audio tracks…" />
             ) : (
               audioTracks.map((track, i) => {
                 const language = languageLabel(track.language);

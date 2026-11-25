@@ -73,7 +73,7 @@ const downloadUpdate = async (url: string, name: string) => {
             opening = true;
             show({
               title: 'Update downloaded',
-              message: allowed ? 'Opening installerâ€¦' : 'Opening Android settingsâ€¦',
+              message: allowed ? 'Opening installer…' : 'Opening Android settings…',
               actions: [{label: 'Close'}],
             });
             try {
