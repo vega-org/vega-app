@@ -150,12 +150,6 @@ const ProviderCard = ({
             {provider.adult === true && <ProviderAdultBadge />}
           </View>
           <View style={{flexDirection: 'row', flexWrap: 'wrap', marginTop: 4}}>
-            {deprecated && onDeprecatedPress && (
-              <DeprecatedProviderChip
-                itemKey={itemKey}
-                onPress={onDeprecatedPress}
-              />
-            )}
             <MetadataChip icon="web" label={provider.type || 'Unknown'} />
             {provider.source?.author && (
               <MetadataChip icon="account" label={provider.source.author} />
@@ -196,6 +190,10 @@ const ProviderCard = ({
           </View>
         )}
       </TVFocusable>
+
+      {installed && deprecated && onDeprecatedPress && (
+        <DeprecatedProviderChip itemKey={itemKey} onPress={onDeprecatedPress} />
+      )}
 
       <View
         style={{

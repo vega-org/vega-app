@@ -126,9 +126,9 @@ export const MetadataChip = ({
 };
 
 /**
- * Marks an installed provider that its author disabled in the manifest. The
- * chip opens an explanation, because the provider still works from cache but
- * no longer receives updates.
+ * Full-width strip under the card header for an installed provider its author
+ * disabled in the manifest. It sits outside the header so the name, chips and
+ * test status keep the same layout as every other card.
  */
 export const DeprecatedProviderChip = ({
   itemKey,
@@ -144,32 +144,39 @@ export const DeprecatedProviderChip = ({
       accessibilityRole="button"
       accessibilityLabel="Provider removed by its author. Tap for details."
       onPress={onPress}
-      borderRadius={10}
-      focusScale={1.08}
+      borderRadius={12}
+      focusScale={1.02}
       style={{
-        marginRight: 8,
-        marginTop: 8,
+        marginHorizontal: 16,
+        marginBottom: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
         backgroundColor: colors.errorContainer,
-        borderRadius: 10,
+        borderRadius: 12,
       }}>
       <MaterialCommunityIcons
         name="information"
-        size={15}
-        color={colors.error}
+        size={18}
+        color={colors.onErrorContainer}
       />
       <Text
         style={{
-          marginLeft: 6,
-          fontSize: 12,
-          fontWeight: '700',
+          flex: 1,
+          marginLeft: 8,
+          fontSize: 13,
+          fontWeight: '600',
           color: colors.onErrorContainer,
-        }}>
-        Deprecated
+        }}
+        numberOfLines={1}>
+        Deprecated · removed by its author
       </Text>
+      <MaterialCommunityIcons
+        name="chevron-right"
+        size={18}
+        color={colors.onErrorContainer}
+      />
     </TVFocusable>
   );
 };
