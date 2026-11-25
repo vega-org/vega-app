@@ -93,6 +93,8 @@ import {
 import * as NavigationBar from 'expo-navigation-bar';
 import {StatusBar} from 'react-native';
 import {torrentManager} from '../../lib/torrentManager';
+import {releaseTorrent} from '../../lib/torrentOwnership';
+import {splitStreamTags} from '../../lib/streamTags';
 import {
   isDummyTorrentLink,
   isTorrentStream,
@@ -1747,7 +1749,7 @@ const Player = ({route}: Props): React.JSX.Element => {
       if (prevHash) {
         activeTorrentRef.current = null;
         try {
-          await torrentManager.deleteTorrent(prevHash, true);
+          await releaseTorrent(prevHash);
         } catch {}
       }
     };
@@ -1782,7 +1784,7 @@ const Player = ({route}: Props): React.JSX.Element => {
           setTorrentDownloadSpeed(0);
           const resolved = await resolveTorrentStream(selectedStream.link, {
             addTorrent: link => torrentManager.addTorrent(link),
-            deleteTorrent: hash => torrentManager.deleteTorrent(hash, true),
+            deleteTorrent: hash => releaseTorrent(hash),
             findVideoFileIndex,
             prepareVideoFile: (hash, fileIndex) =>
               torrentManager.prepareVideoFile(
@@ -1853,13 +1855,10 @@ const Player = ({route}: Props): React.JSX.Element => {
       const hash = activeTorrentRef.current;
       if (hash) {
         activeTorrentRef.current = null;
-        // A receiver still streaming this torrent keeps it until casting stops.
-        if (remotePlaybackManager.adoptTorrent(hash)) return;
-        try {
-          torrentManager.deleteTorrent(hash, true);
-        } catch (e) {
+        // A cast session or a download may still need this torrent.
+        releaseTorrent(hash).catch(e => {
           console.warn('Failed to delete active torrent on unmount', e);
-        }
+        });
       }
     };
   }, [selectedStream]);
@@ -2290,22 +2289,12 @@ const Player = ({route}: Props): React.JSX.Element => {
     // 1. Servers (from streamData provider sources)
     const servers: RemoteServer[] = (streamData || []).map(
       (s: any, idx: number) => {
-        const rawTags: string[] = Array.isArray(s.tags)
-          ? s.tags
-          : typeof s.tag === 'string'
-            ? [s.tag]
-            : [];
-        const tags = rawTags
-          .map(t => (typeof t === 'string' ? t.trim() : ''))
-          .filter(
-            t =>
-              Boolean(t) && t.toLowerCase() !== s.quality?.trim().toLowerCase(),
-          );
+        const {quality, tags} = splitStreamTags(s);
         return {
           id: s.link || String(idx),
           name: s.server || `Server ${idx + 1}`,
-          quality: s.quality,
-          tags: tags.length > 0 ? tags : undefined,
+          quality,
+          tags,
           link: s.link,
         };
       },

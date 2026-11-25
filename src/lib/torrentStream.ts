@@ -67,11 +67,15 @@ export const resolveTorrentStream = async (
   options.onAdded(infoHash);
 
   const fileIndex = await options.findVideoFileIndex(infoHash);
-  if (options.isCancelled()) return null;
+  if (options.isCancelled()) {
+    options.deleteTorrent(infoHash).catch(() => {});
+    return null;
+  }
 
   const preparation = options.prepareVideoFile(infoHash, fileIndex);
   const streamUrl = await options.getStreamUrl(infoHash, fileIndex);
   if (options.isCancelled()) {
+    options.deleteTorrent(infoHash).catch(() => {});
     preparation.catch(() => {});
     return null;
   }

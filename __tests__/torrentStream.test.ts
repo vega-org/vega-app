@@ -48,6 +48,7 @@ describe('resolveTorrentStream', () => {
 
     await expect(pending).resolves.toBeNull();
     expect(options.getStreamUrl).not.toHaveBeenCalled();
+    expect(options.deleteTorrent).toHaveBeenCalledWith('abc');
   });
 
   it('drops the url when the stream changed while it was being fetched', async () => {
@@ -62,6 +63,7 @@ describe('resolveTorrentStream', () => {
     url.resolve('http://127.0.0.1:8090/stream/abc/0');
 
     await expect(pending).resolves.toBeNull();
+    expect(options.deleteTorrent).toHaveBeenCalledWith('abc');
   });
 
   it('deletes a torrent added after the stream changed', async () => {
