@@ -1,8 +1,15 @@
 package com.vega
 
+import android.content.Context
+import android.os.Handler
 import android.view.View
 import android.view.ViewGroup
+import androidx.media3.common.Format
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
+import com.brentvatne.exoplayer.DelayRenderersFactory
 import com.brentvatne.exoplayer.ReactExoplayerView
+import com.brentvatne.exoplayer.SoftwareVideoRendererProvider
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.*
 import com.facebook.react.uimanager.UIManagerHelper
@@ -36,6 +43,42 @@ class VideoDecoderModule(context: ReactApplicationContext) : ReactContextBaseJav
 }
 
 class VideoDecoderPackage : ReactPackage {
-    override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> = listOf(VideoDecoderModule(context))
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+    override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> {
+        DelayRenderersFactory.setSoftwareVideoRendererProvider(
+            FfmpegSoftwareVideoRendererProvider(context.applicationContext),
+        )
+        return listOf(VideoDecoderModule(context))
+    }
+
     override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
+}
+
+@androidx.media3.common.util.UnstableApi
+private class FfmpegSoftwareVideoRendererProvider(
+    context: Context,
+) : SoftwareVideoRendererProvider {
+    private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir ?: ""
+
+    override fun supports(format: Format): Boolean {
+        val mime = format.sampleMimeType ?: return false
+        if (format.drmInitData != null) return false
+        return FfmpegVideoDecoder.isCodecAvailable(nativeLibDir, mime)
+    }
+
+    override fun supportsMime(mimeType: String): Boolean =
+        FfmpegVideoDecoder.isCodecAvailable(nativeLibDir, mimeType)
+
+    override fun createRenderer(
+        allowedVideoJoiningTimeMs: Long,
+        eventHandler: Handler,
+        eventListener: VideoRendererEventListener,
+        maxDroppedFramesToNotify: Int,
+    ): Renderer = FfmpegVideoRenderer(
+        nativeLibDir,
+        allowedVideoJoiningTimeMs,
+        eventHandler,
+        eventListener,
+        maxDroppedFramesToNotify,
+    )
 }

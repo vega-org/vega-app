@@ -107,6 +107,33 @@ allprojects {
         fs.cpSync(sourceJniDir, targetJniDir, {recursive: true});
       }
 
+      // Copy custom JNI C++ sources and ensure CMake builds vegaffmpegvideo
+      const sourceJniCppDir = path.join(projectRoot, 'native-src', 'android', 'jni', 'vega');
+      const targetJniDirRoot = path.join(projectRoot, 'android', 'app', 'src', 'main', 'jni');
+      const targetJniCppDir = path.join(targetJniDirRoot, 'vega');
+      if (fs.existsSync(sourceJniCppDir)) {
+        fs.mkdirSync(targetJniCppDir, {recursive: true});
+        const jniPackagePath = packagePath.replace(/\\/g, '/');
+        for (const file of fs.readdirSync(sourceJniCppDir)) {
+          if (file.endsWith('.cpp') || file.endsWith('.h')) {
+            let jniContent = fs.readFileSync(path.join(sourceJniCppDir, file), 'utf8');
+            jniContent = jniContent.replace(/com\/vega\/FfmpegVideoDecoder/g, `${jniPackagePath}/FfmpegVideoDecoder`);
+            fs.writeFileSync(path.join(targetJniCppDir, file), jniContent, 'utf8');
+          }
+        }
+        const cmakePath = path.join(targetJniDirRoot, 'CMakeLists.txt');
+        if (fs.existsSync(cmakePath)) {
+          let cmake = fs.readFileSync(cmakePath, 'utf8');
+          if (!cmake.includes('vegaffmpegvideo')) {
+            cmake +=
+              '\nadd_library(vegaffmpegvideo SHARED vega/vega_ffmpeg_video.cpp)\n' +
+              'target_compile_features(vegaffmpegvideo PRIVATE cxx_std_17)\n' +
+              'target_link_libraries(vegaffmpegvideo android log dl)\n';
+            fs.writeFileSync(cmakePath, cmake, 'utf8');
+          }
+        }
+      }
+
       // Source-built ARMv7 FFmpegKit supplements the Maven artifact's 64-bit ABIs.
       const armv7 = path.join(projectRoot, '.native', 'ffmpeg-armv7');
       if (fs.existsSync(path.join(armv7, 'armeabi-v7a'))) {

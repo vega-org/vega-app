@@ -163,10 +163,14 @@ import {useNextEpisodePrefetch} from '../../lib/hooks/useNextEpisodePrefetch';
 import {
   NO_PLAYBACK_RETRY,
   isContainerParsingError,
+  isNetworkPlaybackError,
+  formatPlaybackErrorDetails,
   decidePlaybackError,
   getReloadStartMs,
   markPlaybackLoaded,
+  type PlaybackErrorDetails,
 } from '../../lib/player/playbackErrorRetry';
+import PlayerErrorOverlay from '../../components/player/PlayerErrorOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Player'>;
 
@@ -1070,21 +1074,38 @@ const Player = ({route}: Props): React.JSX.Element => {
   const [hdrWidth, setHdrWidth] = useState(0);
   const [liveBadgeWidth, setLiveBadgeWidth] = useState(0);
   const [decoderMode, setDecoderMode] = useState<'hardware' | 'software'>('hardware');
+  const decoderModeRef = useRef<'hardware' | 'software'>(decoderMode);
+  decoderModeRef.current = decoderMode;
+  const [playbackError, setPlaybackError] = useState<
+    (PlaybackErrorDetails & {exhaustedServers?: boolean}) | null
+  >(null);
   const decoderRestartRef = useRef(false);
   const decoderSwitchBusyRef = useRef(false);
   const manualDecoderModeRef = useRef<'hardware' | 'software' | null>(null);
-  useEffect(() => { manualDecoderModeRef.current = null; }, [selectedStream?.link]);
   useEffect(() => {
-    const listener = DeviceEventEmitter.addListener('VegaVideoDecoderFallback', (event: {viewTags?: number[]}) => {
-      const tag = findNodeHandle(nativeVideoViewRef.current);
-      if (tag && event.viewTags?.includes(tag)) {
-        decoderRestartRef.current = true;
-        if (manualDecoderModeRef.current) {
-          setToast('Decoder failed. Using the fallback decoder.', 2500);
-          manualDecoderModeRef.current = null;
+    manualDecoderModeRef.current = null;
+    setPlaybackError(null);
+  }, [selectedStream?.link, activeEpisodeKey]);
+  useEffect(() => {
+    const listener = DeviceEventEmitter.addListener(
+      'VegaVideoDecoderFallback',
+      (event: {viewTags?: number[]; mode?: string}) => {
+        const tag = findNodeHandle(nativeVideoViewRef.current);
+        if (tag && event.viewTags?.includes(tag)) {
+          decoderRestartRef.current = true;
+          setPlaybackError(null);
+          if (event.mode === 'software' || event.mode === 'hardware') {
+            setDecoderMode(event.mode);
+          }
+          if (manualDecoderModeRef.current) {
+            setToast('Decoder failed. Using the fallback decoder.', 2500);
+            manualDecoderModeRef.current = null;
+          } else if (event.mode === 'software') {
+            setToast('Hardware decoder failed. Switched to FFmpeg SW decoder.', 2500);
+          }
         }
-      }
-    });
+      },
+    );
     return () => listener.remove();
   }, [setToast]);
 
@@ -2004,6 +2025,16 @@ const Player = ({route}: Props): React.JSX.Element => {
           pendingLinkRefreshRef.current.episodeKey === activeEpisodeKeyRef.current) {
         return;
       }
+      if (!isNetworkPlaybackError(e)) {
+        setPlaybackError(
+          formatPlaybackErrorDetails(e, {
+            decoderMode: decoderModeRef.current,
+            streamTitle: stream?.server,
+          }),
+        );
+        setShowControls(true);
+        return;
+      }
       if (!isTorrentStream(stream) && !isLocalPath(stream?.link)) {
         const {action, state} = decidePlaybackError(
           playbackRetryRef.current,
@@ -2028,7 +2059,7 @@ const Player = ({route}: Props): React.JSX.Element => {
         // The reload failed too, so the link has likely expired. Ask the
         // provider for new links once; the same server then continues from
         // where it stopped.
-        if (!isContainerParsingError(e) && state.retried && linkRefreshRef.current !== stream) {
+        if (state.retried && linkRefreshRef.current !== stream) {
           linkRefreshRef.current = stream;
           const episodeKey = activeEpisodeKeyRef.current;
           const pending = {stream, episodeKey};
@@ -2046,11 +2077,14 @@ const Player = ({route}: Props): React.JSX.Element => {
                 return;
               }
               if (!switchToNextStreamRef.current()) {
-                ToastAndroid.show(
-                  'Video could not be played, try again later',
-                  ToastAndroid.SHORT,
-                );
-                navigation.goBack();
+                setPlaybackError({
+                  ...formatPlaybackErrorDetails(e, {
+                    decoderMode: decoderModeRef.current,
+                    streamTitle: stream?.server,
+                    exhaustedServers: true,
+                  }),
+                  exhaustedServers: true,
+                });
               }
             })
             .finally(() => {
@@ -2065,11 +2099,14 @@ const Player = ({route}: Props): React.JSX.Element => {
       }
 
       if (!switchToNextStream()) {
-        ToastAndroid.show(
-          'Video could not be played, try again later',
-          ToastAndroid.SHORT,
-        );
-        navigation.goBack();
+        setPlaybackError({
+          ...formatPlaybackErrorDetails(e, {
+            decoderMode: decoderModeRef.current,
+            streamTitle: stream?.server,
+            exhaustedServers: true,
+          }),
+          exhaustedServers: true,
+        });
       }
       setShowControls(true);
     },
@@ -2993,6 +3030,7 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   const handleVideoLoadCallback = useCallback(
     (e: any) => {
+      setPlaybackError(null);
       const decoderRestart = decoderRestartRef.current;
       decoderRestartRef.current = false;
       refreshDecoderStatus();
@@ -3315,9 +3353,11 @@ const Player = ({route}: Props): React.JSX.Element => {
     try {
       const next = decoderMode === 'hardware' ? 'software' : 'hardware';
       manualDecoderModeRef.current = next;
-      setToast(`Switching to ${next === 'software' ? 'SW' : 'HW'} decoder`, 1500);
+      setToast(`Switching to ${next === 'software' ? 'FFmpeg SW' : 'HW'} decoder`, 1500);
       const status = await NativeModules.VideoDecoder.setMode(tag, next);
-      if (!status?.restarting) {
+      if (status?.restarting) {
+        setPlaybackError(null);
+      } else {
         decoderRestartRef.current = false;
         if (status?.mode !== next) setToast('Selected decoder unavailable. Keeping the current decoder.', 2500);
         manualDecoderModeRef.current = null;
@@ -3630,6 +3670,22 @@ const Player = ({route}: Props): React.JSX.Element => {
   }
 
   const portraitPlayback = playerIsPortrait && !isRemoteActive;
+  const currentStreamIndex = Array.isArray(streamData)
+    ? streamData.findIndex(
+        (s: any) =>
+          s === selectedStream || (s?.link && s.link === selectedStream?.link),
+      )
+    : -1;
+  const hasNextServer =
+    !playbackError?.exhaustedServers &&
+    !route.params.localContent &&
+    Array.isArray(streamData) &&
+    streamData.length > 0 &&
+    (selectedStream?.type === 'local'
+      ? true
+      : currentStreamIndex >= 0
+        ? currentStreamIndex < streamData.length - 1
+        : streamData.length > 1);
   const actionBottom = portraitPlayback
     ? Math.max(95, Math.ceil(10 + bottomControlHeight + 40 * controlStyle.scale))
     : 95;
@@ -4613,6 +4669,38 @@ const Player = ({route}: Props): React.JSX.Element => {
             </Animated.View>
           </>
         )}
+      {!isRemoteActive && playbackError ? (
+        <PlayerErrorOverlay
+          error={playbackError}
+          primaryColor={primary}
+          hasNextServer={hasNextServer}
+          isTV={isTV}
+          onTryNextServer={() => {
+            setPlaybackError(null);
+            if (!switchToNextStream()) {
+              ToastAndroid.show('No next server available', ToastAndroid.SHORT);
+            }
+          }}
+          onRetry={() => {
+            const stream = selectedStreamRef.current;
+            const position = videoPositionRef.current.position;
+            keepPosition(position);
+            setPlaybackError(null);
+            setReloadStart(prev => ({
+              stream,
+              ms: getReloadStartMs(
+                position,
+                prev?.stream === stream ? prev.ms : undefined,
+              ),
+            }));
+          }}
+          onGoBack={() => {
+            setPlaybackError(null);
+            exitFullScreen();
+            navigation.goBack();
+          }}
+        />
+      ) : null}
     </PlayerViewport>
   );
 };

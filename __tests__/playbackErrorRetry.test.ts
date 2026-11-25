@@ -3,8 +3,10 @@ import {
   NO_PLAYBACK_RETRY,
   PLAYBACK_RETRY_RESET_MS,
   decidePlaybackError,
+  formatPlaybackErrorDetails,
   getPlaybackErrorCode,
   getReloadStartMs,
+  isNetworkPlaybackError,
   markPlaybackLoaded,
 } from '../src/lib/player/playbackErrorRetry';
 
@@ -189,4 +191,51 @@ describe('getReloadStartMs', () => {
 it('does not retry MKV parsing failures disguised as generic IO errors', () => {
   const event = {error: {errorCode: '22000', errorStackTrace: 'IllegalStateException: No valid varint length mask found'}};
   expect(decidePlaybackError(loadedAt(T0), serverA, event, T0 + SECOND).action).toBe('switch');
+});
+
+describe('isNetworkPlaybackError', () => {
+  it('returns true only for transient Media3 2xxx network/IO errors', () => {
+    expect(isNetworkPlaybackError(CONNECTION_FAILED)).toBe(true);
+    expect(isNetworkPlaybackError(CONNECTION_TIMEOUT)).toBe(true);
+    expect(isNetworkPlaybackError(errorEvent(2004))).toBe(true);
+  });
+
+  it('returns false for decoding, parsing, audio, DRM, and generic non-network errors', () => {
+    expect(isNetworkPlaybackError(DECODING_FAILED)).toBe(false);
+    expect(isNetworkPlaybackError(errorEvent(4001))).toBe(false);
+    expect(isNetworkPlaybackError(errorEvent(3001))).toBe(false);
+    expect(isNetworkPlaybackError(errorEvent(5001))).toBe(false);
+    expect(isNetworkPlaybackError(errorEvent(6002))).toBe(false);
+    expect(
+      isNetworkPlaybackError({
+        error: {
+          errorCode: '22000',
+          errorStackTrace: 'IllegalStateException: No valid varint length mask found',
+        },
+      }),
+    ).toBe(false);
+    expect(isNetworkPlaybackError({error: {errorString: 'Unexpected state'}})).toBe(false);
+  });
+});
+
+describe('formatPlaybackErrorDetails', () => {
+  it('formats decoder failure details and full raw message for copying', () => {
+    const details = formatPlaybackErrorDetails(
+      {
+        error: {
+          errorCode: '24001',
+          errorString: 'ExoPlaybackException: ERROR_CODE_DECODER_INIT_FAILED',
+          errorException: 'MediaCodecRenderer$DecoderInitializationException',
+          cause: {message: 'NO_EXCEEDS_CAPABILITIES'},
+        },
+      },
+      {decoderMode: 'hardware', streamTitle: 'FastServer'},
+    );
+    expect(details.title).toBe('Video Decoding Failed');
+    expect(details.isNetwork).toBe(false);
+    expect(details.codeLabel).toBe('Error 24001 (Media3 4001)');
+    expect(details.rawMessage).toContain('Server: FastServer');
+    expect(details.rawMessage).toContain('Decoder: hardware');
+    expect(details.rawMessage).toContain('NO_EXCEEDS_CAPABILITIES');
+  });
 });

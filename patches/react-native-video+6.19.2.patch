@@ -95,6 +95,57 @@ index 1ac0fd0..6540a53 100644
              return subtitleStyle
          }
      }
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
+index 6012932..8581a15 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
+@@ -65,10 +65,12 @@ class VideoEventEmitter {
+         audioTracks: ArrayList<Track>,
+         textTracks: ArrayList<Track>,
+         videoTracks: ArrayList<VideoTrack>,
+-        trackId: String?
++        trackId: String?,
++        isLive: Boolean,
++        isSeekable: Boolean
+     ) -> Unit
+     lateinit var onVideoError: (errorString: String, exception: Exception, errorCode: String) -> Unit
+-    lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double) -> Unit
++    lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double, isLive: Boolean, isSeekable: Boolean, liveEdge: Long) -> Unit
+     lateinit var onVideoBandwidthUpdate: (bitRateEstimate: Long, height: Int, width: Int, trackId: String?) -> Unit
+     lateinit var onVideoPlaybackStateChanged: (isPlaying: Boolean, isSeeking: Boolean) -> Unit
+     lateinit var onVideoSeek: (currentPosition: Long, seekTime: Long) -> Unit
+@@ -103,9 +105,12 @@ class VideoEventEmitter {
+             onVideoLoadStart = {
+                 event.dispatch(EventTypes.EVENT_LOAD_START)
+             }
+-            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId ->
++            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId, isLive, isSeekable ->
+                 event.dispatch(EventTypes.EVENT_LOAD) {
+-                    putDouble("duration", duration / 1000.0)
++                    putDouble("duration", Math.max(0, duration) / 1000.0)
++                    putBoolean("isLive", isLive)
++                    putBoolean("isSeekable", isSeekable)
++                    putDouble("seekableDuration", Math.max(0, duration) / 1000.0)
+                     putDouble("currentTime", currentPosition / 1000.0)
+ 
+                     val naturalSize: WritableMap = aspectRatioToNaturalSize(videoWidth, videoHeight)
+@@ -168,12 +173,15 @@ class VideoEventEmitter {
+                     )
+                 }
+             }
+-            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime ->
++            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime, isLive, isSeekable, liveEdge ->
+                 event.dispatch(EventTypes.EVENT_PROGRESS) {
+                     putDouble("currentTime", currentPosition / 1000.0)
+                     putDouble("playableDuration", bufferedDuration / 1000.0)
+                     putDouble("seekableDuration", seekableDuration / 1000.0)
+                     putDouble("currentPlaybackTime", currentPlaybackTime)
++                    putBoolean("isLive", isLive)
++                    putBoolean("isSeekable", isSeekable)
++                    putDouble("liveEdge", liveEdge / 1000.0)
+                 }
+             }
+             onVideoBandwidthUpdate = { bitRateEstimate, height, width, trackId ->
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ChainedMatroskaDataSource.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ChainedMatroskaDataSource.java
 new file mode 100644
 index 0000000..245a32c
@@ -533,6 +584,7 @@ index 0000000..245a32c
 +}
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt
 new file mode 100644
+index 0000000..47bbbf6
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/CustomSubtitleOverlayView.kt
 @@ -0,0 +1,357 @@
@@ -893,6 +945,37 @@ new file mode 100644
 +        }
 +    }
 +}
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
+index 462f47a..6c9e611 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
+@@ -1,5 +1,8 @@
+ package com.brentvatne.exoplayer
+ 
++import android.util.Base64
++import androidx.media3.common.C
++import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
+ import androidx.media3.common.util.Util
+ import androidx.media3.datasource.HttpDataSource
+ import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
+@@ -23,6 +26,17 @@ class DRMManager(private val dataSourceFactory: HttpDataSource.Factory) : DRMMan
+         }
+ 
+         try {
++            // Provider-supplied inline ClearKey responses never go through HTTP.
++            val inlinePrefix = "data:application/json;base64,"
++            val licenseServer = drmProps.drmLicenseServer
++            if (uuid == C.CLEARKEY_UUID && licenseServer?.startsWith(inlinePrefix) == true) {
++                val response = Base64.decode(licenseServer.substring(inlinePrefix.length), Base64.DEFAULT)
++                return DefaultDrmSessionManager.Builder()
++                    .setUuidAndExoMediaDrmProvider(uuid, FrameworkMediaDrm.DEFAULT_PROVIDER)
++                    .setMultiSession(drmProps.multiDrm)
++                    .build(LocalMediaDrmCallback(response))
++            }
++
+             val drmCallback = HttpMediaDrmCallback(drmProps.drmLicenseServer, dataSourceFactory)
+ 
+             // Set DRM headers
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DataSourceUtil.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DataSourceUtil.kt
 index 96a7887..cb10d8a 100644
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DataSourceUtil.kt
@@ -956,10 +1039,10 @@ index 96a7887..cb10d8a 100644
      @JvmStatic
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DelayRenderersFactory.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DelayRenderersFactory.java
 new file mode 100644
-index 0000000..8000c98
+index 0000000..7f892d0
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DelayRenderersFactory.java
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,185 @@
 +package com.brentvatne.exoplayer;
 +
 +import android.content.Context;
@@ -967,6 +1050,7 @@ index 0000000..8000c98
 +import android.os.Looper;
 +
 +import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
 +import androidx.media3.common.Format;
 +import androidx.media3.common.audio.AudioProcessor;
 +import androidx.media3.exoplayer.audio.AudioSink;
@@ -1007,11 +1091,34 @@ index 0000000..8000c98
 +        public volatile long audioDelayUs = 0;
 +    }
 +
++    @Nullable
++    private static volatile SoftwareVideoRendererProvider softwareVideoRendererProvider;
++
 +    private final Delays delays;
++    private boolean preferFfmpegVideoDecoder;
++
++    public static void setSoftwareVideoRendererProvider(@Nullable SoftwareVideoRendererProvider provider) {
++        softwareVideoRendererProvider = provider;
++    }
++
++    public static boolean supportsSoftwareVideoDecoder(@Nullable Format format) {
++        SoftwareVideoRendererProvider provider = softwareVideoRendererProvider;
++        return format != null && provider != null && provider.supports(format);
++    }
++
++    public static boolean supportsSoftwareVideoDecoderMime(@Nullable String mimeType) {
++        SoftwareVideoRendererProvider provider = softwareVideoRendererProvider;
++        return mimeType != null && provider != null && provider.supportsMime(mimeType);
++    }
 +
 +    public DelayRenderersFactory(Context context, Delays delays) {
 +        super(context);
 +        this.delays = delays;
++    }
++
++    public DelayRenderersFactory setPreferFfmpegVideoDecoder(boolean preferFfmpegVideoDecoder) {
++        this.preferFfmpegVideoDecoder = preferFfmpegVideoDecoder;
++        return this;
 +    }
 +
 +    @Override
@@ -1035,11 +1142,26 @@ index 0000000..8000c98
 +            @NonNull VideoRendererEventListener eventListener,
 +            long allowedVideoJoiningTimeMs,
 +            @NonNull ArrayList<Renderer> out) {
++        SoftwareVideoRendererProvider provider = softwareVideoRendererProvider;
++        if (preferFfmpegVideoDecoder && provider != null) {
++            out.add(new OffsetRenderer(
++                    provider.createRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener,
++                            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
++                    delays,
++                    false));
++        }
 +        ArrayList<Renderer> built = new ArrayList<>();
 +        super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector,
 +                enableDecoderFallback, eventHandler, eventListener, allowedVideoJoiningTimeMs, built);
 +        for (Renderer renderer : built) {
 +            out.add(new OffsetRenderer(renderer, delays, false));
++        }
++        if (!preferFfmpegVideoDecoder && provider != null) {
++            out.add(new OffsetRenderer(
++                    provider.createRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener,
++                            MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
++                    delays,
++                    false));
 +        }
 +    }
 +
@@ -1107,9 +1229,10 @@ index 0000000..8000c98
 +    }
 +}
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ExoPlayerView.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ExoPlayerView.kt
+index bb945fe..7ec9d73 100644
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ExoPlayerView.kt
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ExoPlayerView.kt
-@@ -6,10 +6,13 @@
+@@ -6,10 +6,13 @@ import android.graphics.drawable.GradientDrawable
  import android.util.AttributeSet
  import android.view.View
  import android.view.View.MeasureSpec
@@ -1123,7 +1246,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  import androidx.media3.common.util.UnstableApi
  import androidx.media3.exoplayer.ExoPlayer
  import androidx.media3.ui.AspectRatioFrameLayout
-@@ -52,17 +55,35 @@
+@@ -52,15 +55,33 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
          resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
      }
  
@@ -1136,15 +1259,15 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          val playerViewLayoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
          addView(playerView, playerViewLayoutParams)
  
-+        // Add custom subtitle overlay above PlayerView
-+        addView(customSubtitleOverlay)
-+
 -        // Add live badge with its own layout parameters
 -        val liveBadgeLayoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
 -        liveBadgeLayoutParams.setMargins(16, 16, 16, 16)
 -        addView(liveBadge, liveBadgeLayoutParams)
-     }
- 
++        // Add custom subtitle overlay above PlayerView
++        addView(customSubtitleOverlay)
++
++    }
++
 +    // Scale only PlayerView. The existing subtitle overlay is its unscaled sibling.
 +    fun setVideoZoom(zoom: Float) {
 +        val scale = if (zoom.isFinite()) zoom.coerceAtLeast(1f) else 1f
@@ -1158,12 +1281,10 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +
 +    fun onCues(cues: List<Cue>) {
 +        customSubtitleOverlay.setCues(cues)
-+    }
-+
-     fun setPlayer(player: ExoPlayer?) {
-         val currentPlayer = playerView.player
+     }
  
-@@ -79,6 +104,11 @@
+     fun setPlayer(player: ExoPlayer?) {
+@@ -79,6 +100,11 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
              pendingResizeMode?.let { resizeMode ->
                  playerView.resizeMode = resizeMode
              }
@@ -1175,7 +1296,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          }
      }
  
-@@ -108,31 +138,13 @@
+@@ -108,31 +134,13 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
      }
  
      fun setSubtitleStyle(style: SubtitleStyle) {
@@ -1213,7 +1334,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      }
  
      fun setShutterColor(color: Int) {
-@@ -223,6 +235,15 @@
+@@ -223,6 +231,15 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
      }
  
      private val playerListener = object : Player.Listener {
@@ -2147,9 +2268,10 @@ index 0000000..9cfa61a
 +    }
 +}
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
+index e16ac96..d2c52a6 100644
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerView.java
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,7 @@ import android.content.Context;
  import android.content.Intent;
  import android.content.ServiceConnection;
  import android.media.AudioManager;
@@ -2157,7 +2279,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  import android.net.Uri;
  import android.os.Build;
  import android.os.Handler;
-@@ -57,9 +58,18 @@
+@@ -57,9 +58,18 @@ import androidx.media3.datasource.DataSource;
  import androidx.media3.datasource.DataSpec;
  import androidx.media3.datasource.DefaultDataSource;
  import androidx.media3.datasource.HttpDataSource;
@@ -2176,7 +2298,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  import androidx.media3.exoplayer.dash.DashMediaSource;
  import androidx.media3.exoplayer.dash.DashUtil;
  import androidx.media3.exoplayer.dash.DefaultDashChunkSource;
-@@ -88,6 +98,10 @@
+@@ -88,6 +98,10 @@ import androidx.media3.exoplayer.source.ClippingMediaSource;
  import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
  import androidx.media3.exoplayer.source.MediaSource;
  import androidx.media3.exoplayer.source.MergingMediaSource;
@@ -2187,7 +2309,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  import androidx.media3.exoplayer.source.ProgressiveMediaSource;
  import androidx.media3.exoplayer.source.TrackGroupArray;
  import androidx.media3.exoplayer.source.ads.AdsMediaSource;
-@@ -191,6 +205,7 @@
+@@ -191,6 +205,7 @@ public class ReactExoplayerView extends FrameLayout implements
  
      private DataSource.Factory mediaDataSourceFactory;
      private ExoPlayer player;
@@ -2195,13 +2317,14 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      private DefaultTrackSelector trackSelector;
      private boolean playerNeedsSource;
      private ServiceConnection playbackServiceConnection;
-@@ -203,6 +218,61 @@
+@@ -203,6 +218,68 @@ public class ReactExoplayerView extends FrameLayout implements
  
      private int resumeWindow;
      private long resumePosition;
 +    // Keep the user's preference separate from the decoder actually selected for a video.
 +    private boolean softwareVideoDecoder = "software".equals(getContext()
 +            .getSharedPreferences("vega_video_decoder", Context.MODE_PRIVATE).getString("mode", "hardware"));
++    private boolean useFfmpegVideoDecoder = softwareVideoDecoder;
 +    private String activeVideoDecoderName = "";
 +    private boolean activeVideoDecoderSoftware = false;
 +    private Format decoderSwitchFormat;
@@ -2215,7 +2338,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +    public WritableMap getVideoDecoderStatus() {
 +        WritableMap status = Arguments.createMap();
 +        status.putString("mode", activeVideoDecoderName.isEmpty()
-+                ? (softwareVideoDecoder ? "software" : "hardware")
++                ? ((softwareVideoDecoder || useFfmpegVideoDecoder) ? "software" : "hardware")
 +                : (activeVideoDecoderSoftware ? "software" : "hardware"));
 +        status.putString("name", activeVideoDecoderName);
 +        return status;
@@ -2224,27 +2347,33 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +    public boolean setVideoDecoderMode(String mode) throws MediaCodecUtil.DecoderQueryException {
 +        if (!"software".equals(mode) && !"hardware".equals(mode)) throw new IllegalArgumentException("Unknown decoder mode");
 +        Format format = player == null ? null : player.getVideoFormat();
-+        if (format == null && softwareVideoDecoder) format = decoderSwitchFormat;
++        if (format == null) format = decoderSwitchFormat;
 +        if (format == null || format.sampleMimeType == null) throw new IllegalStateException("Please wait until the video has loaded");
 +        boolean software = "software".equals(mode);
 +        getContext().getSharedPreferences("vega_video_decoder", Context.MODE_PRIVATE)
 +                .edit().putString("mode", mode).apply();
 +        softwareVideoDecoder = software;
 +        if (software && format.drmInitData != null) return false;
-+        boolean supported = false;
-+        for (MediaCodecInfo info : MediaCodecUtil.getDecoderInfos(format.sampleMimeType, false, false)) {
-+            if ((software ? info.softwareOnly : info.hardwareAccelerated) && info.isFormatSupported(format)) {
-+                supported = true;
-+                break;
++        boolean ffmpegSupported = software && DelayRenderersFactory.supportsSoftwareVideoDecoder(format);
++        boolean supported = ffmpegSupported;
++        if (!supported) {
++            for (MediaCodecInfo info : MediaCodecUtil.getDecoderInfos(format.sampleMimeType, false, false)) {
++                if ((software ? info.softwareOnly : info.hardwareAccelerated) && info.isFormatSupported(format)) {
++                    supported = true;
++                    break;
++                }
 +            }
 +        }
 +        // Leave the working decoder alone if the requested implementation cannot handle this video.
 +        if (!supported) return false;
-+        if (!activeVideoDecoderName.isEmpty() && activeVideoDecoderSoftware == software) return false;
++        boolean alreadyUsingRequested = !activeVideoDecoderName.isEmpty()
++                && activeVideoDecoderSoftware == software
++                && (!ffmpegSupported || activeVideoDecoderName.startsWith("FfmpegVideoDecoder"));
++        if (alreadyUsingRequested) return false;
 +        decoderSwitchFormat = format;
-+        recoveryVideoDecoderSoftware = null;
++        recoveryVideoDecoderSoftware = software;
 +        failedVideoDecoders.clear();
-+        softwareVideoDecoder = software;
++        useFfmpegVideoDecoder = ffmpegSupported;
 +        float gain = playbackDelays.volumeGain;
 +        releasePlayer(); // Saves the current playback position before releasing the decoder.
 +        playbackDelays.volumeGain = gain;
@@ -2257,7 +2386,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      private boolean loadVideoStarted;
      private boolean isFullscreen;
      private boolean isInBackground;
-@@ -213,6 +283,8 @@
+@@ -213,6 +290,8 @@ public class ReactExoplayerView extends FrameLayout implements
      private PictureInPictureParams.Builder pictureInPictureParamsBuilder;
      private boolean hasAudioFocus = false;
      private float rate = 1f;
@@ -2266,7 +2395,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      private AudioOutput audioOutput = AudioOutput.SPEAKER;
      private float audioVolume = 1f;
      private int maxBitRate = 0;
-@@ -234,6 +306,7 @@
+@@ -234,6 +313,7 @@ public class ReactExoplayerView extends FrameLayout implements
      private boolean isSeeking = false;
      private long seekPosition = -1;
      private boolean hasVideoEnded = false;
@@ -2274,7 +2403,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  
      // Props from React
      private Source source = new Source();
-@@ -285,20 +358,29 @@
+@@ -285,20 +365,29 @@ public class ReactExoplayerView extends FrameLayout implements
              if (exoPlayerView != null && isPlayingAd() && controls) {
                  exoPlayerView.hideController();
              }
@@ -2308,7 +2437,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
              }
          }
      }
-@@ -562,8 +644,19 @@
+@@ -562,8 +651,19 @@ public class ReactExoplayerView extends FrameLayout implements
      }
  
      private class RNVLoadControl extends DefaultLoadControl {
@@ -2328,7 +2457,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          public RNVLoadControl(DefaultAllocator allocator, BufferConfig config) {
              super(allocator,
                      config.getMinBufferMs() != BufferConfig.Companion.getBufferConfigPropUnsetInt()
-@@ -583,17 +676,92 @@
+@@ -583,17 +683,92 @@ public class ReactExoplayerView extends FrameLayout implements
                      config.getBackBufferDurationMs() != BufferConfig.Companion.getBufferConfigPropUnsetInt()
                              ? config.getBackBufferDurationMs()
                              : DefaultLoadControl.DEFAULT_BACK_BUFFER_DURATION_MS,
@@ -2342,8 +2471,6 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      ? config.getMaxHeapAllocationPercent()
                      : DEFAULT_MAX_HEAP_ALLOCATION_PERCENT;
 -            availableHeapInBytes = (int) Math.floor(activityManager.getMemoryClass() * maxHeap * 1024 * 1024);
--        }
--
 +            long heapBytes = (long) activityManager.getMemoryClass() * 1024 * 1024;
 +            forwardBufferBytes = config.getForwardBufferMB() > 0 ? config.getForwardBufferMB() * 1024L * 1024L : 0;
 +            backBufferBytes = config.getBackBufferMB() > 0 ? config.getBackBufferMB() * 1024L * 1024L : 0;
@@ -2404,8 +2531,8 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            long loadedBytes = getAllocator().getTotalBytesAllocated();
 +            long forwardBytes = loadedBytes * lastForwardUs / bufferedUs;
 +            return forwardBytes >= Math.min(forwardBufferBytes, availableHeapInBytes);
-+        }
-+
+         }
+ 
 +        // Media3 1.8 calls this overload; DefaultLoadControl's version never reaches the
 +        // deprecated three-argument overload RNV used to override, so without this the memory checks never ran.
          @Override
@@ -2426,7 +2553,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
              if (bufferingStrategy == BufferingStrategy.BufferingStrategyEnum.DisableBuffering) {
                  return false;
              } else if (bufferingStrategy == BufferingStrategy.BufferingStrategyEnum.DependingOnMemory) {
-@@ -601,7 +769,9 @@
+@@ -601,7 +776,9 @@ public class ReactExoplayerView extends FrameLayout implements
                  // when available memory on device become low.
                  int loadedBytes = getAllocator().getTotalBytesAllocated();
                  boolean isHeapReached = availableHeapInBytes > 0 && loadedBytes >= availableHeapInBytes;
@@ -2437,7 +2564,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      return false;
                  }
                  long usedMemory = runtime.totalMemory() - runtime.freeMemory();
-@@ -609,7 +779,7 @@
+@@ -609,7 +786,7 @@ public class ReactExoplayerView extends FrameLayout implements
                  double minBufferMemoryReservePercent = source.getBufferConfig().getMinBufferMemoryReservePercent() != BufferConfig.Companion.getBufferConfigPropUnsetDouble()
                          ? source.getBufferConfig().getMinBufferMemoryReservePercent()
                          : ReactExoplayerView.DEFAULT_MIN_BUFFER_MEMORY_RESERVE;
@@ -2446,7 +2573,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                  long bufferedMs = bufferedDurationUs / (long) 1000;
                  if (reserveMemory > freeMemory && bufferedMs > 2000) {
                      // We don't have enough memory in reserve so we stop buffering to allow other components to use it instead
-@@ -622,7 +792,128 @@
+@@ -622,7 +799,128 @@ public class ReactExoplayerView extends FrameLayout implements
                  }
              }
              // "default" case or normal case for "DependingOnMemory"
@@ -2576,7 +2703,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          }
      }
  
-@@ -715,11 +1006,12 @@
+@@ -715,11 +1013,12 @@ public class ReactExoplayerView extends FrameLayout implements
      private void initializePlayerCore(ReactExoplayerView self) {
          ExoTrackSelection.Factory videoTrackSelectionFactory = new AdaptiveTrackSelection.Factory();
          self.trackSelector = new DefaultTrackSelector(getContext(), videoTrackSelectionFactory);
@@ -2590,16 +2717,25 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                  allocator,
                  source.getBufferConfig()
          );
-@@ -731,10 +1023,31 @@
+@@ -730,11 +1029,40 @@ public class ReactExoplayerView extends FrameLayout implements
+             this.bandwidthMeter = config.getBandwidthMeter();
          }
  
++        final boolean preferSoftwareCodec = recoveryVideoDecoderSoftware != null
++                ? recoveryVideoDecoderSoftware
++                : softwareVideoDecoder;
          DefaultRenderersFactory renderersFactory =
 -                new DefaultRenderersFactory(getContext())
 -                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
 +                new DelayRenderersFactory(getContext(), playbackDelays)
++                        .setPreferFfmpegVideoDecoder(useFfmpegVideoDecoder)
 +                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
                          .setEnableDecoderFallback(true)
 +                        .setMediaCodecSelector((mime, secure, tunneling) -> {
++                            if (useFfmpegVideoDecoder && !secure && mime.startsWith("video/")
++                                    && DelayRenderersFactory.supportsSoftwareVideoDecoderMime(mime)) {
++                                return java.util.Collections.emptyList();
++                            }
 +                            List<MediaCodecInfo> candidates = new ArrayList<>(MediaCodecUtil.getDecoderInfos(mime, secure, tunneling));
 +                            if (mime.startsWith("video/")) {
 +                                candidates.removeIf(info -> failedVideoDecoders.contains(info.name));
@@ -2608,9 +2744,9 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +                                        if (!candidates.get(i).isFormatSupported(decoderSwitchFormat)) candidates.remove(i);
 +                                    }
 +                                }
-+                                // Prefer the saved mode, retaining the other implementations for silent fallback.
++                                // Prefer the active/recovered mode, retaining other implementations for fallback.
 +                                candidates.sort(java.util.Comparator.comparingInt(info ->
-+                                        (softwareVideoDecoder ? info.softwareOnly : info.hardwareAccelerated) ? 0 : 1));
++                                        (preferSoftwareCodec ? info.softwareOnly : info.hardwareAccelerated) ? 0 : 1));
 +                            }
 +                            return candidates;
 +                        })
@@ -2624,7 +2760,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  
          DefaultMediaSourceFactory mediaSourceFactory;
          
-@@ -759,7 +1072,20 @@
+@@ -759,7 +1087,26 @@ public class ReactExoplayerView extends FrameLayout implements
          ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
          refreshDebugState();
          player.addListener(self);
@@ -2633,11 +2769,17 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            @Override
 +            public void onVideoDecoderInitialized(EventTime eventTime, String decoderName, long timestampMs, long initializationDurationMs) {
 +                activeVideoDecoderName = decoderName;
-+                activeVideoDecoderSoftware = decoderName.startsWith("c2.android.") || decoderName.startsWith("OMX.google.");
-+                if (android.os.Build.VERSION.SDK_INT >= 29) {
++                activeVideoDecoderSoftware = decoderName.startsWith("FfmpegVideoDecoder")
++                        || decoderName.startsWith("c2.android.")
++                        || decoderName.startsWith("OMX.google.");
++                if (android.os.Build.VERSION.SDK_INT >= 29 && !decoderName.startsWith("FfmpegVideoDecoder")) {
 +                    for (android.media.MediaCodecInfo info : new android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).getCodecInfos()) {
 +                        if (info.getName().equals(decoderName)) { activeVideoDecoderSoftware = info.isSoftwareOnly(); break; }
 +                    }
++                }
++                Format initializedFormat = player != null ? player.getVideoFormat() : null;
++                if (initializedFormat != null) {
++                    decoderSwitchFormat = initializedFormat;
 +                }
 +                android.util.Log.d("VegaDecoder", (activeVideoDecoderSoftware ? "SW " : "HW ") + decoderName);
 +            }
@@ -2646,18 +2788,18 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          exoPlayerView.setPlayer(player);
  
          audioBecomingNoisyReceiver.setListener(self);
-@@ -875,6 +1201,10 @@
-                 Thread.currentThread().interrupt();
-                 DebugLog.e(TAG, ex.toString());
+@@ -877,6 +1224,10 @@ public class ReactExoplayerView extends FrameLayout implements
              }
-+        }
-+
-+        if (loadControl != null && loadControl.limitsBackBufferBySize()) {
-+            mediaSource = new SizeLimitedBackBufferSource(mediaSource, loadControl);
          }
  
++        if (loadControl != null && loadControl.limitsBackBufferBySize()) {
++            mediaSource = new SizeLimitedBackBufferSource(mediaSource, loadControl);
++        }
++
          boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
-@@ -969,10 +1299,19 @@
+         if (haveResumePosition) {
+             player.seekTo(resumeWindow, resumePosition);
+@@ -969,10 +1320,19 @@ public class ReactExoplayerView extends FrameLayout implements
          Intent intent = new Intent(themedReactContext, VideoPlaybackService.class);
          intent.setAction(MediaSessionService.SERVICE_INTERFACE);
  
@@ -2681,7 +2823,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          }
  
          int flags;
-@@ -1088,7 +1427,8 @@
+@@ -1088,7 +1448,8 @@ public class ReactExoplayerView extends FrameLayout implements
  
                  mediaSourceFactory = new HlsMediaSource.Factory(
                          dataSourceFactory
@@ -2691,7 +2833,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                  break;
              case CONTENT_TYPE_OTHER:
                  if ("asset".equals(uri.getScheme())) {
-@@ -1100,12 +1440,18 @@
+@@ -1100,12 +1461,18 @@ public class ReactExoplayerView extends FrameLayout implements
                      }
                  } else if ("file".equals(uri.getScheme()) ||
                          !useCache) {
@@ -2712,7 +2854,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      );
  
                  }
-@@ -1144,12 +1490,63 @@
+@@ -1144,12 +1511,63 @@ public class ReactExoplayerView extends FrameLayout implements
                  ? overridenMediaItemBuilder.build()
                  : mediaItemBuilder.build();
  
@@ -2777,12 +2919,10 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  
          if (cropStartMs >= 0 && cropEndMs >= 0) {
              return new ClippingMediaSource(mediaSource, cropStartMs * 1000, cropEndMs * 1000);
-@@ -1160,6 +1557,109 @@
-         }
- 
+@@ -1162,6 +1580,109 @@ public class ReactExoplayerView extends FrameLayout implements
          return mediaSource;
-+    }
-+
+     }
+ 
 +    private class SafeSubtitleDataSource implements DataSource {
 +        private static final byte[] EMPTY_VTT = "WEBVTT\n\n".getBytes(StandardCharsets.UTF_8);
 +        private final DataSource upstream;
@@ -2884,10 +3024,12 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            fallbackStream = null;
 +            isFallback = false;
 +        }
-     }
- 
++    }
++
      @Nullable
-@@ -1183,9 +1683,23 @@
+     private List<MediaItem.SubtitleConfiguration> buildSubtitleConfigurations() {
+         if (source.getSideLoadedTextTracks() == null || source.getSideLoadedTextTracks().getTracks().isEmpty()) {
+@@ -1183,9 +1704,23 @@ public class ReactExoplayerView extends FrameLayout implements
                      }
                  }
                  
@@ -2912,7 +3054,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                          .setLabel(label)
                          .setRoleFlags(C.ROLE_FLAG_SUBTITLE);
                  
-@@ -1219,6 +1733,7 @@
+@@ -1219,6 +1754,7 @@ public class ReactExoplayerView extends FrameLayout implements
      }
  
      private void releasePlayer() {
@@ -2920,7 +3062,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          if (player != null) {
              if(playbackServiceBinder != null) {
                  playbackServiceBinder.getService().unregisterPlayer(player);
-@@ -1298,14 +1813,14 @@
+@@ -1298,14 +1834,14 @@ public class ReactExoplayerView extends FrameLayout implements
                      // Lower the volume
                      if (!view.muted) {
                          activity.runOnUiThread(() ->
@@ -2937,7 +3079,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                          );
                      }
                  }
-@@ -1515,7 +2030,7 @@
+@@ -1515,7 +2051,7 @@ public class ReactExoplayerView extends FrameLayout implements
                          isUsingContentResolution = true;
                      }
                      eventEmitter.onVideoLoad.invoke(duration, currentPosition, width, height,
@@ -2946,7 +3088,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      
                      updateSubtitleButtonVisibility();
                  });
-@@ -1525,7 +2040,7 @@
+@@ -1525,7 +2061,7 @@ public class ReactExoplayerView extends FrameLayout implements
              ArrayList<VideoTrack> videoTracks = getVideoTrackInfo();
  
              eventEmitter.onVideoLoad.invoke(duration, currentPosition, width, height,
@@ -2955,7 +3097,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
  
              updateSubtitleButtonVisibility();
              refreshControlsStyles();
-@@ -1586,7 +2101,17 @@
+@@ -1586,7 +2122,17 @@ public class ReactExoplayerView extends FrameLayout implements
      }
  
      private ArrayList<VideoTrack> getVideoTrackInfo() {
@@ -2974,12 +3116,10 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          if (trackSelector == null) {
              // Likely player is unmounting so no video tracks are available anymore
              return videoTracks;
-@@ -1610,6 +2135,72 @@
-             }
-         }
+@@ -1612,6 +2158,72 @@ public class ReactExoplayerView extends FrameLayout implements
          return videoTracks;
-+    }
-+
+     }
+ 
 +    private ArrayList<VideoTrack> getVideoTrackInfoFromCurrentTracks() {
 +        ArrayList<VideoTrack> supportedTracks = new ArrayList<>();
 +        ArrayList<VideoTrack> allTracks = new ArrayList<>();
@@ -3044,10 +3184,12 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            return true;
 +        }
 +        return format.height > 0 && format.height == activeFormat.height;
-     }
- 
++    }
++
      private ArrayList<VideoTrack> getVideoTrackInfoFromManifest() {
-@@ -1703,7 +2294,7 @@
+         return this.getVideoTrackInfoFromManifest(0);
+     }
+@@ -1703,7 +2315,7 @@ public class ReactExoplayerView extends FrameLayout implements
          }
          
          TrackSelectionArray selectionArray = player.getCurrentTrackSelections();
@@ -3056,7 +3198,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          TrackGroupArray groups = info.getTrackGroups(index);
  
          for (int groupIndex = 0; groupIndex < groups.length; ++groupIndex) {
-@@ -1861,6 +2452,9 @@
+@@ -1861,6 +2473,9 @@ public class ReactExoplayerView extends FrameLayout implements
  
      @Override
      public void onTracksChanged(@NonNull Tracks tracks) {
@@ -3066,56 +3208,114 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          DebugLog.d(TAG, "onTracksChanged called - updating track information, controls=" + controls);
          
          if (controls) {
-@@ -1889,6 +2483,13 @@
-         
+@@ -1890,6 +2505,13 @@ public class ReactExoplayerView extends FrameLayout implements
          updateSubtitleButtonVisibility();
      }
-+
+ 
 +    @Override
 +    public void onVideoSizeChanged(@NonNull androidx.media3.common.VideoSize videoSize) {
 +        DebugLog.d(TAG, "onVideoSizeChanged: " + videoSize.width + "x" + videoSize.height);
 +        ArrayList<VideoTrack> videoTracks = getVideoTrackInfo();
 +        eventEmitter.onVideoTracks.invoke(videoTracks);
 +    }
-     
++    
      
      private boolean hasBuiltInTextTracks() {
-@@ -1950,10 +2551,71 @@
+         if (player == null || trackSelector == null) return false;
+@@ -1950,10 +2572,131 @@ public class ReactExoplayerView extends FrameLayout implements
          }
      }
  
 +    private boolean recoverFromVideoDecoderFailure(PlaybackException error) {
-+        if (player == null || failedVideoDecoders.size() >= 3
++        if (player == null || failedVideoDecoders.size() >= 4
 +                || !(error instanceof androidx.media3.exoplayer.ExoPlaybackException)) return false;
++        androidx.media3.exoplayer.ExoPlaybackException exoError =
++                (androidx.media3.exoplayer.ExoPlaybackException) error;
 +        androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException codecFailure = null;
++        androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException initFailure = null;
++        boolean ffmpegFailure = false;
 +        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
 +            if (cause instanceof androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException) {
 +                codecFailure = (androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException) cause;
 +                break;
 +            }
++            if (cause instanceof androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException) {
++                initFailure = (androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException) cause;
++                break;
++            }
++            if ("com.vega.FfmpegVideoDecoderException".equals(cause.getClass().getName())) {
++                ffmpegFailure = true;
++                break;
++            }
 +        }
-+        if (codecFailure == null && error.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
++        if (codecFailure == null && initFailure == null && !ffmpegFailure
++                && error.errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED
 +                && error.errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED
 +                && error.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES
 +                && error.errorCode != PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED) return false;
-+        Format format = ((androidx.media3.exoplayer.ExoPlaybackException) error).rendererFormat;
++        Format format = exoError.rendererFormat;
++        if (format == null) format = player.getVideoFormat();
++        if (format == null) format = decoderSwitchFormat;
 +        // Audio, network and file errors must keep their existing recovery paths.
 +        if (format == null || format.sampleMimeType == null || !format.sampleMimeType.startsWith("video/")) return false;
-+        String failedName = codecFailure != null && codecFailure.codecInfo != null
-+                ? codecFailure.codecInfo.name : activeVideoDecoderName;
-+        // Never retry an unidentified decoder or return to one which already failed.
-+        if (failedName.isEmpty() || !failedVideoDecoders.add(failedName)) return false;
-+        MediaCodecInfo fallback = null;
++        String failedName = "";
++        if (ffmpegFailure) {
++            failedName = "FfmpegVideoDecoder";
++        } else if (codecFailure != null && codecFailure.codecInfo != null) {
++            failedName = codecFailure.codecInfo.name;
++        } else if (initFailure != null && initFailure.codecInfo != null) {
++            failedName = initFailure.codecInfo.name;
++        } else if (!activeVideoDecoderName.isEmpty()) {
++            failedName = activeVideoDecoderName;
++        } else if (useFfmpegVideoDecoder) {
++            failedName = "FfmpegVideoDecoder";
++        } else if (exoError.rendererName != null && !exoError.rendererName.isEmpty()) {
++            failedName = exoError.rendererName + ":" + format.sampleMimeType;
++        } else {
++            failedName = "MediaCodec:" + format.sampleMimeType;
++        }
++        // Never return to a decoder which already failed for this video.
++        if (!failedVideoDecoders.add(failedName)) return false;
++
++        boolean nextUseFfmpeg = false;
++        boolean fallbackSoftware = false;
++        boolean foundFallback = false;
 +        try {
-+            for (MediaCodecInfo info : MediaCodecUtil.getDecoderInfos(format.sampleMimeType, format.drmInitData != null, false)) {
-+                if (!failedVideoDecoders.contains(info.name) && info.isFormatSupported(format)) {
-+                    fallback = info;
-+                    break;
++            // 1. Try another hardware MediaCodec first (if one exists and has not failed).
++            if (!useFfmpegVideoDecoder) {
++                for (MediaCodecInfo info : MediaCodecUtil.getDecoderInfos(format.sampleMimeType, format.drmInitData != null, false)) {
++                    if (info.hardwareAccelerated && !failedVideoDecoders.contains(info.name) && info.isFormatSupported(format)) {
++                        nextUseFfmpeg = false;
++                        fallbackSoftware = false;
++                        foundFallback = true;
++                        break;
++                    }
 +                }
 +            }
-+            if (fallback == null) return false;
++            // 2. Otherwise prefer our bundled FFmpeg software decoder (handles 10-bit HEVC/H.264/etc.).
++            if (!foundFallback
++                    && !useFfmpegVideoDecoder
++                    && !failedVideoDecoders.contains("FfmpegVideoDecoder")
++                    && DelayRenderersFactory.supportsSoftwareVideoDecoder(format)) {
++                nextUseFfmpeg = true;
++                fallbackSoftware = true;
++                foundFallback = true;
++            }
++            // 3. Otherwise fall back to any remaining MediaCodec (e.g. Android software AV1/VP9 or HW if FFmpeg failed).
++            if (!foundFallback) {
++                for (MediaCodecInfo info : MediaCodecUtil.getDecoderInfos(format.sampleMimeType, format.drmInitData != null, false)) {
++                    if (!failedVideoDecoders.contains(info.name) && info.isFormatSupported(format)) {
++                        nextUseFfmpeg = false;
++                        fallbackSoftware = info.softwareOnly;
++                        foundFallback = true;
++                        break;
++                    }
++                }
++            }
++            if (!foundFallback) return false;
 +        } catch (MediaCodecUtil.DecoderQueryException ignored) { return false; }
-+        boolean fallbackSoftware = fallback.softwareOnly;
++
++        useFfmpegVideoDecoder = nextUseFfmpeg;
 +        recoveryVideoDecoderSoftware = fallbackSoftware;
 +        decoderSwitchFormat = format;
 +        WritableMap event = Arguments.createMap();
@@ -3126,9 +3326,11 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            ancestor = ancestor.getParent() instanceof View ? (View) ancestor.getParent() : null;
 +        }
 +        event.putArray("viewTags", tags);
++        event.putString("mode", fallbackSoftware ? "software" : "hardware");
 +        themedReactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
 +                .emit("VegaVideoDecoderFallback", event);
-+        android.util.Log.d("VegaDecoder", "Recovering video decoder failure with " + (fallbackSoftware ? "SW" : "HW"));
++        android.util.Log.d("VegaDecoder", "Recovering video decoder failure (" + failedName + ") with "
++                + (nextUseFfmpeg ? "FFmpeg SW" : (fallbackSoftware ? "SW" : "HW")));
 +        float gain = playbackDelays.volumeGain;
 +        releasePlayer();
 +        playbackDelays.volumeGain = gain;
@@ -3152,7 +3354,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          switch(e.errorCode) {
              case PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED:
              case PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED:
-@@ -2031,6 +2693,9 @@
+@@ -2031,6 +2774,9 @@ public class ReactExoplayerView extends FrameLayout implements
      }
  
      public void onCues(CueGroup cueGroup) {
@@ -3162,17 +3364,18 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          if (!cueGroup.cues.isEmpty() && cueGroup.cues.get(0).text != null) {
              String subtitleText = cueGroup.cues.get(0).text.toString();
              eventEmitter.onTextTrackDataChanged.invoke(subtitleText);
-@@ -2061,6 +2726,9 @@
+@@ -2061,6 +2807,10 @@ public class ReactExoplayerView extends FrameLayout implements
              }
  
              if (!isSourceEqual) {
++                useFfmpegVideoDecoder = softwareVideoDecoder;
 +                recoveryVideoDecoderSoftware = null;
 +                failedVideoDecoders.clear();
 +                decoderSwitchFormat = null;
                  hasVideoEnded = false;
                  playerNeedsSource = true;
                  initializePlayer();
-@@ -2147,6 +2815,12 @@
+@@ -2147,6 +2897,12 @@ public class ReactExoplayerView extends FrameLayout implements
                      TrackGroupArray groups = info.getTrackGroups(textRendererIndex);
                      boolean trackFound = false;
                      
@@ -3185,7 +3388,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      for (int groupIndex = 0; groupIndex < groups.length; groupIndex++) {
                          TrackGroup group = groups.get(groupIndex);
                          for (int trackIndex = 0; trackIndex < group.length; trackIndex++) {
-@@ -2159,18 +2833,21 @@
+@@ -2159,18 +2915,21 @@ public class ReactExoplayerView extends FrameLayout implements
                                  isMatch = true;
                              } else if ("index".equals(type)) {
                                  int targetIndex = ReactBridgeUtils.safeParseInt(value, -1);
@@ -3208,7 +3411,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                          }
                          if (trackFound) break;
                      }
-@@ -2178,13 +2855,17 @@
+@@ -2178,13 +2937,17 @@ public class ReactExoplayerView extends FrameLayout implements
                      if (!trackFound) {
                          DebugLog.w(TAG, "Text track not found for type=" + type + ", value=" + value + 
                              ". Keeping current selection.");
@@ -3227,7 +3430,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
              
              // Give PlayerView time to update its controls
              mainHandler.postDelayed(() -> {
-@@ -2197,18 +2878,121 @@
+@@ -2197,6 +2960,101 @@ public class ReactExoplayerView extends FrameLayout implements
          }
      }
  
@@ -3328,19 +3531,11 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +
      public void setSelectedTrack(int trackType, String type, String value) {
          if (player == null || trackSelector == null) return;
--        
-+
-         if (controls) {
+ 
+@@ -2209,6 +3067,14 @@ public class ReactExoplayerView extends FrameLayout implements
              return;
          }
--        
-+
-         int rendererIndex = getTrackRendererIndex(trackType);
-         if (rendererIndex == C.INDEX_UNSET) {
-             return;
-         }
--        
-+
+ 
 +        // Video is resolved from the player's current tracks because the mapped info below
 +        // reports no video groups once playback is running, which silently disables the
 +        // renderer instead of switching quality. "disabled" keeps the shared handling.
@@ -3352,7 +3547,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          MappingTrackSelector.MappedTrackInfo info = trackSelector.getCurrentMappedTrackInfo();
          if (info == null) {
              return;
-@@ -2317,6 +3101,15 @@
+@@ -2317,6 +3183,15 @@ public class ReactExoplayerView extends FrameLayout implements
              groupIndex = getGroupIndexForDefaultLocale(groups);
          }
  
@@ -3368,7 +3563,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          if (groupIndex == C.INDEX_UNSET && trackType == C.TRACK_TYPE_VIDEO && groups.length != 0) { // Video auto
              // Add all tracks as valid options for ABR to choose from
              TrackGroup group = groups.get(0);
-@@ -2359,7 +3152,7 @@
+@@ -2359,7 +3234,7 @@ public class ReactExoplayerView extends FrameLayout implements
              DefaultTrackSelector.Parameters.Builder selectionParameters = trackSelector.getParameters()
                      .buildUpon()
                      .setExceedAudioConstraintsIfNecessary(true)
@@ -3377,7 +3572,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
                      .setExceedVideoConstraintsIfNecessary(true)
                      .setRendererDisabled(rendererIndex, false);
  
-@@ -2429,10 +3222,225 @@
+@@ -2429,10 +3304,225 @@ public class ReactExoplayerView extends FrameLayout implements
          return groupIndex;
      }
  
@@ -3604,7 +3799,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      }
  
      public void setSelectedAudioTrack(String type, String value) {
-@@ -2546,9 +3554,7 @@
+@@ -2546,9 +3636,7 @@ public class ReactExoplayerView extends FrameLayout implements
  
      public void setMutedModifier(boolean muted) {
          this.muted = muted;
@@ -3615,7 +3810,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      }
  
      private void changeAudioOutput(AudioOutput output) {
-@@ -2577,16 +3583,75 @@
+@@ -2577,18 +3665,77 @@ public class ReactExoplayerView extends FrameLayout implements
      }
  
      public void setVolumeModifier(float volume) {
@@ -3645,8 +3840,8 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +            }
              player.seekTo(positionMs);
          }
-+    }
-+
+     }
+ 
 +    private long pendingSubtitleDelayUs = 0;
 +    private long pendingAudioDelayUs = 0;
 +
@@ -3690,13 +3885,16 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +    public void setAudioDelayMs(int delayMs) {
 +        pendingAudioDelayUs = delayMs * 1000L;
 +        scheduleApplyDelays();
-     }
- 
++    }
++
      public void setRateModifier(float newRate) {
+         if (newRate <= 0) {
+             DebugLog.w(TAG, "cannot set rate <= 0");
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerViewManager.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerViewManager.kt
+index b9e0656..e419ebc 100644
 --- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerViewManager.kt
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/ReactExoplayerViewManager.kt
-@@ -41,6 +41,8 @@
+@@ -41,6 +41,8 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
          private const val PROP_PROGRESS_UPDATE_INTERVAL = "progressUpdateInterval"
          private const val PROP_REPORT_BANDWIDTH = "reportBandwidth"
          private const val PROP_RATE = "rate"
@@ -3705,7 +3903,7 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
          private const val PROP_MAXIMUM_BIT_RATE = "maxBitRate"
          private const val PROP_PLAY_IN_BACKGROUND = "playInBackground"
          private const val PROP_DISABLE_FOCUS = "disableFocus"
-@@ -180,9 +182,24 @@
+@@ -180,11 +182,26 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
          videoView.setReportBandwidth(reportBandwidth)
      }
  
@@ -3717,8 +3915,8 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
      @ReactProp(name = PROP_RATE)
      fun setRate(videoView: ReactExoplayerView, rate: Float) {
          videoView.setRateModifier(rate)
-+    }
-+
+     }
+ 
 +    @ReactProp(name = PROP_SUBTITLE_DELAY_MS, defaultInt = 0)
 +    fun setSubtitleDelayMs(videoView: ReactExoplayerView, delayMs: Int) {
 +        videoView.setSubtitleDelayMs(delayMs)
@@ -3727,386 +3925,14 @@ diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatn
 +    @ReactProp(name = PROP_AUDIO_DELAY_MS, defaultInt = 0)
 +    fun setAudioDelayMs(videoView: ReactExoplayerView, delayMs: Int) {
 +        videoView.setAudioDelayMs(delayMs)
-     }
- 
++    }
++
      @ReactProp(name = PROP_MAXIMUM_BIT_RATE)
-diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java
-new file mode 100644
-index 0000000..14bff12
---- /dev/null
-+++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java
-@@ -0,0 +1,38 @@
-+package com.brentvatne.exoplayer;
-+
-+import androidx.media3.common.C;
-+import androidx.media3.common.audio.BaseAudioProcessor;
-+import java.nio.ByteBuffer;
-+
-+/** Remains in the PCM chain so changing gain never requires a seek or sink rebuild. */
-+public final class VolumeBoostAudioProcessor extends BaseAudioProcessor {
-+    private final DelayRenderersFactory.Delays state;
-+    private float lastReportedGain = 1f;
-+
-+    public VolumeBoostAudioProcessor(DelayRenderersFactory.Delays state) {
-+        this.state = state;
-+    }
-+
-+    @Override
-+    protected AudioFormat onConfigure(AudioFormat input) throws UnhandledAudioFormatException {
-+        if (input.encoding != C.ENCODING_PCM_16BIT) throw new UnhandledAudioFormatException(input);
-+        return input;
-+    }
-+
-+    @Override
-+    public void queueInput(ByteBuffer input) {
-+        // The pipeline can pass our drained output back as empty input. Check before
-+        // replaceOutputBuffer clears the reusable buffer (which may be that input).
-+        if (!input.hasRemaining()) return;
-+        float gain = state.volumeGain;
-+        ByteBuffer output = replaceOutputBuffer(input.remaining());
-+        PcmVolumeGain.process(input, output, gain);
-+        // Only log transitions to either endpoint, never each frame or gesture step.
-+        if ((gain == 1f || gain == 2f) && gain != lastReportedGain) {
-+            android.util.Log.i("VegaVolumeBoost", "PCM gain=" + gain
-+                    + " channels=" + inputAudioFormat.channelCount);
-+            lastReportedGain = gain;
-+        }
-+        output.flip();
-+    }
-+}
-diff --git a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
---- a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
-+++ b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
-@@ -105,6 +105,8 @@
-     bufferForPlaybackAfterRebufferMs?: Float;
-     maxHeapAllocationPercent?: Float;
-     backBufferDurationMs?: Float;
-+    forwardBufferMB?: Int32;
-+    backBufferMB?: Int32;
-     minBackBufferMemoryReservePercent?: Float;
-     minBufferMemoryReservePercent?: Float;
-     cacheSizeMB?: Float;
-@@ -121,6 +123,9 @@
- }>;
- type OnLoadData = Readonly<{
-     currentTime: Float;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  seekableDuration?: Double;
-     duration: Float;
-     naturalSize: Readonly<{
-         width: Float;
-@@ -162,6 +167,9 @@
-     currentTime: Float;
-     playableDuration: Float;
-     seekableDuration: Float;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  liveEdge?: Double;
- }>;
- export type OnBandwidthUpdateData = Readonly<{
-     bitrate: Int32;
-@@ -306,6 +314,8 @@
-     ignoreSilentSwitch?: WithDefault<string, 'inherit'>;
-     mixWithOthers?: WithDefault<string, 'inherit'>;
-     rate?: Float;
-+    subtitleDelayMs?: Int32;
-+    audioDelayMs?: Int32;
-     fullscreen?: boolean;
-     fullscreenAutorotate?: boolean;
-     fullscreenOrientation?: WithDefault<string, 'all'>;
-@@ -319,6 +329,7 @@
-     hideShutterView?: boolean;
-     reportBandwidth?: boolean;
-     subtitleStyle?: SubtitleStyle;
-+  videoZoom?: Float; // android: video-only scale; subtitles remain fixed
-     viewType?: Int32;
-     bufferingStrategy?: BufferingStrategyType;
-     controlsStyles?: ControlsStyles;
-diff --git a/node_modules/react-native-video/lib/types/video.d.ts b/node_modules/react-native-video/lib/types/video.d.ts
---- a/node_modules/react-native-video/lib/types/video.d.ts
-+++ b/node_modules/react-native-video/lib/types/video.d.ts
-@@ -130,6 +130,8 @@
-     bufferForPlaybackMs?: number;
-     bufferForPlaybackAfterRebufferMs?: number;
-     backBufferDurationMs?: number;
-+    forwardBufferMB?: number;
-+    backBufferMB?: number;
-     maxHeapAllocationPercent?: number;
-     minBackBufferMemoryReservePercent?: number;
-     minBufferMemoryReservePercent?: number;
-@@ -284,6 +286,8 @@
-     preventsDisplaySleepDuringVideoPlayback?: boolean;
-     progressUpdateInterval?: number;
-     rate?: number;
-+    subtitleDelayMs?: number;
-+    audioDelayMs?: number;
-     renderLoader?: ReactNode | ((arg0: ReactVideoRenderLoaderProps) => ReactNode);
-     repeat?: boolean;
-     reportBandwidth?: boolean;
-@@ -293,6 +297,7 @@
-     selectedTextTrack?: SelectedTrack;
-     selectedVideoTrack?: SelectedVideoTrack;
-     subtitleStyle?: SubtitleStyle;
-+  videoZoom?: number; // android: video-only scale; subtitles remain fixed
-     shutterColor?: string;
-     /** @deprecated Use source.textTracks */
-     textTracks?: TextTracks;
-diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
---- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-+++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
-@@ -138,6 +138,8 @@
-   bufferForPlaybackAfterRebufferMs?: Float;
-   maxHeapAllocationPercent?: Float;
-   backBufferDurationMs?: Float; // Android
-+  forwardBufferMB?: Int32; // Android
-+  backBufferMB?: Int32; // Android
-   minBackBufferMemoryReservePercent?: Float;
-   minBufferMemoryReservePercent?: Float;
-   cacheSizeMB?: Float;
-@@ -156,6 +158,9 @@
- 
- type OnLoadData = Readonly<{
-   currentTime: Float;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  seekableDuration?: Double;
-   duration: Float;
-   naturalSize: Readonly<{
-     width: Float;
-@@ -199,6 +204,9 @@
-   currentTime: Float;
-   playableDuration: Float;
-   seekableDuration: Float;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  liveEdge?: Double;
- }>;
- 
- export type OnBandwidthUpdateData = Readonly<{
-@@ -362,6 +370,8 @@
-   ignoreSilentSwitch?: WithDefault<string, 'inherit'>; // ios, 'inherit'
-   mixWithOthers?: WithDefault<string, 'inherit'>; // ios, 'inherit'
-   rate?: Float;
-+  subtitleDelayMs?: Int32; // Android: positive shows subtitles later
-+  audioDelayMs?: Int32; // Android: positive plays audio later
-   fullscreen?: boolean; // ios, false
-   fullscreenAutorotate?: boolean;
-   fullscreenOrientation?: WithDefault<string, 'all'>;
-@@ -375,6 +385,7 @@
-   hideShutterView?: boolean; //	Android
-   reportBandwidth?: boolean; //Android
-   subtitleStyle?: SubtitleStyle; // android
-+  videoZoom?: WithDefault<Float, 1>; // android: video-only scale; subtitles remain fixed
-   viewType?: Int32; // Android
-   bufferingStrategy?: BufferingStrategyType; // Android
-   controlsStyles?: ControlsStyles; // Android
-diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
---- a/node_modules/react-native-video/src/types/video.ts
-+++ b/node_modules/react-native-video/src/types/video.ts
-@@ -176,6 +176,8 @@
-   bufferForPlaybackMs?: number;
-   bufferForPlaybackAfterRebufferMs?: number;
-   backBufferDurationMs?: number; // Android
-+  forwardBufferMB?: number; // Android: forward buffer size cap
-+  backBufferMB?: number; // Android: back buffer size cap
-   maxHeapAllocationPercent?: number;
-   minBackBufferMemoryReservePercent?: number;
-   minBufferMemoryReservePercent?: number;
-@@ -360,6 +362,8 @@
-   preventsDisplaySleepDuringVideoPlayback?: boolean;
-   progressUpdateInterval?: number;
-   rate?: number;
-+  subtitleDelayMs?: number; // Android: positive shows subtitles later
-+  audioDelayMs?: number; // Android: positive plays audio later
-   renderLoader?: ReactNode | ((arg0: ReactVideoRenderLoaderProps) => ReactNode);
-   repeat?: boolean;
-   reportBandwidth?: boolean; //Android
-@@ -369,6 +373,7 @@
-   selectedTextTrack?: SelectedTrack;
-   selectedVideoTrack?: SelectedVideoTrack; // android
-   subtitleStyle?: SubtitleStyle; // android
-+  videoZoom?: number; // android: video-only scale; subtitles remain fixed
-   shutterColor?: string; // Android
-   /** @deprecated Use source.textTracks */
-   textTracks?: TextTracks;
-diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
---- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
-+++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
-@@ -56,10 +56,10 @@
-         }
-         sourceActivity = from
- 
--        val mediaSession = MediaSession.Builder(this, player)
-+        val mediaSession = MediaSession.Builder(this, SafeBufferingPlayer(player))
-             .setId("RNVideoPlaybackService_" + player.hashCode())
-             .setCallback(VideoPlaybackCallback())
--            .setCustomLayout(immutableListOf(seekForwardBtn, seekBackwardBtn))
-+            .setCustomLayout(immutableListOf(seekBackwardBtn, seekForwardBtn))
-             .build()
- 
-         mediaSessionsList[player] = mediaSession
-@@ -66,7 +66,7 @@
-         addSession(mediaSession)
- 
-         val notificationId = player.hashCode()
--        startForeground(notificationId, buildNotification(mediaSession))
-+        if (!promoteToForeground(notificationId, buildNotification(mediaSession))) stopSelf()
-     }
- 
-     fun unregisterPlayer(player: ExoPlayer) {
-@@ -246,9 +246,41 @@
-             .build()
-     }
- 
-+    private fun promoteToForeground(id: Int, notification: Notification): Boolean {
-+        try {
-+            startForeground(id, notification)
-+            return true
-+        } catch (error: RuntimeException) {
-+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-+                error is android.app.ForegroundServiceStartNotAllowedException) {
-+                DebugLog.w(TAG, "Android rejected a background playback service start")
-+                return false
-+            }
-+            throw error
-+        }
-+    }
-+
-     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-+        // A playback service must never promote a boot broadcast (including
-+        // vendor quick-boot actions) into a mediaPlayback foreground service.
-+        // A null sticky restart has no user playback request to restore either.
-+        if (intent == null || intent.action in BOOT_ACTIONS) {
-+            stopSelf(startId)
-+            return START_NOT_STICKY
-+        }
-+        val playerId = intent.getIntExtra("PLAYER_ID", -1)
-+        val hasPlayerCommand = mediaSessionsList.keys.any { it.hashCode() == playerId } &&
-+            commandFromString(intent.getStringExtra("ACTION") ?: "") != COMMAND.NONE
-+        val mediaButton = intent.action == Intent.ACTION_MEDIA_BUTTON && mediaSessionsList.isNotEmpty()
-+        if (intent.action != SERVICE_INTERFACE && !hasPlayerCommand && !mediaButton) {
-+            stopSelf(startId)
-+            return START_NOT_STICKY
-+        }
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
--            startForeground(PLACEHOLDER_NOTIFICATION_ID, createPlaceholderNotification())
-+            if (!promoteToForeground(PLACEHOLDER_NOTIFICATION_ID, createPlaceholderNotification())) {
-+                stopSelf(startId)
-+                return START_NOT_STICKY
-+            }
-         }
- 
-         intent?.let {
-@@ -257,25 +289,34 @@
- 
-             if (playerId < 0) {
-                 DebugLog.w(TAG, "Received Command without playerId")
--                return super.onStartCommand(intent, flags, startId)
-+                super.onStartCommand(intent, flags, startId)
-+                return START_NOT_STICKY
-             }
- 
-             if (actionCommand == null) {
-                 DebugLog.w(TAG, "Received Command without action command")
--                return super.onStartCommand(intent, flags, startId)
--            }
--
--            val session = mediaSessionsList.values.find { s -> s.player.hashCode() == playerId } ?: return super.onStartCommand(intent, flags, startId)
-+                super.onStartCommand(intent, flags, startId)
-+                return START_NOT_STICKY
-+            }
-+
-+            val session = mediaSessionsList.values.find { s -> s.player.hashCode() == playerId } ?: return START_NOT_STICKY
- 
-             handleCommand(commandFromString(actionCommand), session)
-         }
--        return super.onStartCommand(intent, flags, startId)
-+        super.onStartCommand(intent, flags, startId)
-+        return START_NOT_STICKY
-     }
- 
-     companion object {
-         private const val SEEK_INTERVAL_MS = 10000L
-         private const val TAG = "VideoPlaybackService"
-         private const val PLACEHOLDER_NOTIFICATION_ID = 9999
-+        private val BOOT_ACTIONS = setOf(
-+            Intent.ACTION_BOOT_COMPLETED,
-+            Intent.ACTION_LOCKED_BOOT_COMPLETED,
-+            "android.intent.action.QUICKBOOT_POWERON",
-+            "com.htc.intent.action.QUICKBOOT_POWERON",
-+        )
- 
-         const val NOTIFICATION_CHANEL_ID = "RNVIDEO_SESSION_NOTIFICATION"
- 
-diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java
-new file mode 100644
---- /dev/null
-+++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java
-@@ -0,0 +1,50 @@
-+package com.brentvatne.exoplayer;
-+
-+import android.net.Uri;
-+import androidx.annotation.Nullable;
-+import androidx.media3.common.ParserException;
-+import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
-+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
-+import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist;
-+import androidx.media3.exoplayer.hls.playlist.HlsPlaylist;
-+import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory;
-+import androidx.media3.exoplayer.upstream.ParsingLoadable;
-+
-+/** Prevent Media3's LL-HLS error handler from querying opaque playlist URIs. */
-+public final class SafeHlsPlaylistParserFactory implements HlsPlaylistParserFactory {
-+    private final HlsPlaylistParserFactory delegate = new DefaultHlsPlaylistParserFactory();
-+
-+    @Override
-+    public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser() {
-+        return guarded(delegate.createPlaylistParser());
-+    }
-+
-+    @Override
-+    public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser(
-+            HlsMultivariantPlaylist master, @Nullable HlsMediaPlaylist previous) {
-+        return guarded(delegate.createPlaylistParser(master, previous));
-+    }
-+
-+    static ParsingLoadable.Parser<HlsPlaylist> guarded(ParsingLoadable.Parser<HlsPlaylist> parser) {
-+        return (uri, input) -> {
-+            // Check before parsing; a direct media playlist is otherwise promoted
-+            // to a synthetic master referencing this same opaque URI.
-+            requireHierarchical(uri);
-+            HlsPlaylist playlist = parser.parse(uri, input);
-+            if (playlist instanceof HlsMultivariantPlaylist) {
-+                for (Uri url : ((HlsMultivariantPlaylist) playlist).mediaPlaylistUrls) {
-+                    requireHierarchical(url);
-+                }
-+            }
-+            return playlist;
-+        };
-+    }
-+
-+    private static void requireHierarchical(Uri uri) throws ParserException {
-+        if (!uri.isHierarchical()) {
-+            // Do not include data URIs or signed URLs in the error/log.
-+            throw ParserException.createForMalformedManifest(
-+                    "Unsupported opaque HLS playlist URI; try another server", null);
-+        }
-+    }
-+}
-diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-native-video/src/Video.tsx
---- a/node_modules/react-native-video/src/Video.tsx
-+++ b/node_modules/react-native-video/src/Video.tsx
-@@ -732,6 +732,7 @@
-     useImperativeHandle(
-       ref,
-       () => ({
-+        getAnimatableRef: () => nativeRef.current,
-         seek,
-         presentFullscreenPlayer,
-         dismissFullscreenPlayer,
+     fun setMaxBitRate(videoView: ReactExoplayerView, maxBitRate: Float) {
+         videoView.setMaxBitRateModifier(maxBitRate.toInt())
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java
 new file mode 100644
+index 0000000..4758a3e
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/RecoveringMatroskaExtractor.java
 @@ -0,0 +1,88 @@
@@ -4198,114 +4024,9 @@ new file mode 100644
 +        }
 +    }
 +}
-diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
---- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
-+++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/DRMManager.kt
-@@ -1,5 +1,8 @@
- package com.brentvatne.exoplayer
- 
-+import android.util.Base64
-+import androidx.media3.common.C
-+import androidx.media3.exoplayer.drm.LocalMediaDrmCallback
- import androidx.media3.common.util.Util
- import androidx.media3.datasource.HttpDataSource
- import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
-@@ -23,6 +26,17 @@
-         }
- 
-         try {
-+            // Provider-supplied inline ClearKey responses never go through HTTP.
-+            val inlinePrefix = "data:application/json;base64,"
-+            val licenseServer = drmProps.drmLicenseServer
-+            if (uuid == C.CLEARKEY_UUID && licenseServer?.startsWith(inlinePrefix) == true) {
-+                val response = Base64.decode(licenseServer.substring(inlinePrefix.length), Base64.DEFAULT)
-+                return DefaultDrmSessionManager.Builder()
-+                    .setUuidAndExoMediaDrmProvider(uuid, FrameworkMediaDrm.DEFAULT_PROVIDER)
-+                    .setMultiSession(drmProps.multiDrm)
-+                    .build(LocalMediaDrmCallback(response))
-+            }
-+
-             val drmCallback = HttpMediaDrmCallback(drmProps.drmLicenseServer, dataSourceFactory)
- 
-             // Set DRM headers
-diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
---- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
-+++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/common/react/VideoEventEmitter.kt
-@@ -65,10 +65,12 @@
-         audioTracks: ArrayList<Track>,
-         textTracks: ArrayList<Track>,
-         videoTracks: ArrayList<VideoTrack>,
--        trackId: String?
-+        trackId: String?,
-+        isLive: Boolean,
-+        isSeekable: Boolean
-     ) -> Unit
-     lateinit var onVideoError: (errorString: String, exception: Exception, errorCode: String) -> Unit
--    lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double) -> Unit
-+    lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double, isLive: Boolean, isSeekable: Boolean, liveEdge: Long) -> Unit
-     lateinit var onVideoBandwidthUpdate: (bitRateEstimate: Long, height: Int, width: Int, trackId: String?) -> Unit
-     lateinit var onVideoPlaybackStateChanged: (isPlaying: Boolean, isSeeking: Boolean) -> Unit
-     lateinit var onVideoSeek: (currentPosition: Long, seekTime: Long) -> Unit
-@@ -103,9 +105,12 @@
-             onVideoLoadStart = {
-                 event.dispatch(EventTypes.EVENT_LOAD_START)
-             }
--            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId ->
-+            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId, isLive, isSeekable ->
-                 event.dispatch(EventTypes.EVENT_LOAD) {
--                    putDouble("duration", duration / 1000.0)
-+                    putDouble("duration", Math.max(0, duration) / 1000.0)
-+                    putBoolean("isLive", isLive)
-+                    putBoolean("isSeekable", isSeekable)
-+                    putDouble("seekableDuration", Math.max(0, duration) / 1000.0)
-                     putDouble("currentTime", currentPosition / 1000.0)
- 
-                     val naturalSize: WritableMap = aspectRatioToNaturalSize(videoWidth, videoHeight)
-@@ -168,12 +173,15 @@
-                     )
-                 }
-             }
--            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime ->
-+            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime, isLive, isSeekable, liveEdge ->
-                 event.dispatch(EventTypes.EVENT_PROGRESS) {
-                     putDouble("currentTime", currentPosition / 1000.0)
-                     putDouble("playableDuration", bufferedDuration / 1000.0)
-                     putDouble("seekableDuration", seekableDuration / 1000.0)
-                     putDouble("currentPlaybackTime", currentPlaybackTime)
-+                    putBoolean("isLive", isLive)
-+                    putBoolean("isSeekable", isSeekable)
-+                    putDouble("liveEdge", liveEdge / 1000.0)
-                 }
-             }
-             onVideoBandwidthUpdate = { bitRateEstimate, height, width, trackId ->
-diff --git a/node_modules/react-native-video/src/types/events.ts b/node_modules/react-native-video/src/types/events.ts
---- a/node_modules/react-native-video/src/types/events.ts
-+++ b/node_modules/react-native-video/src/types/events.ts
-@@ -28,6 +28,9 @@
- 
- export type OnLoadData = Readonly<{
-   currentTime: number;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  seekableDuration?: number;
-   duration: number;
-   naturalSize: Readonly<{
-     width: number;
-diff --git a/node_modules/react-native-video/lib/types/events.d.ts b/node_modules/react-native-video/lib/types/events.d.ts
---- a/node_modules/react-native-video/lib/types/events.d.ts
-+++ b/node_modules/react-native-video/lib/types/events.d.ts
-@@ -6,6 +6,9 @@
- export type VideoTrack = OnVideoTracksData['videoTracks'][number];
- export type OnLoadData = Readonly<{
-     currentTime: number;
-+  isLive?: boolean;
-+  isSeekable?: boolean;
-+  seekableDuration?: number;
-     duration: number;
-     naturalSize: Readonly<{
-         width: number;
 diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java
 new file mode 100644
+index 0000000..1aaaaaf
 --- /dev/null
 +++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeBufferingPlayer.java
 @@ -0,0 +1,30 @@
@@ -4339,3 +4060,436 @@ new file mode 100644
 +        return notificationPlayerId;
 +    }
 +}
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java
+new file mode 100644
+index 0000000..c61c635
+--- /dev/null
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SafeHlsPlaylistParserFactory.java
+@@ -0,0 +1,50 @@
++package com.brentvatne.exoplayer;
++
++import android.net.Uri;
++import androidx.annotation.Nullable;
++import androidx.media3.common.ParserException;
++import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory;
++import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsPlaylist;
++import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory;
++import androidx.media3.exoplayer.upstream.ParsingLoadable;
++
++/** Prevent Media3's LL-HLS error handler from querying opaque playlist URIs. */
++public final class SafeHlsPlaylistParserFactory implements HlsPlaylistParserFactory {
++    private final HlsPlaylistParserFactory delegate = new DefaultHlsPlaylistParserFactory();
++
++    @Override
++    public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser() {
++        return guarded(delegate.createPlaylistParser());
++    }
++
++    @Override
++    public ParsingLoadable.Parser<HlsPlaylist> createPlaylistParser(
++            HlsMultivariantPlaylist master, @Nullable HlsMediaPlaylist previous) {
++        return guarded(delegate.createPlaylistParser(master, previous));
++    }
++
++    static ParsingLoadable.Parser<HlsPlaylist> guarded(ParsingLoadable.Parser<HlsPlaylist> parser) {
++        return (uri, input) -> {
++            // Check before parsing; a direct media playlist is otherwise promoted
++            // to a synthetic master referencing this same opaque URI.
++            requireHierarchical(uri);
++            HlsPlaylist playlist = parser.parse(uri, input);
++            if (playlist instanceof HlsMultivariantPlaylist) {
++                for (Uri url : ((HlsMultivariantPlaylist) playlist).mediaPlaylistUrls) {
++                    requireHierarchical(url);
++                }
++            }
++            return playlist;
++        };
++    }
++
++    private static void requireHierarchical(Uri uri) throws ParserException {
++        if (!uri.isHierarchical()) {
++            // Do not include data URIs or signed URLs in the error/log.
++            throw ParserException.createForMalformedManifest(
++                    "Unsupported opaque HLS playlist URI; try another server", null);
++        }
++    }
++}
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SoftwareVideoRendererProvider.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SoftwareVideoRendererProvider.java
+new file mode 100644
+index 0000000..af84bc9
+--- /dev/null
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/SoftwareVideoRendererProvider.java
+@@ -0,0 +1,20 @@
++package com.brentvatne.exoplayer;
++
++import android.os.Handler;
++import androidx.annotation.NonNull;
++import androidx.media3.common.Format;
++import androidx.media3.exoplayer.Renderer;
++import androidx.media3.exoplayer.video.VideoRendererEventListener;
++
++public interface SoftwareVideoRendererProvider {
++    boolean supports(@NonNull Format format);
++
++    boolean supportsMime(@NonNull String mimeType);
++
++    @NonNull
++    Renderer createRenderer(
++            long allowedVideoJoiningTimeMs,
++            @NonNull Handler eventHandler,
++            @NonNull VideoRendererEventListener eventListener,
++            int maxDroppedFramesToNotify);
++}
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
+index 4760ea5..7aadda8 100644
+--- a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VideoPlaybackService.kt
+@@ -56,17 +56,17 @@ class VideoPlaybackService : MediaSessionService() {
+         }
+         sourceActivity = from
+ 
+-        val mediaSession = MediaSession.Builder(this, player)
++        val mediaSession = MediaSession.Builder(this, SafeBufferingPlayer(player))
+             .setId("RNVideoPlaybackService_" + player.hashCode())
+             .setCallback(VideoPlaybackCallback())
+-            .setCustomLayout(immutableListOf(seekForwardBtn, seekBackwardBtn))
++            .setCustomLayout(immutableListOf(seekBackwardBtn, seekForwardBtn))
+             .build()
+ 
+         mediaSessionsList[player] = mediaSession
+         addSession(mediaSession)
+ 
+         val notificationId = player.hashCode()
+-        startForeground(notificationId, buildNotification(mediaSession))
++        if (!promoteToForeground(notificationId, buildNotification(mediaSession))) stopSelf()
+     }
+ 
+     fun unregisterPlayer(player: ExoPlayer) {
+@@ -246,9 +246,41 @@ class VideoPlaybackService : MediaSessionService() {
+             .build()
+     }
+ 
++    private fun promoteToForeground(id: Int, notification: Notification): Boolean {
++        try {
++            startForeground(id, notification)
++            return true
++        } catch (error: RuntimeException) {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
++                error is android.app.ForegroundServiceStartNotAllowedException) {
++                DebugLog.w(TAG, "Android rejected a background playback service start")
++                return false
++            }
++            throw error
++        }
++    }
++
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        // A playback service must never promote a boot broadcast (including
++        // vendor quick-boot actions) into a mediaPlayback foreground service.
++        // A null sticky restart has no user playback request to restore either.
++        if (intent == null || intent.action in BOOT_ACTIONS) {
++            stopSelf(startId)
++            return START_NOT_STICKY
++        }
++        val playerId = intent.getIntExtra("PLAYER_ID", -1)
++        val hasPlayerCommand = mediaSessionsList.keys.any { it.hashCode() == playerId } &&
++            commandFromString(intent.getStringExtra("ACTION") ?: "") != COMMAND.NONE
++        val mediaButton = intent.action == Intent.ACTION_MEDIA_BUTTON && mediaSessionsList.isNotEmpty()
++        if (intent.action != SERVICE_INTERFACE && !hasPlayerCommand && !mediaButton) {
++            stopSelf(startId)
++            return START_NOT_STICKY
++        }
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+-            startForeground(PLACEHOLDER_NOTIFICATION_ID, createPlaceholderNotification())
++            if (!promoteToForeground(PLACEHOLDER_NOTIFICATION_ID, createPlaceholderNotification())) {
++                stopSelf(startId)
++                return START_NOT_STICKY
++            }
+         }
+ 
+         intent?.let {
+@@ -257,25 +289,34 @@ class VideoPlaybackService : MediaSessionService() {
+ 
+             if (playerId < 0) {
+                 DebugLog.w(TAG, "Received Command without playerId")
+-                return super.onStartCommand(intent, flags, startId)
++                super.onStartCommand(intent, flags, startId)
++                return START_NOT_STICKY
+             }
+ 
+             if (actionCommand == null) {
+                 DebugLog.w(TAG, "Received Command without action command")
+-                return super.onStartCommand(intent, flags, startId)
++                super.onStartCommand(intent, flags, startId)
++                return START_NOT_STICKY
+             }
+ 
+-            val session = mediaSessionsList.values.find { s -> s.player.hashCode() == playerId } ?: return super.onStartCommand(intent, flags, startId)
++            val session = mediaSessionsList.values.find { s -> s.player.hashCode() == playerId } ?: return START_NOT_STICKY
+ 
+             handleCommand(commandFromString(actionCommand), session)
+         }
+-        return super.onStartCommand(intent, flags, startId)
++        super.onStartCommand(intent, flags, startId)
++        return START_NOT_STICKY
+     }
+ 
+     companion object {
+         private const val SEEK_INTERVAL_MS = 10000L
+         private const val TAG = "VideoPlaybackService"
+         private const val PLACEHOLDER_NOTIFICATION_ID = 9999
++        private val BOOT_ACTIONS = setOf(
++            Intent.ACTION_BOOT_COMPLETED,
++            Intent.ACTION_LOCKED_BOOT_COMPLETED,
++            "android.intent.action.QUICKBOOT_POWERON",
++            "com.htc.intent.action.QUICKBOOT_POWERON",
++        )
+ 
+         const val NOTIFICATION_CHANEL_ID = "RNVIDEO_SESSION_NOTIFICATION"
+ 
+diff --git a/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java
+new file mode 100644
+index 0000000..14bff12
+--- /dev/null
++++ b/node_modules/react-native-video/android/src/main/java/com/brentvatne/exoplayer/VolumeBoostAudioProcessor.java
+@@ -0,0 +1,38 @@
++package com.brentvatne.exoplayer;
++
++import androidx.media3.common.C;
++import androidx.media3.common.audio.BaseAudioProcessor;
++import java.nio.ByteBuffer;
++
++/** Remains in the PCM chain so changing gain never requires a seek or sink rebuild. */
++public final class VolumeBoostAudioProcessor extends BaseAudioProcessor {
++    private final DelayRenderersFactory.Delays state;
++    private float lastReportedGain = 1f;
++
++    public VolumeBoostAudioProcessor(DelayRenderersFactory.Delays state) {
++        this.state = state;
++    }
++
++    @Override
++    protected AudioFormat onConfigure(AudioFormat input) throws UnhandledAudioFormatException {
++        if (input.encoding != C.ENCODING_PCM_16BIT) throw new UnhandledAudioFormatException(input);
++        return input;
++    }
++
++    @Override
++    public void queueInput(ByteBuffer input) {
++        // The pipeline can pass our drained output back as empty input. Check before
++        // replaceOutputBuffer clears the reusable buffer (which may be that input).
++        if (!input.hasRemaining()) return;
++        float gain = state.volumeGain;
++        ByteBuffer output = replaceOutputBuffer(input.remaining());
++        PcmVolumeGain.process(input, output, gain);
++        // Only log transitions to either endpoint, never each frame or gesture step.
++        if ((gain == 1f || gain == 2f) && gain != lastReportedGain) {
++            android.util.Log.i("VegaVolumeBoost", "PCM gain=" + gain
++                    + " channels=" + inputAudioFormat.channelCount);
++            lastReportedGain = gain;
++        }
++        output.flip();
++    }
++}
+diff --git a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
+index 76a0224..a32f3cc 100644
+--- a/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
++++ b/node_modules/react-native-video/lib/specs/VideoNativeComponent.d.ts
+@@ -105,6 +105,8 @@ type BufferConfig = Readonly<{
+     bufferForPlaybackAfterRebufferMs?: Float;
+     maxHeapAllocationPercent?: Float;
+     backBufferDurationMs?: Float;
++    forwardBufferMB?: Int32;
++    backBufferMB?: Int32;
+     minBackBufferMemoryReservePercent?: Float;
+     minBufferMemoryReservePercent?: Float;
+     cacheSizeMB?: Float;
+@@ -121,6 +123,9 @@ type SubtitleStyle = Readonly<{
+ }>;
+ type OnLoadData = Readonly<{
+     currentTime: Float;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  seekableDuration?: Double;
+     duration: Float;
+     naturalSize: Readonly<{
+         width: Float;
+@@ -162,6 +167,9 @@ export type OnProgressData = Readonly<{
+     currentTime: Float;
+     playableDuration: Float;
+     seekableDuration: Float;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  liveEdge?: Double;
+ }>;
+ export type OnBandwidthUpdateData = Readonly<{
+     bitrate: Int32;
+@@ -306,6 +314,8 @@ export interface VideoNativeProps extends ViewProps {
+     ignoreSilentSwitch?: WithDefault<string, 'inherit'>;
+     mixWithOthers?: WithDefault<string, 'inherit'>;
+     rate?: Float;
++    subtitleDelayMs?: Int32;
++    audioDelayMs?: Int32;
+     fullscreen?: boolean;
+     fullscreenAutorotate?: boolean;
+     fullscreenOrientation?: WithDefault<string, 'all'>;
+@@ -319,6 +329,7 @@ export interface VideoNativeProps extends ViewProps {
+     hideShutterView?: boolean;
+     reportBandwidth?: boolean;
+     subtitleStyle?: SubtitleStyle;
++  videoZoom?: Float; // android: video-only scale; subtitles remain fixed
+     viewType?: Int32;
+     bufferingStrategy?: BufferingStrategyType;
+     controlsStyles?: ControlsStyles;
+diff --git a/node_modules/react-native-video/lib/types/events.d.ts b/node_modules/react-native-video/lib/types/events.d.ts
+index c24fa11..46ca3d3 100644
+--- a/node_modules/react-native-video/lib/types/events.d.ts
++++ b/node_modules/react-native-video/lib/types/events.d.ts
+@@ -6,6 +6,9 @@ export type TextTrack = OnTextTracksData['textTracks'][number];
+ export type VideoTrack = OnVideoTracksData['videoTracks'][number];
+ export type OnLoadData = Readonly<{
+     currentTime: number;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  seekableDuration?: number;
+     duration: number;
+     naturalSize: Readonly<{
+         width: number;
+diff --git a/node_modules/react-native-video/lib/types/video.d.ts b/node_modules/react-native-video/lib/types/video.d.ts
+index 67a9d63..8bf90fa 100644
+--- a/node_modules/react-native-video/lib/types/video.d.ts
++++ b/node_modules/react-native-video/lib/types/video.d.ts
+@@ -130,6 +130,8 @@ export type BufferConfig = {
+     bufferForPlaybackMs?: number;
+     bufferForPlaybackAfterRebufferMs?: number;
+     backBufferDurationMs?: number;
++    forwardBufferMB?: number;
++    backBufferMB?: number;
+     maxHeapAllocationPercent?: number;
+     minBackBufferMemoryReservePercent?: number;
+     minBufferMemoryReservePercent?: number;
+@@ -284,6 +286,8 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+     preventsDisplaySleepDuringVideoPlayback?: boolean;
+     progressUpdateInterval?: number;
+     rate?: number;
++    subtitleDelayMs?: number;
++    audioDelayMs?: number;
+     renderLoader?: ReactNode | ((arg0: ReactVideoRenderLoaderProps) => ReactNode);
+     repeat?: boolean;
+     reportBandwidth?: boolean;
+@@ -293,6 +297,7 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+     selectedTextTrack?: SelectedTrack;
+     selectedVideoTrack?: SelectedVideoTrack;
+     subtitleStyle?: SubtitleStyle;
++  videoZoom?: number; // android: video-only scale; subtitles remain fixed
+     shutterColor?: string;
+     /** @deprecated Use source.textTracks */
+     textTracks?: TextTracks;
+diff --git a/node_modules/react-native-video/src/Video.tsx b/node_modules/react-native-video/src/Video.tsx
+index 789d915..0ab3144 100644
+--- a/node_modules/react-native-video/src/Video.tsx
++++ b/node_modules/react-native-video/src/Video.tsx
+@@ -732,6 +732,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
+     useImperativeHandle(
+       ref,
+       () => ({
++        getAnimatableRef: () => nativeRef.current,
+         seek,
+         presentFullscreenPlayer,
+         dismissFullscreenPlayer,
+diff --git a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
+index 3dcbe01..c937de8 100644
+--- a/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
++++ b/node_modules/react-native-video/src/specs/VideoNativeComponent.ts
+@@ -138,6 +138,8 @@ type BufferConfig = Readonly<{
+   bufferForPlaybackAfterRebufferMs?: Float;
+   maxHeapAllocationPercent?: Float;
+   backBufferDurationMs?: Float; // Android
++  forwardBufferMB?: Int32; // Android
++  backBufferMB?: Int32; // Android
+   minBackBufferMemoryReservePercent?: Float;
+   minBufferMemoryReservePercent?: Float;
+   cacheSizeMB?: Float;
+@@ -156,6 +158,9 @@ type SubtitleStyle = Readonly<{
+ 
+ type OnLoadData = Readonly<{
+   currentTime: Float;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  seekableDuration?: Double;
+   duration: Float;
+   naturalSize: Readonly<{
+     width: Float;
+@@ -199,6 +204,9 @@ export type OnProgressData = Readonly<{
+   currentTime: Float;
+   playableDuration: Float;
+   seekableDuration: Float;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  liveEdge?: Double;
+ }>;
+ 
+ export type OnBandwidthUpdateData = Readonly<{
+@@ -362,6 +370,8 @@ export interface VideoNativeProps extends ViewProps {
+   ignoreSilentSwitch?: WithDefault<string, 'inherit'>; // ios, 'inherit'
+   mixWithOthers?: WithDefault<string, 'inherit'>; // ios, 'inherit'
+   rate?: Float;
++  subtitleDelayMs?: Int32; // Android: positive shows subtitles later
++  audioDelayMs?: Int32; // Android: positive plays audio later
+   fullscreen?: boolean; // ios, false
+   fullscreenAutorotate?: boolean;
+   fullscreenOrientation?: WithDefault<string, 'all'>;
+@@ -375,6 +385,7 @@ export interface VideoNativeProps extends ViewProps {
+   hideShutterView?: boolean; //	Android
+   reportBandwidth?: boolean; //Android
+   subtitleStyle?: SubtitleStyle; // android
++  videoZoom?: WithDefault<Float, 1>; // android: video-only scale; subtitles remain fixed
+   viewType?: Int32; // Android
+   bufferingStrategy?: BufferingStrategyType; // Android
+   controlsStyles?: ControlsStyles; // Android
+diff --git a/node_modules/react-native-video/src/types/events.ts b/node_modules/react-native-video/src/types/events.ts
+index 027fd5b..78e69b6 100644
+--- a/node_modules/react-native-video/src/types/events.ts
++++ b/node_modules/react-native-video/src/types/events.ts
+@@ -28,6 +28,9 @@ export type VideoTrack = OnVideoTracksData['videoTracks'][number];
+ 
+ export type OnLoadData = Readonly<{
+   currentTime: number;
++  isLive?: boolean;
++  isSeekable?: boolean;
++  seekableDuration?: number;
+   duration: number;
+   naturalSize: Readonly<{
+     width: number;
+diff --git a/node_modules/react-native-video/src/types/video.ts b/node_modules/react-native-video/src/types/video.ts
+index 0482944..35a133d 100644
+--- a/node_modules/react-native-video/src/types/video.ts
++++ b/node_modules/react-native-video/src/types/video.ts
+@@ -176,6 +176,8 @@ export type BufferConfig = {
+   bufferForPlaybackMs?: number;
+   bufferForPlaybackAfterRebufferMs?: number;
+   backBufferDurationMs?: number; // Android
++  forwardBufferMB?: number; // Android: forward buffer size cap
++  backBufferMB?: number; // Android: back buffer size cap
+   maxHeapAllocationPercent?: number;
+   minBackBufferMemoryReservePercent?: number;
+   minBufferMemoryReservePercent?: number;
+@@ -360,6 +362,8 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+   preventsDisplaySleepDuringVideoPlayback?: boolean;
+   progressUpdateInterval?: number;
+   rate?: number;
++  subtitleDelayMs?: number; // Android: positive shows subtitles later
++  audioDelayMs?: number; // Android: positive plays audio later
+   renderLoader?: ReactNode | ((arg0: ReactVideoRenderLoaderProps) => ReactNode);
+   repeat?: boolean;
+   reportBandwidth?: boolean; //Android
+@@ -369,6 +373,7 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+   selectedTextTrack?: SelectedTrack;
+   selectedVideoTrack?: SelectedVideoTrack; // android
+   subtitleStyle?: SubtitleStyle; // android
++  videoZoom?: number; // android: video-only scale; subtitles remain fixed
+   shutterColor?: string; // Android
+   /** @deprecated Use source.textTracks */
+   textTracks?: TextTracks;

@@ -1,7 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import ts from 'typescript';
-import {decidePlaybackError} from '../src/lib/player/playbackErrorRetry';
+import {
+  decidePlaybackError,
+  formatPlaybackErrorDetails,
+  isContainerParsingError,
+  isNetworkPlaybackError,
+} from '../src/lib/player/playbackErrorRetry';
 
 // Exercise the actual Player callback without mounting native video, navigation,
 // casting and download services unrelated to this error-recovery regression.
@@ -33,6 +38,11 @@ const setup = () => {
     activeEpisodeKeyRef: {current: 'episode-1'},
     isTorrentStream: () => false, isLocalPath: () => false,
     decidePlaybackError,
+    isContainerParsingError,
+    isNetworkPlaybackError,
+    formatPlaybackErrorDetails,
+    decoderModeRef: {current: 'hardware'},
+    setPlaybackError: jest.fn(),
     ToastAndroid: {show: jest.fn(), SHORT: 0},
     refreshLinks: jest.fn(() => new Promise<boolean>((resolve, reject) => {
       pending.push({resolve, reject});
@@ -44,7 +54,7 @@ const setup = () => {
   };
   const onError = new Function(...Object.keys(context), compiled)(...Object.values(context));
   const error = {error: {errorCode: '22004'}};
-  return {context, pending, onError: () => onError(error), switchServer};
+  return {context, pending, onError: (ev = error) => onError(ev), switchServer};
 };
 const settle = async () => {for (let i = 0; i < 5; i++) await Promise.resolve();};
 
@@ -67,7 +77,10 @@ it.each(['unchanged', 'rejected'])('falls back once when the refresh is %s', asy
   else pending[0].resolve(false);
   await settle();
   expect(switchServer).toHaveBeenCalledTimes(1);
-  expect(context.navigation.goBack).toHaveBeenCalledTimes(1);
+  expect(context.navigation.goBack).not.toHaveBeenCalled();
+  expect(context.setPlaybackError).toHaveBeenCalledWith(
+    expect.objectContaining({exhaustedServers: true, isNetwork: true}),
+  );
   expect(context.pendingLinkRefreshRef.current).toBeNull();
 });
 
@@ -100,4 +113,16 @@ it('does not block a new stream or clear its guard when an older refresh finishe
   pending[1].resolve(true);
   await settle();
   expect(context.pendingLinkRefreshRef.current).toBeNull();
+});
+
+it.each(['24003', '23001'])('shows error overlay without auto-switching on non-network error %s', async errorCode => {
+  const {context, onError, switchServer} = setup();
+  onError({error: {errorCode, errorString: 'Codec or container failure'}});
+  await settle();
+  expect(context.refreshLinks).not.toHaveBeenCalled();
+  expect(switchServer).not.toHaveBeenCalled();
+  expect(context.navigation.goBack).not.toHaveBeenCalled();
+  expect(context.setPlaybackError).toHaveBeenCalledWith(
+    expect.objectContaining({isNetwork: false}),
+  );
 });
