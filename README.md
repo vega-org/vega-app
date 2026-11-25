@@ -90,34 +90,6 @@ https://reactnative.dev/docs/signed-apk-android
 > [!IMPORTANT]
 > Vega App does not host, store, or provide any media content. It is not affiliated with or connected to any external providers or extensions. All content accessed through the app is managed and sourced directly by the user via third-party tools or integrations. Vega App has no control over it.
 
-
-## Startup notices
-
-Vega checks [startup-notice.json](./startup-notice.json) through jsDelivr on startup. To publish a notice, edit the file on `main` using the [JSON schema](./startup-notice.schema.json). Set `notice` back to `null` to turn it off.
-
-```json
-{
-  "$schema": "./startup-notice.schema.json",
-  "notice": {
-    "id": "release-info",
-    "title": "Vega release information",
-    "description": "See what changed in the latest release.",
-    "target": {
-      "minVersion": "5.4.0",
-      "maxVersion": "5.4.2",
-      "builds": ["github"]
-    },
-    "buttons": [
-      {"label": "Release notes", "url": "https://github.com/vega-org/vega-app/releases"}
-    ]
-  }
-}
-```
-
-Both version bounds are inclusive. Omit either for an open-ended range or set both to the same version for an exact match. Use `["playstore"]` for Play Store builds or `["github"]` for GitHub Actions builds. Omit `builds` to include local builds as well. Omit `target` to show the notice to every version and build.
-
-You can add up to three HTTP or HTTPS link buttons. Check **Don’t show again** before closing the dialog to hide that notice ID for the installed app version. Keep the ID when editing a notice and use a new ID for a different notice. Changes may take time to propagate through the CDN. [Purge the jsDelivr cache](https://www.jsdelivr.com/tools/purge) if you need to refresh it sooner.
-
 ## Leave a star if this was helpful
 
 <a href="https://www.star-history.com/?repos=vega-org%2Fvega-app&type=date&legend=top-left">
