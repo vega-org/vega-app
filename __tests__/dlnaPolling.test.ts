@@ -6,6 +6,8 @@ jest.mock('react-native', () => ({
   DeviceEventEmitter: {addListener: jest.fn()},
   NativeModules: {
     VegaDlna: {
+      startDiscovery: jest.fn(async () => {}),
+      stopDiscovery: jest.fn(async () => {}),
       setAVTransportURI: jest.fn(async () => {}),
       play: jest.fn(async () => {}),
       getPositionInfo: jest.fn(),
@@ -69,4 +71,27 @@ it('does not send Play when a load is canceled while setting its URI', async () 
   resolve();
   await canceled;
   expect(native.play).not.toHaveBeenCalled();
+});
+it('cancels the earlier discovery timer when startDiscovery is called again', () => {
+  dlna.startDiscovery();
+  jest.advanceTimersByTime(5000);
+  expect(native.stopDiscovery).not.toHaveBeenCalled();
+  dlna.startDiscovery();
+  jest.advanceTimersByTime(3000);
+  expect(native.stopDiscovery).not.toHaveBeenCalled();
+  jest.advanceTimersByTime(4000);
+  expect(native.stopDiscovery).toHaveBeenCalledTimes(1);
+});
+it('does not let a stuck poll from a previous stream block polling for the new stream', async () => {
+  native.getPositionInfo.mockImplementationOnce(() => new Promise(() => {}));
+  await dlna.loadMedia(device, 'http://phone/A', 'A', undefined, 0, 900);
+  jest.advanceTimersByTime(1000);
+  expect(native.getPositionInfo).toHaveBeenCalledTimes(1);
+
+  native.getPositionInfo.mockResolvedValueOnce({position: 12, duration: 600});
+  await dlna.loadMedia(device, 'http://phone/B', 'B', undefined, 50, 600);
+  jest.advanceTimersByTime(1000);
+  await tick();
+  expect(native.getPositionInfo).toHaveBeenCalledTimes(2);
+  expect(useRemoteStore.getState().currentTime).toBe(62);
 });

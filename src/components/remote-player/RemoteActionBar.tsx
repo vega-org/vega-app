@@ -71,7 +71,7 @@ export const RemoteActionBar: React.FC<RemoteActionBarProps> = ({
         label="Subtitles"
         onPress={() => onOpenSheet('subtitles')}
       />
-      {connectedDevice?.type === 'cast' && (
+      {(connectedDevice?.type === 'cast' || connectedDevice?.type === 'vega-cast') && (
         <Action icon="speedometer" label="Speed" onPress={() => onOpenSheet('speed')} />
       )}
       {hasEpisodes && (

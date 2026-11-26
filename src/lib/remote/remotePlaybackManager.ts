@@ -639,7 +639,8 @@ class RemotePlaybackManager {
     }
     this.activePayload = payload;
     this.releaseOwnedTorrent(payload.sourceUrl);
-    const operationSessionId = `session_${Crypto.randomUUID()}`;
+    const operationSessionIdBase = `session_${Crypto.randomUUID()}`;
+    let operationSessionId = operationSessionIdBase;
     useRemoteStore.getState().setConnectedDevice(device);
     useRemoteStore.getState().setStatus('loading');
     useRemoteStore.setState({errorMessage: undefined, preparingSubtitle: false});
@@ -830,6 +831,7 @@ class RemotePlaybackManager {
                     .catch(() => {}),
                   operationToken,
                 );
+                operationSessionId = `session_${Crypto.randomUUID()}`;
                 prep = await this.awaitPlaybackOperation(
                   this.preparePlaybackStream(
                     {
@@ -864,6 +866,7 @@ class RemotePlaybackManager {
                   .catch(() => {}),
                 operationToken,
               );
+              operationSessionId = `session_${Crypto.randomUUID()}`;
               prep = await this.awaitPlaybackOperation(
                 this.preparePlaybackStream(
                   {
@@ -1332,6 +1335,7 @@ class RemotePlaybackManager {
     timelineOffset = 0,
     sourceDuration = 0,
     subtitleDeliveryUrl?: string,
+    targetSubtitleTrackId?: string,
   ): Promise<void> {
     const operationToken = this.loadGeneration;
     const session =
@@ -1351,19 +1355,27 @@ class RemotePlaybackManager {
     );
     const subtitles = useRemoteStore.getState().subtitleTracks;
     let deliveryUrl = subtitleDeliveryUrl || mediaUrl;
+    const parseUrlSafe = (value: string): URL | null => {
+      try {
+        return new URL(value);
+      } catch {
+        return null;
+      }
+    };
+    let parsedDelivery = parseUrlSafe(deliveryUrl);
     // Restoring a direct video uses its existing subtitle-only session.
-    if (!/^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(new URL(deliveryUrl).pathname) &&
+    if ((!parsedDelivery || !/^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(parsedDelivery.pathname)) &&
         subtitles.some(sub => !sub.isEmbedded && sub.uri) && this.currentSessionId) {
       const server = await this.awaitPlaybackOperation(
         remoteDeliveryService.ensureServerStarted(), operationToken,
       );
       deliveryUrl = `${server.baseUrl}/proxy/${this.currentSessionId}/stream`;
+      parsedDelivery = parseUrlSafe(deliveryUrl);
     }
-    const parsedDelivery = new URL(deliveryUrl);
-    const sessionId = /^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(parsedDelivery.pathname)
+    const sessionId = parsedDelivery && /^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(parsedDelivery.pathname)
       ? parsedDelivery.pathname.split('/')[2] : undefined;
     const validSubs = subtitles.map((sub, ordinal) => {
-      if (!sessionId) return undefined;
+      if (!sessionId || !parsedDelivery) return undefined;
       if (sub.isEmbedded && sub.index !== undefined) {
         return {...sub, uri: withSubtitleDelay(`${parsedDelivery.origin}/subtitle/${sessionId}/${sub.index}.vtt`), contentType: 'text/vtt'};
       }
@@ -1475,7 +1487,10 @@ class RemotePlaybackManager {
     });
 
     try {
-      const selectedId = useRemoteStore.getState().activeSubtitleTrackId;
+      const selectedId =
+        targetSubtitleTrackId !== undefined
+          ? targetSubtitleTrackId
+          : useRemoteStore.getState().activeSubtitleTrackId;
       await this.prepareSubtitleForPlayback(
         selectedId ? this.registeredSubtitleUrls.get(selectedId) : undefined,
         operationToken,
@@ -1490,7 +1505,9 @@ class RemotePlaybackManager {
         contentUrl: sanitizeUrlForLog(mediaUrl),
       });
       const selectedSubtitleId =
-        useRemoteStore.getState().activeSubtitleTrackId;
+        targetSubtitleTrackId !== undefined
+          ? targetSubtitleTrackId
+          : useRemoteStore.getState().activeSubtitleTrackId;
       const selectedCastTrackId = selectedSubtitleId
         ? this.registeredCastTrackIds.get(selectedSubtitleId)
         : undefined;
@@ -1784,28 +1801,30 @@ class RemotePlaybackManager {
             const subs = useRemoteStore.getState().subtitleTracks;
             const sub = subs.find(s => s.id === trackId);
             let castTrackId = this.registeredCastTrackIds.get(trackId);
+            let reloadedWithTarget = false;
             // Chromecast takes text tracks only with the load, so a file added
             // during playback needs a reload at the current position.
             if (sub && castTrackId === undefined && !this.activeRemux &&
                 !sub.isEmbedded && isServableExternalSubtitle(sub.uri)) {
-              await this.reloadCastWithSubtitles(operationToken);
+              await this.reloadCastWithSubtitles(operationToken, trackId);
               castTrackId = this.registeredCastTrackIds.get(trackId);
+              reloadedWithTarget = true;
             }
             if (!sub || castTrackId === undefined) {
               throw new Error(
                 'This subtitle track is not available on Chromecast',
               );
             }
-            {
+            if (!reloadedWithTarget) {
               const subtitleUrl = this.registeredSubtitleUrls.get(trackId);
               if (!subtitleUrl)
                 throw new Error('Subtitle URL is unavailable');
               await this.prepareSubtitleForPlayback(subtitleUrl, operationToken);
+              await this.awaitPlaybackOperation(
+                client.setActiveTrackIds([castTrackId]),
+                operationToken,
+              );
             }
-            await this.awaitPlaybackOperation(
-              client.setActiveTrackIds([castTrackId]),
-              operationToken,
-            );
           }
           useRemoteStore.getState().setActiveSubtitleTrackId(trackId);
         } catch (e: any) {
@@ -1888,15 +1907,22 @@ class RemotePlaybackManager {
   }
 
   /** Loads the current Chromecast media again with the current subtitle list. */
-  private async reloadCastWithSubtitles(operationToken: number): Promise<void> {
+  private async reloadCastWithSubtitles(
+    operationToken: number,
+    targetSubtitleTrackId?: string,
+  ): Promise<void> {
     const payload = this.activePayload;
     if (!payload || !this.activePlayUrl)
       throw new Error('Nothing is playing on the receiver');
     const position = useRemoteStore.getState().currentTime;
     let subtitleDeliveryUrl: string | undefined;
+    let parsedActive: URL | null = null;
+    try {
+      parsedActive = new URL(this.activePlayUrl);
+    } catch {}
     // A direct video has no phone session unless it started with external
     // subtitles; register one so the receiver can fetch the new file.
-    if (!/^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(new URL(this.activePlayUrl).pathname)) {
+    if (!parsedActive || !/^\/(ffmpeg|hlsout|dlna|proxy|hls)\//.test(parsedActive.pathname)) {
       const previousSessionId = this.currentSessionId;
       const sessionId = `session_${Crypto.randomUUID()}`;
       const session = await this.awaitPlaybackOperation(
@@ -1924,6 +1950,7 @@ class RemotePlaybackManager {
       this.timelineOffset,
       this.sourceDuration,
       subtitleDeliveryUrl,
+      targetSubtitleTrackId,
     );
   }
 
@@ -1938,9 +1965,10 @@ class RemotePlaybackManager {
   private async reloadRemuxedStream(
     track: RemoteAudioTrack | undefined,
     seekPosition?: number,
+    seekRequestId?: number,
   ): Promise<void> {
     if (isTV || !this.activePayload) return;
-    if (this.changingAudio)
+    if (seekPosition === undefined && this.changingAudio)
       throw new Error('A remote track change or seek is already in progress');
 
     const device = useRemoteStore.getState().connectedDevice;
@@ -1954,12 +1982,20 @@ class RemotePlaybackManager {
     const entryGen = this.playbackGeneration;
 
     return this.enqueueOperation(async () => {
-      if (
+      if (seekRequestId !== undefined) {
+        if (
+          seekRequestId !== this.seekRequestId ||
+          this.ending ||
+          !this.activePayload
+        )
+          return;
+      } else if (
         entryGen !== this.playbackGeneration ||
         this.ending ||
         !this.activePayload
-      )
+      ) {
         return;
+      }
 
       const currentDevice = useRemoteStore.getState().connectedDevice;
       if (!currentDevice) return;
@@ -1970,6 +2006,13 @@ class RemotePlaybackManager {
         track?.id === currentState.activeAudioTrackId
       )
         return;
+
+      const resolvedTrack =
+        seekRequestId !== undefined
+          ? currentState.audioTracks.find(
+              t => t.id === currentState.activeAudioTrackId,
+            ) || currentState.audioTracks[0]
+          : track;
 
       this.playbackGeneration++;
       this.changingAudio = true;
@@ -1984,7 +2027,7 @@ class RemotePlaybackManager {
       const previousByteRangeSeek = this.activeByteRangeSeek;
       const previousDuration = this.sourceDuration;
       const mediaDuration = this.sourceDuration || currentState.duration || 0;
-      const nextSessionId = `session_${Crypto.randomUUID()}`;
+      let nextSessionId = `session_${Crypto.randomUUID()}`;
       let nextSessionLoadedOnDevice = false;
       let prep: any = null;
       let usedEngine: 'hls' | 'ffmpeg' = 'ffmpeg';
@@ -2017,10 +2060,10 @@ class RemotePlaybackManager {
                   sourceUrl,
                   isLocal: this.activePayload.isLocal,
                   headers: this.activePayload.headers,
-                  audioTrackIndex: track?.index ?? 0,
+                  audioTrackIndex: resolvedTrack?.index ?? 0,
                   mode: 'hls',
                   startPositionSeconds: currentPosition,
-                  audioCodec: track?.codec,
+                  audioCodec: resolvedTrack?.codec,
                   durationSeconds: mediaDuration,
                   mimeType: 'video/mp4',
                 },
@@ -2038,6 +2081,7 @@ class RemotePlaybackManager {
                   .catch(() => {}),
                 operationToken,
               );
+              nextSessionId = `session_${Crypto.randomUUID()}`;
               prep = await this.awaitPlaybackOperation(
                 this.preparePlaybackStream(
                   {
@@ -2045,10 +2089,10 @@ class RemotePlaybackManager {
                     sourceUrl,
                     isLocal: this.activePayload.isLocal,
                     headers: this.activePayload.headers,
-                    audioTrackIndex: track?.index ?? 0,
+                    audioTrackIndex: resolvedTrack?.index ?? 0,
                     mode: 'ffmpeg',
                     startPositionSeconds: currentPosition,
-                    audioCodec: track?.codec,
+                    audioCodec: resolvedTrack?.codec,
                     durationSeconds: mediaDuration,
                     mimeType: 'video/mp4',
                   },
@@ -2070,6 +2114,7 @@ class RemotePlaybackManager {
                 .catch(() => {}),
               operationToken,
             );
+            nextSessionId = `session_${Crypto.randomUUID()}`;
             prep = await this.awaitPlaybackOperation(
               this.preparePlaybackStream(
                 {
@@ -2077,10 +2122,10 @@ class RemotePlaybackManager {
                   sourceUrl,
                   isLocal: this.activePayload.isLocal,
                   headers: this.activePayload.headers,
-                  audioTrackIndex: track?.index ?? 0,
+                  audioTrackIndex: resolvedTrack?.index ?? 0,
                   mode: 'ffmpeg',
                   startPositionSeconds: currentPosition,
-                  audioCodec: track?.codec,
+                  audioCodec: resolvedTrack?.codec,
                   durationSeconds: mediaDuration,
                   mimeType: 'video/mp4',
                 },
@@ -2098,10 +2143,10 @@ class RemotePlaybackManager {
                 sourceUrl,
                 isLocal: this.activePayload.isLocal,
                 headers: this.activePayload.headers,
-                audioTrackIndex: track?.index ?? 0,
+                audioTrackIndex: resolvedTrack?.index ?? 0,
                 mode: 'ffmpeg',
                 startPositionSeconds: currentPosition,
-                audioCodec: track?.codec,
+                audioCodec: resolvedTrack?.codec,
                 durationSeconds: mediaDuration,
                 mimeType: 'video/mp4',
               },
@@ -2171,7 +2216,7 @@ class RemotePlaybackManager {
         this.activeByteRangeSeek = Boolean(prep.byteRangeSeek);
         this.sourceDuration = prep.durationSeconds || mediaDuration;
         this.activeRemuxEngine = usedEngine;
-        useRemoteStore.getState().setActiveAudioTrackId(track?.id ?? currentState.activeAudioTrackId);
+        useRemoteStore.getState().setActiveAudioTrackId(resolvedTrack?.id ?? currentState.activeAudioTrackId);
         if (currentState.status === 'paused')
           useRemoteStore.getState().setStatus('paused');
         if (previousSessionId && previousSessionId !== nextSessionId) {
@@ -2289,7 +2334,7 @@ class RemotePlaybackManager {
                       sourceDuration: prep.durationSeconds || mediaDuration,
                       engine: usedEngine,
                       byteRangeSeek: Boolean(prep.byteRangeSeek),
-                      audioTrackId: track?.id ?? currentState.activeAudioTrackId,
+                      audioTrackId: resolvedTrack?.id ?? currentState.activeAudioTrackId,
                     }
                   : undefined,
             }),
@@ -2507,7 +2552,7 @@ class RemotePlaybackManager {
           const track =
             state.audioTracks.find(t => t.id === state.activeAudioTrackId) ||
             state.audioTracks[0];
-          await this.reloadRemuxedStream(track, seconds);
+          await this.reloadRemuxedStream(track, seconds, requestId);
         } else {
           await this.castClient.seek({
             position: Math.max(0, seconds - this.timelineOffset),
@@ -2519,7 +2564,7 @@ class RemotePlaybackManager {
           const track =
             state.audioTracks.find(t => t.id === state.activeAudioTrackId) ||
             state.audioTracks[0];
-          await this.reloadRemuxedStream(track, seconds);
+          await this.reloadRemuxedStream(track, seconds, requestId);
         } else {
           await dlnaService.seek(device, seconds);
         }
@@ -2533,11 +2578,19 @@ class RemotePlaybackManager {
             ? this.timelineOffset
             : undefined,
         );
+      if (!useRemoteStore.getState().pendingSeek && this.seekTimer) {
+        clearTimeout(this.seekTimer);
+        this.seekTimer = null;
+      }
       remoteDeliveryService
         .updateMediaPlayback({position: seconds})
         .catch(() => {});
     } catch (e) {
       if (requestId !== this.seekRequestId) return;
+      if (this.seekTimer) {
+        clearTimeout(this.seekTimer);
+        this.seekTimer = null;
+      }
       useRemoteStore.getState().cancelSeek(requestId);
       if (isRemotePlaybackCanceled(e)) return;
       console.warn('Remote seek failed:', e);

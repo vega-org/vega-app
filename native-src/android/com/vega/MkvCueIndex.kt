@@ -61,10 +61,13 @@ internal object MkvCueIndex {
         val cues: List<CueEntry>
     )
 
-    private val client = OkHttpClient.Builder()
+    private val client: OkHttpClient by lazy {
+        (DohOkHttpFactory.instance?.createNewNetworkModuleClient() ?: OkHttpClient())
+            .newBuilder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .build()
+    }
 
     /** Random-access reads over a local file, a content:// URI, or HTTP ranges. */
     private class Source(
@@ -144,7 +147,7 @@ internal object MkvCueIndex {
                     // Only a real partial response is accepted: a 200 would be the whole film.
                     if (response.code != 206) return null
                     val contentRange = response.header("Content-Range") ?: return null
-                    val match = Regex("bytes (\\d+)-(\\d+)/(\\d+)").matchEntire(contentRange) ?: return null
+                    val match = Regex("bytes (\\d+)-(\\d+)/(\\d+)", RegexOption.IGNORE_CASE).matchEntire(contentRange) ?: return null
                     if (match.groupValues[1].toLong() != start) return null
                     val total = match.groupValues[3].toLong()
                     val declared = match.groupValues[2].toLong() - start + 1

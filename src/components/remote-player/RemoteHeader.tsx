@@ -122,6 +122,7 @@ export const RemoteHeader: React.FC<RemoteHeaderProps> = ({
         enableContentPanningGesture={false}
         onClose={() => setMenuVisible(false)}>
         <RemoteVolumeRow
+          active={menuVisible}
           header={<RemoteSheetSectionLabel text="Volume" />}
         />
         <MenuRow

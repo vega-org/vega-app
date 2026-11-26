@@ -50,6 +50,8 @@ interface HlsMasterInfo {
 class RemoteDeliveryService {
   private activeSessionId: string | null = null;
   private serverInfo: DeliveryServerInfo | null = null;
+  private serverGeneration = 0;
+  private startServerPromise: Promise<DeliveryServerInfo> | null = null;
   private inspectionGeneration = 0;
   private inspections = new Map<string, {until: number; result: Promise<InspectedMediaResult>}>();
 
@@ -58,26 +60,53 @@ class RemoteDeliveryService {
       throw new Error('Remote delivery server is only supported on Android');
     }
 
-    if (this.serverInfo) {
-      return this.serverInfo;
+    if (this.startServerPromise) {
+      return this.startServerPromise;
     }
 
-    const info = await VegaRemoteDelivery.startServer();
-    this.serverInfo = info;
-    return info;
+    const generation = this.serverGeneration;
+    let startPromise!: Promise<DeliveryServerInfo>;
+    startPromise = (async () => {
+      try {
+        const info: DeliveryServerInfo = await VegaRemoteDelivery.startServer();
+        if (generation === this.serverGeneration) {
+          this.serverInfo = info;
+        }
+        return info;
+      } catch (error) {
+        if (generation === this.serverGeneration) {
+          this.serverInfo = null;
+        }
+        throw error;
+      } finally {
+        if (this.startServerPromise === startPromise) {
+          this.startServerPromise = null;
+        }
+      }
+    })();
+
+    this.startServerPromise = startPromise;
+    return startPromise;
   }
 
   async stopServer(): Promise<void> {
+    this.serverGeneration++;
+    this.startServerPromise = null;
     this.inspectionGeneration++;
     this.inspections.clear();
     this.hlsMasters.clear();
-    if (!VegaRemoteDelivery) return;
-    try {
-      await VegaRemoteDelivery.stopServer();
+    if (!VegaRemoteDelivery) {
       this.serverInfo = null;
       this.activeSessionId = null;
+      return;
+    }
+    try {
+      await VegaRemoteDelivery.stopServer();
     } catch (e) {
       console.warn('Failed to stop remote delivery server:', e);
+    } finally {
+      this.serverInfo = null;
+      this.activeSessionId = null;
     }
   }
 
@@ -452,15 +481,22 @@ class RemoteDeliveryService {
   }
 
   async stopForegroundService(): Promise<void> {
-    if (Platform.OS !== 'android' || !VegaRemoteDelivery?.stopForegroundService) return;
+    this.serverGeneration++;
+    this.startServerPromise = null;
+    if (Platform.OS !== 'android' || !VegaRemoteDelivery?.stopForegroundService) {
+      this.serverInfo = null;
+      this.activeSessionId = null;
+      return;
+    }
     try {
       await VegaRemoteDelivery.stopForegroundService();
+    } catch (e) {
+      console.warn('Failed to stop foreground playback service:', e);
+    } finally {
       // Stopping the native service also closes its HTTP server. A subsequent
       // cast must start a new server rather than reuse the cached dead port.
       this.serverInfo = null;
       this.activeSessionId = null;
-    } catch (e) {
-      console.warn('Failed to stop foreground playback service:', e);
     }
   }
 
