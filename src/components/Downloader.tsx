@@ -34,6 +34,7 @@ import useDownloadsStore, {
 } from '../lib/zustand/downloadsStore';
 import {useShallow} from 'zustand/react/shallow';
 import {
+  RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
   selectDownloadLocation,
   validateDownloadLocationAccess,
 } from '../lib/downloadLocation';
@@ -283,10 +284,21 @@ const DownloadComponent = ({
     }
     setSelectingLocation(true);
     try {
-      const location = await selectDownloadLocation();
-      if (!location || !(await validateDownloadLocationAccess(location))) {
+      const picked = await selectDownloadLocation();
+      if (picked.status === 'restricted') {
+        ToastAndroid.show(
+          RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
+          ToastAndroid.LONG,
+        );
         return;
       }
+      if (
+        picked.status !== 'selected' ||
+        !(await validateDownloadLocationAccess(picked.location))
+      ) {
+        return;
+      }
+      const location = picked.location;
       settingsStorage.setDownloadLocation(location);
       const request = pendingDownload;
       setPendingDownload(null);

@@ -31,7 +31,9 @@ import {
   findDownloadedFileByBaseName,
   LEGACY_SUBTITLE_EXTENSIONS,
   parseDownloadLocation,
+  selectDownloadLocation,
   serializeDownloadLocation,
+  validateDownloadLocationAccess,
 } from '../src/lib/downloadLocation';
 import * as FileSystem from 'expo-file-system/legacy';
 import {Platform} from 'react-native';
@@ -45,8 +47,14 @@ const mockRequestDirectory = FileSystem.StorageAccessFramework
 describe('Android SAF download location', () => {
   beforeEach(() => {
     (Platform as any).isTV = false;
-    mockReadDirectory.mockClear();
-    mockRequestDirectory.mockClear();
+    (Platform as any).OS = 'android';
+    mockReadDirectory.mockReset();
+    mockReadDirectory.mockResolvedValue([]);
+    mockRequestDirectory.mockReset();
+    mockRequestDirectory.mockResolvedValue({
+      granted: true,
+      directoryUri: 'content://downloads/tree/primary%3AMovies',
+    });
   });
 
   it('does not activate a legacy raw path', () => {
@@ -86,6 +94,100 @@ describe('Android SAF download location', () => {
       label: 'Internal storage/Movies',
     });
     expect(mockRequestDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a granted Downloads root or storage volume', async () => {
+    const restrictedUris = [
+      'content://downloads/tree/primary%3ADownload',
+      'content://downloads/tree/primary%3A',
+      'content://downloads/tree/primary%3ADownloads',
+    ];
+
+    for (const directoryUri of restrictedUris) {
+      mockReadDirectory.mockClear();
+      mockRequestDirectory.mockResolvedValue({granted: true, directoryUri});
+
+      await expect(selectDownloadLocation()).resolves.toEqual({
+        status: 'restricted',
+      });
+      await expect(ensureDownloadLocationAccess(null)).resolves.toBeUndefined();
+      expect(mockReadDirectory).not.toHaveBeenCalled();
+    }
+  });
+
+  it('accepts a folder inside Downloads and other granted folders', async () => {
+    const grants = [
+      {
+        uri: 'content://downloads/tree/primary%3ADownload%2FVega',
+        label: 'Internal storage/Download/Vega',
+      },
+      {
+        uri: 'content://downloads/tree/primary%3AMovies',
+        label: 'Internal storage/Movies',
+      },
+    ];
+
+    for (const grant of grants) {
+      mockRequestDirectory.mockResolvedValue({
+        granted: true,
+        directoryUri: grant.uri,
+      });
+      mockRequestDirectory.mockClear();
+
+      await expect(selectDownloadLocation()).resolves.toEqual({
+        status: 'selected',
+        location: {type: 'saf', uri: grant.uri, label: grant.label},
+      });
+      expect(mockRequestDirectory).toHaveBeenCalledTimes(1);
+
+      mockRequestDirectory.mockClear();
+      await expect(ensureDownloadLocationAccess(null)).resolves.toEqual({
+        type: 'saf',
+        uri: grant.uri,
+        label: grant.label,
+      });
+      expect(mockRequestDirectory).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does not treat a stored Downloads root as already accessible', async () => {
+    const root = {
+      type: 'saf' as const,
+      uri: 'content://downloads/tree/primary%3ADownload',
+      label: 'Internal storage/Download',
+    };
+    await expect(validateDownloadLocationAccess(root)).resolves.toBe(false);
+    expect(mockReadDirectory).not.toHaveBeenCalled();
+
+    const child = {
+      type: 'saf' as const,
+      uri: 'content://downloads/tree/primary%3ADownload%2FVega',
+      label: 'Internal storage/Download/Vega',
+    };
+    mockReadDirectory.mockResolvedValue(['content://child']);
+    await expect(validateDownloadLocationAccess(child)).resolves.toBe(true);
+    expect(mockReadDirectory).toHaveBeenCalledWith(child.uri);
+  });
+
+  it('keeps a cancelled folder picker cancelled', async () => {
+    mockRequestDirectory.mockResolvedValue({
+      granted: false,
+      directoryUri: 'content://downloads/tree/primary%3ADownload',
+    });
+    await expect(selectDownloadLocation()).resolves.toEqual({
+      status: 'cancelled',
+    });
+
+    (Platform as any).OS = 'ios';
+    (RNFS.pickFile as jest.Mock).mockResolvedValue([]);
+    await expect(selectDownloadLocation()).resolves.toEqual({
+      status: 'cancelled',
+    });
+  });
+
+  it('lets a folder picker failure reject', async () => {
+    mockRequestDirectory.mockRejectedValue(new Error('picker failed'));
+    await expect(selectDownloadLocation()).rejects.toThrow('picker failed');
   });
 });
 

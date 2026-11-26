@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {ToastAndroid, View} from 'react-native';
 import {
   getDownloadLocationDisplayValue,
+  RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
   selectDownloadLocation,
 } from '../../../lib/downloadLocation';
 import {settingsStorage} from '../../../lib/storage';
@@ -44,9 +45,16 @@ const DownloadLocationPreference = ({
 
     setIsPickingFolder(true);
     try {
-      const pickedLocation = await selectDownloadLocation();
-      if (pickedLocation) {
-        saveDownloadLocation(pickedLocation);
+      const picked = await selectDownloadLocation();
+      if (picked.status === 'selected') {
+        saveDownloadLocation(picked.location);
+        return;
+      }
+      if (picked.status === 'restricted') {
+        ToastAndroid.show(
+          RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
+          ToastAndroid.LONG,
+        );
         return;
       }
 
