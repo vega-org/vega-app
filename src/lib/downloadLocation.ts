@@ -1,6 +1,6 @@
 import * as RNFS from '@dr.pogodin/react-native-fs';
 import * as FileSystem from 'expo-file-system/legacy';
-import {NativeModules, Platform} from 'react-native';
+import {NativeModules, Platform, ToastAndroid} from 'react-native';
 import {sanitizeDownloadFileName} from './downloadId';
 
 export type PathDownloadLocation = {
@@ -112,30 +112,115 @@ export const getAndroidDirectoryLabel = (directoryUri: string): string => {
   return `${volume === 'primary' ? 'Internal storage' : volume}/${relativePath}`;
 };
 
-export const selectDownloadLocation = async (): Promise<
-  DownloadLocationConfig | undefined
-> => {
+// Android will not keep the volume root or the Downloads directory itself.
+// A child such as primary:Download/Vega stays valid.
+export const RESTRICTED_DOWNLOAD_LOCATION_MESSAGE =
+  'Choose a subfolder (such as a folder inside Downloads) instead of the storage or Downloads root';
+
+export const UNREADABLE_DOWNLOAD_LOCATION_MESSAGE =
+  'Vega could not access that folder. Choose a different subfolder';
+
+const showAndroidToast = (message: string) => {
   if (Platform.OS === 'android') {
-    const permissions =
-      await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-    if (!permissions.granted) {
-      return undefined;
-    }
-    return {
-      type: 'saf',
-      uri: permissions.directoryUri,
-      label: getAndroidDirectoryLabel(permissions.directoryUri),
-    };
+    ToastAndroid?.show?.(message, ToastAndroid.LONG);
+  }
+};
+
+export const isRestrictedDownloadTree = (directoryUri: string): boolean => {
+  const treeMarker = '/tree/';
+  const treeIndex = directoryUri.indexOf(treeMarker);
+  if (treeIndex === -1) {
+    return false;
   }
 
-  const pickedFolders = await RNFS.pickFile({pickerType: 'folder'});
-  const pickedFolder = pickedFolders[0];
-  if (!pickedFolder) {
-    return undefined;
+  const authority = directoryUri
+    .slice(0, treeIndex)
+    .replace(/^content:\/\//i, '')
+    .toLowerCase();
+  const rawTreeSegment = directoryUri
+    .slice(treeIndex + treeMarker.length)
+    .split('/')[0]
+    .split('?')[0]
+    .split('#')[0];
+
+  let documentId: string;
+  try {
+    documentId = decodeURIComponent(rawTreeSegment);
+  } catch {
+    return false;
   }
-  const path = pickedFolder.replace(/^file:\/\//, '');
-  return {type: 'path', path, label: path};
+
+  const trimmedDocId = documentId.trim();
+  const colonIndex = trimmedDocId.indexOf(':');
+  if (colonIndex === -1) {
+    const normalizedId = trimmedDocId.replace(/^\/+|\/+$/g, '').toLowerCase();
+    return (
+      authority.includes('downloads') &&
+      (normalizedId === 'downloads' || normalizedId === 'download')
+    );
+  }
+
+  const volume = trimmedDocId.slice(0, colonIndex).trim().toLowerCase();
+  const relativePath = trimmedDocId
+    .slice(colonIndex + 1)
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+
+  if (volume === 'home') {
+    return false;
+  }
+
+  if (volume === 'raw') {
+    return (
+      !relativePath ||
+      /^(?:storage\/emulated\/\d+|storage\/[^/]+|sdcard)(?:\/downloads?)?$/.test(
+        relativePath,
+      )
+    );
+  }
+
+  return (
+    !relativePath ||
+    relativePath === 'download' ||
+    relativePath === 'downloads'
+  );
 };
+
+export type DownloadLocationSelection =
+  | {status: 'selected'; location: DownloadLocationConfig}
+  | {status: 'cancelled'}
+  | {status: 'restricted'};
+
+export const selectDownloadLocation =
+  async (): Promise<DownloadLocationSelection> => {
+    if (Platform.OS === 'android') {
+      const permissions =
+        await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!permissions.granted) {
+        return {status: 'cancelled'};
+      }
+      if (isRestrictedDownloadTree(permissions.directoryUri)) {
+        return {status: 'restricted'};
+      }
+      return {
+        status: 'selected',
+        location: {
+          type: 'saf',
+          uri: permissions.directoryUri,
+          label: getAndroidDirectoryLabel(permissions.directoryUri),
+        },
+      };
+    }
+
+    const pickedFolders = await RNFS.pickFile({pickerType: 'folder'});
+    const pickedFolder = pickedFolders[0];
+    if (!pickedFolder) {
+      return {status: 'cancelled'};
+    }
+    const path = pickedFolder.replace(/^file:\/\//, '');
+    return {status: 'selected', location: {type: 'path', path, label: path}};
+  };
 
 export const validateDownloadLocationAccess = async (
   location?: DownloadLocationConfig | null,
@@ -145,6 +230,9 @@ export const validateDownloadLocationAccess = async (
   }
   try {
     if (location.type === 'saf') {
+      if (isRestrictedDownloadTree(location.uri)) {
+        return false;
+      }
       await FileSystem.StorageAccessFramework.readDirectoryAsync(location.uri);
       return true;
     }
@@ -168,10 +256,19 @@ export const ensureDownloadLocationAccess = async (
   if (await validateDownloadLocationAccess(location)) {
     return location || undefined;
   }
-  const selectedLocation = await selectDownloadLocation();
-  return (await validateDownloadLocationAccess(selectedLocation))
-    ? selectedLocation
-    : undefined;
+  const picked = await selectDownloadLocation();
+  if (picked.status === 'restricted') {
+    showAndroidToast(RESTRICTED_DOWNLOAD_LOCATION_MESSAGE);
+    return undefined;
+  }
+  if (picked.status !== 'selected') {
+    return undefined;
+  }
+  if (await validateDownloadLocationAccess(picked.location)) {
+    return picked.location;
+  }
+  showAndroidToast(UNREADABLE_DOWNLOAD_LOCATION_MESSAGE);
+  return undefined;
 };
 
 export const getDownloadFileName = (fileName: string, fileType: string) => {

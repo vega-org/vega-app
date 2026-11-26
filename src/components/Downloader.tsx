@@ -34,7 +34,10 @@ import useDownloadsStore, {
 } from '../lib/zustand/downloadsStore';
 import {useShallow} from 'zustand/react/shallow';
 import {
+  DownloadLocationConfig,
+  RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
   selectDownloadLocation,
+  UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
   validateDownloadLocationAccess,
 } from '../lib/downloadLocation';
 import DownloadLocationDialog from './DownloadLocationDialog';
@@ -281,20 +284,46 @@ const DownloadComponent = ({
     if (!pendingDownload || selectingLocation) {
       return;
     }
+    let location: DownloadLocationConfig | null = null;
     setSelectingLocation(true);
     try {
-      const location = await selectDownloadLocation();
-      if (!location || !(await validateDownloadLocationAccess(location))) {
+      const picked = await selectDownloadLocation();
+      if (picked.status === 'restricted') {
+        ToastAndroid.show(
+          RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
+          ToastAndroid.LONG,
+        );
         return;
       }
-      settingsStorage.setDownloadLocation(location);
-      const request = pendingDownload;
-      setPendingDownload(null);
-      setLocationDialogVisible(false);
-      await downloadManager(request);
+      if (picked.status !== 'selected') {
+        return;
+      }
+      if (!(await validateDownloadLocationAccess(picked.location))) {
+        ToastAndroid.show(
+          UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
+          ToastAndroid.LONG,
+        );
+        return;
+      }
+      location = picked.location;
+    } catch (error) {
+      console.log('Error picking download folder:', error);
+      ToastAndroid.show(
+        isTV
+          ? 'Install a TV file manager with a folder picker to change the location'
+          : 'Unable to open folder picker',
+        ToastAndroid.LONG,
+      );
+      return;
     } finally {
       setSelectingLocation(false);
     }
+
+    settingsStorage.setDownloadLocation(location);
+    const request = pendingDownload;
+    setPendingDownload(null);
+    setLocationDialogVisible(false);
+    await downloadManager(request);
   };
 
   useEffect(() => {
