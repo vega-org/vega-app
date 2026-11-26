@@ -12,6 +12,7 @@ class HttpDownloadPackage : ReactPackage {
             SyncStorageModule(reactContext),
             BackupExportModule(reactContext),
             WebViewDataModule(reactContext),
+            DataMigrationModule(reactContext),
         )
     }
 

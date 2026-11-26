@@ -342,6 +342,91 @@ tasks.configureEach { task ->
         queries.intent.push({action: [{$: {'android:name': 'android.intent.action.VIEW'}}], data: [{$: {'android:scheme': scheme, ...(mime ? {'android:mimeType': mime} : {})}}]});
       }
     }
+    const LEGACY_PACKAGE = 'com.vega';
+    const MIGRATION_PERMISSION = 'com.vega.permission.MIGRATE_DATA';
+    const MIGRATION_AUTHORITY = 'com.vega.migration';
+    const packageName = cfg.android?.package || LEGACY_PACKAGE;
+    const isLegacyProducer = packageName === LEGACY_PACKAGE;
+    const manifestApp = cfg.modResults.manifest.application?.[0];
+
+    if (isLegacyProducer) {
+      if (!manifest.permission) manifest.permission = [];
+      if (!manifest.permission.some(p => p.$?.['android:name'] === MIGRATION_PERMISSION)) {
+        manifest.permission.push({
+          $: {
+            'android:name': MIGRATION_PERMISSION,
+            'android:protectionLevel': 'signature',
+          },
+        });
+      }
+      if (Array.isArray(manifest['uses-permission'])) {
+        manifest['uses-permission'] = manifest['uses-permission'].filter(
+          p => p.$?.['android:name'] !== MIGRATION_PERMISSION,
+        );
+      }
+      if (Array.isArray(queries.package)) {
+        queries.package = queries.package.filter(
+          p => p.$?.['android:name'] !== LEGACY_PACKAGE,
+        );
+      }
+      if (Array.isArray(queries.provider)) {
+        queries.provider = queries.provider.filter(
+          p => p.$?.['android:authorities'] !== MIGRATION_AUTHORITY,
+        );
+      }
+      if (manifestApp) {
+        if (!manifestApp.provider) manifestApp.provider = [];
+        const hasMigrationProvider = manifestApp.provider.some(
+          p =>
+            p.$ &&
+            (p.$['android:authorities'] === MIGRATION_AUTHORITY ||
+              p.$['android:name'] === '.MigrationContentProvider' ||
+              p.$['android:name'] === 'com.vega.MigrationContentProvider'),
+        );
+        if (!hasMigrationProvider) {
+          manifestApp.provider.push({
+            $: {
+              'android:name': '.MigrationContentProvider',
+              'android:authorities': MIGRATION_AUTHORITY,
+              'android:exported': 'true',
+              'android:readPermission': MIGRATION_PERMISSION,
+            },
+          });
+        }
+      }
+    } else {
+      if (Array.isArray(manifest.permission)) {
+        manifest.permission = manifest.permission.filter(
+          p => p.$?.['android:name'] !== MIGRATION_PERMISSION,
+        );
+      }
+      if (!manifest['uses-permission']) manifest['uses-permission'] = [];
+      if (!manifest['uses-permission'].some(p => p.$?.['android:name'] === MIGRATION_PERMISSION)) {
+        manifest['uses-permission'].push({
+          $: {'android:name': MIGRATION_PERMISSION},
+        });
+      }
+      if (!queries.package) queries.package = [];
+      if (!queries.package.some(p => p.$?.['android:name'] === LEGACY_PACKAGE)) {
+        queries.package.push({$: {'android:name': LEGACY_PACKAGE}});
+      }
+      if (!queries.provider) queries.provider = [];
+      if (!queries.provider.some(p => p.$?.['android:authorities'] === MIGRATION_AUTHORITY)) {
+        queries.provider.push({$: {'android:authorities': MIGRATION_AUTHORITY}});
+      }
+      if (manifestApp && Array.isArray(manifestApp.provider)) {
+        manifestApp.provider = manifestApp.provider.filter(
+          p =>
+            !(
+              p.$ &&
+              (p.$['android:authorities'] === MIGRATION_AUTHORITY ||
+                p.$['android:name'] === '.MigrationContentProvider' ||
+                p.$['android:name'] === 'com.vega.MigrationContentProvider' ||
+                p.$['android:name'] === `${packageName}.MigrationContentProvider`)
+            ),
+        );
+      }
+    }
     const app = cfg.modResults.manifest.application?.[0];
     if (app) {
       if (!app.service) app.service = [];

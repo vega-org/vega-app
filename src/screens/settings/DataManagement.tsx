@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   BackHandler,
   DevSettings,
@@ -18,7 +18,20 @@ import SettingsPage from '../../components/ui/SettingsPage';
 import SettingsRow from '../../components/ui/SettingsRow';
 import SettingsSection from '../../components/ui/SettingsSection';
 import SettingsSwitchRow from '../../components/ui/SettingsSwitchRow';
-import {exportBackup, pickBackup, restoreBackup, type BackupSelection} from '../../lib/backup';
+import {
+  exportBackup,
+  getBackupSectionLabels,
+  pickBackup,
+  restoreBackup,
+  type BackupSelection,
+} from '../../lib/backup';
+import {
+  clearMigrationSnapshot,
+  hasLegacyMigrationData,
+  isMigrationConsumer,
+  promptLegacyPackageMigration,
+  syncMigrationSnapshot,
+} from '../../lib/packageMigration';
 import {clearAppCache} from '../../lib/clearAppCache';
 import {clearWebViewData} from '../../lib/clearWebViewData';
 import {
@@ -39,6 +52,24 @@ export default function DataManagement({navigation}: Props) {
   const colors = useM3Colors();
   const [backupOptionsVisible, setBackupOptionsVisible] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(() => settingsStorage.isSyncEnabled());
+  const [legacyMigrationAvailable, setLegacyMigrationAvailable] = useState(false);
+
+  useEffect(() => {
+    if (!isMigrationConsumer()) {
+      return;
+    }
+    let cancelled = false;
+    hasLegacyMigrationData()
+      .then(available => {
+        if (!cancelled) {
+          setLegacyMigrationAvailable(available);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -131,6 +162,7 @@ export default function DataManagement({navigation}: Props) {
 
   const eraseAllLocalData = useCallback(async () => {
     clearAllMMKVStorage();
+    await clearMigrationSnapshot().catch(() => {});
     await reloadApp('All MMKV storage erased');
   }, [reloadApp]);
 
@@ -172,13 +204,7 @@ export default function DataManagement({navigation}: Props) {
       showAppDialog({
         title: 'Restore backup?',
         message:
-          `This restores ${[
-            backup.settings !== undefined && 'settings',
-            backup.library !== undefined && 'library',
-            backup.providers !== undefined && 'providers',
-            backup.history !== undefined && 'watch history',
-            backup.progress !== undefined && 'watch progress',
-          ].filter(Boolean).join(', ')}. Sections absent from the backup stay unchanged. Vega will restart after restoring.`,
+          `This restores ${getBackupSectionLabels(backup).join(', ')}. Sections absent from the backup stay unchanged. Vega will restart after restoring.`,
         actions: [
           {label: 'Cancel'},
           {
@@ -186,6 +212,7 @@ export default function DataManagement({navigation}: Props) {
             variant: 'primary',
             onPress: async () => {
               restoreBackup(backup);
+              await syncMigrationSnapshot(true).catch(() => {});
               await reloadApp('Backup restored');
             },
           },
@@ -281,16 +308,28 @@ export default function DataManagement({navigation}: Props) {
           />
           <SettingsRow
             title="Export backup"
-            description="Save settings, providers and library to a file"
+            description="Save settings, providers, library, and followed shows to a file"
             icon="content-save-outline"
             onPress={() => setBackupOptionsVisible(true)}
           />
           <SettingsRow
             title="Import backup"
-            description="Restore settings, providers and library from a file"
+            description="Restore settings, providers, library, and followed shows from a file"
             icon="backup-restore"
             onPress={importBackupHandler}
           />
+          {legacyMigrationAvailable && (
+            <SettingsRow
+              title="Import from previous Vega"
+              description="Transfer settings, library, providers, history, and followed shows from the old app"
+              icon="backup-restore"
+              onPress={() => {
+                promptLegacyPackageMigration({manual: true}).catch(error => {
+                  console.warn('[Migration] Manual import prompt failed:', error);
+                });
+              }}
+            />
+          )}
           <SettingsRow
             title="Erase all local data"
             description="Erase all local data"

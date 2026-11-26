@@ -13,11 +13,17 @@ import {
 import useContentStore from './zustand/contentStore';
 import useThemeStore from './zustand/themeStore';
 import {createLibraryBackup, restoreLibraryBackup, validateLibraryBackup, type LibraryBackup} from './libraryBackup';
+import {
+  createFollowedShowsBackup,
+  restoreFollowedShowsBackup,
+  validateFollowedShowsBackup,
+  type FollowedShowsBackup,
+} from './followedShowsBackup';
 import useContinueWatchingStore, {type ContinueWatchingItem} from './zustand/continueWatchingStore';
 import {watchProgressStorage, type WatchProgress} from './storage/WatchProgressStorage';
 
 // Bump only when older apps would misread the file. New optional sections
-// (history, progress) keep version 2 so older apps still import the rest.
+// (history, progress, followedShows) keep version 2 so older apps still import the rest.
 export const BACKUP_VERSION = 2;
 
 export type BackupSelection = {
@@ -26,6 +32,7 @@ export type BackupSelection = {
   providers: boolean;
   history: boolean;
   progress: boolean;
+  followedShows: boolean;
 };
 const ALL_SECTIONS: BackupSelection = {
   settings: true,
@@ -33,6 +40,7 @@ const ALL_SECTIONS: BackupSelection = {
   providers: true,
   history: true,
   progress: true,
+  followedShows: true,
 };
 
 type SettingType = 'bool' | 'string' | 'number' | 'array';
@@ -136,7 +144,18 @@ export interface VegaBackup {
   };
   history?: ContinueWatchingItem[];
   progress?: Record<string, WatchProgress>;
+  followedShows?: FollowedShowsBackup;
 }
+
+export const getBackupSectionLabels = (backup: VegaBackup): string[] =>
+  [
+    backup.settings !== undefined && 'settings',
+    backup.library !== undefined && 'library',
+    backup.providers !== undefined && 'providers',
+    backup.history !== undefined && 'watch history',
+    backup.progress !== undefined && 'watch progress',
+    backup.followedShows !== undefined && 'followed shows',
+  ].filter((label): label is string => Boolean(label));
 
 const readSetting = (key: string, type: SettingType) => {
   switch (type) {
@@ -309,14 +328,15 @@ export const restoreProgressBackup = (progress?: Record<string, WatchProgress>):
 };
 
 export function createBackup(): VegaBackup & {settings: Record<string, SettingValue>};
-export function createBackup(selection: BackupSelection): VegaBackup;
-export function createBackup(selection: BackupSelection = ALL_SECTIONS): VegaBackup {
+export function createBackup(selection: Partial<BackupSelection>): VegaBackup;
+export function createBackup(selection: Partial<BackupSelection> = ALL_SECTIONS): VegaBackup {
   if (
     !selection.settings &&
     !selection.library &&
     !selection.providers &&
     !selection.history &&
-    !selection.progress
+    !selection.progress &&
+    !selection.followedShows
   ) {
     throw new Error('Select at least one section to back up');
   }
@@ -356,6 +376,7 @@ export function createBackup(selection: BackupSelection = ALL_SECTIONS): VegaBac
     }} : {}),
     ...(selection.history ? {history: useContinueWatchingStore.getState().items} : {}),
     ...(selection.progress ? {progress: watchProgressStorage.getAllProgress()} : {}),
+    ...(selection.followedShows ? {followedShows: createFollowedShowsBackup()} : {}),
   };
 }
 
@@ -372,7 +393,7 @@ export const parseBackup = (text: string): VegaBackup => {
   if (data.version > BACKUP_VERSION) {
     throw new Error('This backup was made by a newer version of Vega');
   }
-  const {settings, providers, library, history, progress} = data;
+  const {settings, providers, library, history, progress, followedShows} = data;
   const settingsValid = settings !== undefined && settings !== null &&
     typeof settings === 'object' && !Array.isArray(settings);
   const providersValid = providers !== undefined && providers !== null &&
@@ -382,12 +403,13 @@ export const parseBackup = (text: string): VegaBackup => {
   if ((settings !== undefined && !settingsValid) ||
     (providers !== undefined && !providersValid) ||
     (data.version < 2 && (!settingsValid || !providersValid)) ||
-    (settings === undefined && providers === undefined && library === undefined && history === undefined && progress === undefined)) {
+    (settings === undefined && providers === undefined && library === undefined && history === undefined && progress === undefined && followedShows === undefined)) {
     throw new Error('This backup file is incomplete');
   }
   validateLibraryBackup(data.library);
   validateHistoryBackup(data.history);
   validateProgressBackup(data.progress);
+  validateFollowedShowsBackup(data.followedShows);
   return data;
 };
 
@@ -395,9 +417,11 @@ export const restoreBackup = (backup: VegaBackup): void => {
   validateLibraryBackup(backup.library);
   validateHistoryBackup(backup.history);
   validateProgressBackup(backup.progress);
+  validateFollowedShowsBackup(backup.followedShows);
   restoreLibraryBackup(backup.library);
   restoreHistoryBackup(backup.history);
   restoreProgressBackup(backup.progress);
+  restoreFollowedShowsBackup(backup.followedShows);
   const settings = backup.settings || {};
   for (const [key, type] of Object.entries(BACKUP_SETTINGS)) {
     const value = settings[key];
@@ -448,7 +472,7 @@ const getBackupFileName = () =>
  * Saves a single backup document without requesting access to its whole folder.
  * Returns false when the user cancels the picker.
  */
-export const exportBackup = async (selection: BackupSelection = ALL_SECTIONS): Promise<boolean> => {
+export const exportBackup = async (selection: Partial<BackupSelection> = ALL_SECTIONS): Promise<boolean> => {
   const contents = JSON.stringify(createBackup(selection), null, 2);
   if (Platform.OS === 'android') {
     if (!NativeModules.BackupExport?.save) {

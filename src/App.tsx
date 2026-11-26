@@ -66,6 +66,10 @@ import {
   checkFollowedShowsIfDue,
   syncEpisodeCheckSchedule,
 } from './lib/services/episodeCheckService';
+import {
+  checkLegacyPackageMigration,
+  syncMigrationSnapshot,
+} from './lib/packageMigration';
 import {QueryClientProvider} from '@tanstack/react-query';
 import {queryClient} from './lib/client';
 import GlobalErrorBoundary from './components/GlobalErrorBoundary';
@@ -749,6 +753,9 @@ const App = () => {
             console.warn('[VegaSync] Background publish failed:', error),
           );
         }
+        syncMigrationSnapshot().catch(error =>
+          console.warn('[Migration] Background snapshot sync failed:', error),
+        );
       }
     });
     const interval = setInterval(() => {
@@ -876,6 +883,17 @@ const App = () => {
     if (!version) return;
     const build = Constants.expoConfig?.extra?.startupNoticeBuild ?? 'standalone';
     return scheduleWhenIdle(signal => checkStartupNotice(version, build, signal), 1800);
+  }, []);
+
+  useEffect(() => {
+    return scheduleWhenIdle(() => {
+      syncMigrationSnapshot().catch(error =>
+        console.warn('[Migration] Startup snapshot sync failed:', error),
+      );
+      checkLegacyPackageMigration().catch(error =>
+        console.warn('[Migration] Legacy migration check failed:', error),
+      );
+    }, 2200);
   }, []);
 
   useEffect(() => subscribeSourceIntent(openAddSourceScreen), []);

@@ -24,6 +24,8 @@ jest.mock('../src/lib/storage/StorageService', () => ({
     setString: (key: string, value: string) => mockValues.set(key, value),
     getNumber: (key: string) => mockValues.get(key),
     setNumber: (key: string, value: number) => mockValues.set(key, value),
+    getObject: (key: string) => mockValues.get(key),
+    setObject: (key: string, value: unknown) => mockValues.set(key, value),
     getArray: (key: string) => mockValues.get(key),
     setArray: (key: string, value: unknown[]) => mockValues.set(key, value),
     delete: (key: string) => mockValues.delete(key),
@@ -65,6 +67,16 @@ jest.mock('../src/lib/zustand/continueWatchingStore', () => ({
       mockHistoryState.items = state.items;
     },
   },
+}));
+
+const mockReloadFollowedShows = jest.fn();
+const mockSyncEpisodeCheckSchedule = jest.fn(async () => {});
+jest.mock('../src/lib/zustand/followedShowsStore', () => ({
+  __esModule: true,
+  default: {
+    getState: () => ({reloadFromStorage: mockReloadFollowedShows}),
+  },
+  syncEpisodeCheckSchedule: () => mockSyncEpisodeCheckSchedule(),
 }));
 
 jest.mock('expo-document-picker', () => ({getDocumentAsync: jest.fn()}));
@@ -440,5 +452,169 @@ describe('backup', () => {
     expect(parsed.version).toBe(2);
     expect(() => restoreBackup(parsed)).not.toThrow();
     expect(mockHistoryState.items).toEqual([]);
+  });
+
+  const followedShow = (id: string, updatedAt: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    link: `https://example.com/${id}`,
+    provider: 'demo',
+    providerName: 'Demo',
+    title: `Followed ${id}`,
+    poster: 'https://example.com/poster.jpg',
+    seasonTitle: 'Season 1',
+    seasonIndex: 0,
+    episodesLink: `https://example.com/${id}/eps`,
+    knownEpisodeKeys: ['ep1'],
+    knownEpisodeTitles: ['Episode 1'],
+    knownEpisodeCount: 1,
+    createdAt: 100,
+    updatedAt,
+    lastCheckedAt: updatedAt,
+    ...extra,
+  });
+
+  const onlySection = (section: 'followedShows' | 'settings') => ({
+    settings: section === 'settings',
+    library: false,
+    providers: false,
+    history: false,
+    progress: false,
+    followedShows: section === 'followedShows',
+  });
+
+  it('exports followed shows only when selected and omits transient errors and nextAt', () => {
+    mockValues.set('followed-shows', [
+      followedShow('demo::a', 500, {lastError: 'Temporary timeout'}),
+    ]);
+    mockValues.set('followed-shows-update-interval', 'custom');
+    mockValues.set('followed-shows-custom-schedule', {
+      days: [1, 4],
+      hour: 20,
+      minute: 30,
+      nextAt: 999999999999,
+    });
+    mockValues.set('followed-shows-wifi-only', true);
+    mockValues.set('followed-shows-unfollow-on-library-removal', true);
+    mockValues.set('followed-shows-unfollow-on-continue-watching-removal', false);
+
+    const full = parseBackup(JSON.stringify(createBackup()));
+    expect(full.followedShows).toEqual({
+      shows: [followedShow('demo::a', 500)],
+      updateInterval: 'custom',
+      customSchedule: {days: [1, 4], hour: 20, minute: 30},
+      wifiOnly: true,
+      unfollowOnLibraryRemoval: true,
+      unfollowOnContinueWatchingRemoval: false,
+    });
+    expect(
+      Object.prototype.hasOwnProperty.call(full.followedShows!.shows[0], 'lastError'),
+    ).toBe(false);
+
+    const settingsOnly = createBackup(onlySection('settings'));
+    expect(Object.prototype.hasOwnProperty.call(settingsOnly, 'followedShows')).toBe(false);
+
+    const followedOnly = createBackup(onlySection('followedShows'));
+    expect(followedOnly.followedShows?.shows).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(followedOnly, 'settings')).toBe(false);
+  });
+
+  it('merges followed shows by id keeping newer updatedAt, restores schedule, and syncs store', () => {
+    mockValues.set('followed-shows', [
+      followedShow('demo::local-newer', 900, {knownEpisodeCount: 5}),
+      followedShow('demo::local-older', 100, {knownEpisodeCount: 1}),
+      followedShow('demo::local-only', 300),
+    ]);
+
+    restoreBackup({
+      app: 'vega',
+      version: BACKUP_VERSION,
+      createdAt: '',
+      followedShows: {
+        shows: [
+          followedShow('demo::local-newer', 200, {knownEpisodeCount: 2}),
+          followedShow('demo::local-older', 800, {
+            knownEpisodeCount: 4,
+            lastError: 'stale',
+          }),
+          followedShow('demo::imported-only', 600),
+        ],
+        updateInterval: 'custom',
+        customSchedule: {days: [2, 2, 5], hour: 9, minute: 15},
+        wifiOnly: true,
+        unfollowOnLibraryRemoval: true,
+        unfollowOnContinueWatchingRemoval: true,
+      },
+    });
+
+    const savedShows = mockValues.get('followed-shows') as any[];
+    expect(savedShows.map(item => [item.id, item.updatedAt])).toEqual([
+      ['demo::local-newer', 900],
+      ['demo::local-older', 800],
+      ['demo::imported-only', 600],
+      ['demo::local-only', 300],
+    ]);
+    expect(savedShows.find(item => item.id === 'demo::local-older').knownEpisodeCount).toBe(4);
+    expect(savedShows.find(item => item.id === 'demo::local-older').lastError).toBeUndefined();
+    expect(mockValues.get('followed-shows-update-interval')).toBe('custom');
+    const restoredSchedule = mockValues.get('followed-shows-custom-schedule') as any;
+    expect(restoredSchedule.days).toEqual([2, 5]);
+    expect(restoredSchedule.nextAt).toBeGreaterThan(Date.now());
+    expect(mockValues.get('followed-shows-wifi-only')).toBe(true);
+    expect(mockValues.get('followed-shows-unfollow-on-library-removal')).toBe(true);
+    expect(
+      mockValues.get('followed-shows-unfollow-on-continue-watching-removal'),
+    ).toBe(true);
+    expect(mockReloadFollowedShows).toHaveBeenCalledTimes(1);
+    expect(mockSyncEpisodeCheckSchedule).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back custom interval without schedule to off and keeps followed shows untouched when section absent', () => {
+    mockValues.set('followed-shows', [followedShow('demo::keep', 400)]);
+    restoreBackup({
+      app: 'vega',
+      version: BACKUP_VERSION,
+      createdAt: '',
+      followedShows: {
+        shows: [],
+        updateInterval: 'custom',
+      },
+    });
+    expect(mockValues.get('followed-shows-update-interval')).toBe('off');
+    expect(mockValues.get('followed-shows')).toHaveLength(1);
+
+    mockReloadFollowedShows.mockClear();
+    restoreBackup({
+      app: 'vega',
+      version: BACKUP_VERSION,
+      createdAt: '',
+      settings: {hapticFeedback: true},
+    });
+    expect(mockReloadFollowedShows).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed followed shows before mutating any section', () => {
+    const header = {app: 'vega', version: BACKUP_VERSION, createdAt: ''};
+    const badPayloads = [
+      {shows: 'not-an-array'},
+      {shows: [{id: '', link: 'x', provider: 'p', title: 'T'}]},
+      {shows: [], updateInterval: 'every-5-seconds'},
+      {shows: [], customSchedule: {days: [], hour: 12, minute: 0}},
+      {shows: [], customSchedule: {days: [1], hour: 25, minute: 0}},
+      {shows: [], wifiOnly: 'yes'},
+    ];
+    for (const followedShows of badPayloads) {
+      expect(() =>
+        parseBackup(JSON.stringify({...header, followedShows})),
+      ).toThrow('invalid followed shows');
+      expect(() =>
+        restoreBackup({
+          ...header,
+          settings: {hapticFeedback: true},
+          followedShows: followedShows as any,
+        }),
+      ).toThrow('invalid followed shows');
+    }
+    expect(mockValues.has('hapticFeedback')).toBe(false);
+    expect(mockReloadFollowedShows).not.toHaveBeenCalled();
   });
 });

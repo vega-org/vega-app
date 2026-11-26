@@ -15,7 +15,12 @@ export default function BackupExportDialog({onClose, onExport}: {
   const colors = useM3Colors();
   const {height} = useWindowDimensions();
   const [selection, setSelection] = useState<BackupSelection>({
-    settings: true, library: true, providers: true, history: true, progress: true,
+    settings: true,
+    library: true,
+    providers: true,
+    history: true,
+    progress: true,
+    followedShows: true,
   });
   const canExport = Object.values(selection).some(Boolean);
   return (
@@ -38,9 +43,10 @@ export default function BackupExportDialog({onClose, onExport}: {
         ['providers', 'Providers', 'Installed providers, sources and provider code'],
         ['history', 'Watch history', 'Continue watching titles and resume positions'],
         ['progress', 'Watch progress', 'Watched and partly watched episodes'],
+        ['followedShows', 'Followed shows', 'Followed series and episode check schedule'],
       ] as const).map(([key, title, description]) => (
         <SettingsSwitchRow key={key} title={title} description={description}
-          value={selection[key]} divider={key !== 'progress'}
+          value={selection[key]} divider={key !== 'followedShows'}
           onValueChange={checked => setSelection(previous => ({...previous, [key]: checked}))} />
       ))}
       {!canExport && <AppText role="bodySmall" style={{color: colors.onSurfaceVariant, marginTop: 8}}>
