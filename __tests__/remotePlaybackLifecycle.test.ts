@@ -462,3 +462,71 @@ it('clears subtitle preparation when a different video supersedes it', async () 
   ready.resolve({ok: true});
   await tick();
 });
+
+it('uses a fresh sessionId when Cast HLS output falls back to ffmpeg', async () => {
+  const client = {loadMedia: jest.fn(async () => {}), setActiveTrackIds: jest.fn(async () => {})};
+  (GoogleCast.getSessionManager().getCurrentCastSession as jest.Mock).mockResolvedValue({
+    client, getCastDevice: async () => ({ipAddress: 'tv'}),
+  });
+  (delivery.inspectTracks as jest.Mock).mockResolvedValue({...inspected, container: 'matroska'});
+  (delivery.prepareStream as jest.Mock).mockImplementationOnce(async o => ({
+    streamUrl: `http://phone/hlsout/${o.sessionId}/index.m3u8`,
+    mimeType: 'application/x-mpegurl',
+    durationSeconds: 900,
+    timelineOffsetSeconds: 0,
+    byteRangeSeek: false,
+  }));
+  const hlsSpy = jest.spyOn(manager, 'isCastHlsEnabled').mockReturnValue(true);
+  try {
+    await manager.startRemotePlayback({...device, type: 'cast'}, {
+      sourceUrl: 'https://source/movie.mkv',
+      title: 'Movie',
+    });
+    expect(delivery.prepareStream).toHaveBeenCalledTimes(2);
+    const firstCall = (delivery.prepareStream as jest.Mock).mock.calls[0][0];
+    const secondCall = (delivery.prepareStream as jest.Mock).mock.calls[1][0];
+    expect(firstCall.mode).toBe('hls');
+    expect(secondCall.mode).toBe('ffmpeg');
+    expect(secondCall.sessionId).not.toBe(firstCall.sessionId);
+    expect(delivery.cleanupSession).toHaveBeenCalledWith(firstCall.sessionId);
+  } finally {
+    hlsSpy.mockRestore();
+  }
+});
+
+it('queues a seek behind an in-flight audio track switch using the new audio track', async () => {
+  (delivery.inspectTracks as jest.Mock).mockResolvedValue({
+    ...inspected,
+    container: 'matroska',
+    audioTracks: [
+      {id: '0', index: 0, codec: 'aac', isSelected: true},
+      {id: '1', index: 1, codec: 'aac'},
+    ],
+  });
+  (delivery.prepareStream as jest.Mock).mockImplementation(async o => ({
+    streamUrl: `http://phone/${o.sessionId}`,
+    mimeType: 'video/mp4',
+    durationSeconds: 900,
+    timelineOffsetSeconds: o.startPositionSeconds || 0,
+  }));
+  await manager.startRemotePlayback(device, {sourceUrl: 'https://source/movie.mkv', title: 'Movie'});
+  const slowLoad = deferred<void>();
+  (dlna.loadMedia as jest.Mock).mockImplementationOnce(() => slowLoad.promise);
+  jest.useFakeTimers();
+  try {
+    const switching = manager.switchAudioTrack({id: '1', index: 1, language: 'en', codec: 'aac'});
+    await tick();
+    const seeking = manager.seek(240);
+    jest.advanceTimersByTime(700);
+    await tick();
+    slowLoad.resolve();
+    await Promise.all([switching, seeking]);
+    expect(delivery.prepareStream).toHaveBeenLastCalledWith(
+      expect.objectContaining({audioTrackIndex: 1, startPositionSeconds: 240}),
+    );
+    expect(useRemoteStore.getState().errorMessage).toBeUndefined();
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  }
+});

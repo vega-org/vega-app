@@ -50,8 +50,11 @@ class DlnaModule(
 
     private var multicastLock: WifiManager.MulticastLock? = null
     @Volatile private var isSearching = false
-    @Volatile private var lastSoapError: String? = null
+    private val discoveryGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var activeSocket: MulticastSocket? = null
     private val discoveredDevices = ConcurrentHashMap<String, Boolean>()
+
+    private data class SoapResult(val body: String?, val error: String? = null)
 
     private fun sendEvent(eventName: String, params: Any?) {
         if (reactContext.hasActiveReactInstance()) {
@@ -68,6 +71,7 @@ class DlnaModule(
             return
         }
 
+        val gen = discoveryGeneration.incrementAndGet()
         discoveredDevices.clear()
         isSearching = true
 
@@ -85,6 +89,7 @@ class DlnaModule(
                     broadcast = true
                     soTimeout = 4000
                 }
+                activeSocket = socket
 
                 // Explicitly bind socket to Wi-Fi interface/network to avoid cellular routing EPERM
                 val cm = reactContext.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -92,7 +97,7 @@ class DlnaModule(
                     cm.getNetworkCapabilities(net)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
                 }
 
-                val wifiIface = NetworkInterface.getNetworkInterfaces().toList().firstOrNull { iface ->
+                val wifiIface = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().firstOrNull { iface ->
                     (iface.name.startsWith("wlan") || iface.name.startsWith("wifi")) && iface.isUp
                 }
 
@@ -156,7 +161,7 @@ class DlnaModule(
                 val buffer = ByteArray(4096)
                 val startTime = System.currentTimeMillis()
 
-                while (isSearching && (System.currentTimeMillis() - startTime) < 7000) {
+                while (isSearching && discoveryGeneration.get() == gen && (System.currentTimeMillis() - startTime) < 7000) {
                     try {
                         val receivePacket = DatagramPacket(buffer, buffer.size)
                         socket.receive(receivePacket)
@@ -181,21 +186,28 @@ class DlnaModule(
                         }
                     } catch (_: java.net.SocketTimeoutException) {
                         break
+                    } catch (e: java.net.SocketException) {
+                        if (!isSearching || discoveryGeneration.get() != gen) break
+                        VegaLog.w(TAG, "SSDP receive socket error: ${e.message}")
                     } catch (e: Exception) {
+                        if (!isSearching || discoveryGeneration.get() != gen) break
                         VegaLog.w(TAG, "SSDP receive error: ${e.message}")
                     }
                 }
             } catch (e: Exception) {
                 VegaLog.e(TAG, "Discovery error", e)
             } finally {
-                isSearching = false
                 try {
                     socket?.close()
                 } catch (_: Exception) {}
-                try {
-                    multicastLock?.release()
-                } catch (_: Exception) {}
-                multicastLock = null
+                if (discoveryGeneration.get() == gen) {
+                    isSearching = false
+                    if (activeSocket === socket) activeSocket = null
+                    try {
+                        multicastLock?.release()
+                    } catch (_: Exception) {}
+                    multicastLock = null
+                }
             }
         }.start()
 
@@ -204,7 +216,12 @@ class DlnaModule(
 
     @ReactMethod
     fun stopDiscovery(promise: Promise) {
+        discoveryGeneration.incrementAndGet()
         isSearching = false
+        try {
+            activeSocket?.close()
+        } catch (_: Exception) {}
+        activeSocket = null
         try {
             multicastLock?.release()
         } catch (_: Exception) {}
@@ -213,7 +230,7 @@ class DlnaModule(
     }
 
     private fun extractHeader(response: String, headerName: String): String? {
-        val lines = response.split("\r\n")
+        val lines = response.split(Regex("\r?\n"))
         val prefix = "${headerName.uppercase()}:"
         for (line in lines) {
             if (line.uppercase().startsWith(prefix)) {
@@ -270,24 +287,39 @@ class DlnaModule(
         val host = baseUrl.host
         val port = baseUrl.port
 
-        val factory = DocumentBuilderFactory.newInstance()
-        factory.isNamespaceAware = true
+        val factory = DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = true
+            try {
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+                isXIncludeAware = false
+                isExpandEntityReferences = false
+            } catch (_: Exception) {}
+        }
         val builder = factory.newDocumentBuilder()
         val doc = builder.parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
 
-        val friendlyName = doc.getElementsByTagName("friendlyName").item(0)?.textContent ?: "DLNA TV ($host)"
-        val udn = doc.getElementsByTagName("UDN").item(0)?.textContent ?: locationUrl
-        val modelName = doc.getElementsByTagName("modelName").item(0)?.textContent ?: ""
-        val manufacturer = doc.getElementsByTagName("manufacturer").item(0)?.textContent ?: ""
+        fun nodesFor(parent: org.w3c.dom.Document, tag: String) =
+            parent.getElementsByTagNameNS("*", tag).takeIf { it.length > 0 } ?: parent.getElementsByTagName(tag)
+
+        fun elementNodesFor(parent: Element, tag: String) =
+            parent.getElementsByTagNameNS("*", tag).takeIf { it.length > 0 } ?: parent.getElementsByTagName(tag)
+
+        val friendlyName = nodesFor(doc, "friendlyName").item(0)?.textContent ?: "DLNA TV ($host)"
+        val udn = nodesFor(doc, "UDN").item(0)?.textContent ?: locationUrl
+        val modelName = nodesFor(doc, "modelName").item(0)?.textContent ?: ""
+        val manufacturer = nodesFor(doc, "manufacturer").item(0)?.textContent ?: ""
 
         var avTransportControlUrl: String? = null
         var renderingControlUrl: String? = null
 
-        val serviceNodes = doc.getElementsByTagName("service")
+        val serviceNodes = nodesFor(doc, "service")
         for (i in 0 until serviceNodes.length) {
             val service = serviceNodes.item(i) as? Element ?: continue
-            val serviceType = service.getElementsByTagName("serviceType").item(0)?.textContent ?: ""
-            val controlUrlRel = service.getElementsByTagName("controlURL").item(0)?.textContent ?: ""
+            val serviceType = elementNodesFor(service, "serviceType").item(0)?.textContent ?: ""
+            val controlUrlRel = elementNodesFor(service, "controlURL").item(0)?.textContent ?: ""
 
             if (serviceType.contains(":AVTransport:")) {
                 avTransportControlUrl = resolveUrl(baseUrl, controlUrlRel)
@@ -327,8 +359,10 @@ class DlnaModule(
                 VegaLog.i(TAG, "setAVTransportURI: mediaUrl=$mediaUrl subtitleUrl=$subtitleUrl controlUrl=$controlUrl")
                 val subXml = if (!subtitleUrl.isNullOrBlank()) {
                     val escapedSub = escapeXml(subtitleUrl)
-                    val srtUrl = if (subtitleUrl.endsWith(".vtt", ignoreCase = true)) {
-                        subtitleUrl.substringBeforeLast(".vtt") + ".srt"
+                    val pathPart = subtitleUrl.substringBefore('?')
+                    val queryPart = subtitleUrl.substringAfter('?', "")
+                    val srtUrl = if (pathPart.endsWith(".vtt", ignoreCase = true)) {
+                        pathPart.substringBeforeLast(".vtt") + ".srt" + if (queryPart.isNotEmpty()) "?$queryPart" else ""
                     } else {
                         subtitleUrl
                     }
@@ -368,10 +402,10 @@ class DlnaModule(
 
                 val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI", soapBody)
                 reactContext.runOnUiQueueThread {
-                    if (res != null) {
+                    if (res.body != null) {
                         promise.resolve(true)
                     } else {
-                        promise.reject("SOAP_ERROR", "SetAVTransportURI failed: ${lastSoapError ?: "Unknown error"}")
+                        promise.reject("SOAP_ERROR", "SetAVTransportURI failed: ${res.error ?: "Unknown error"}")
                     }
                 }
             } catch (e: Exception) {
@@ -396,7 +430,7 @@ class DlnaModule(
             """.trimIndent()
             val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#Play", soapBody)
             reactContext.runOnUiQueueThread {
-                if (res != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Play failed")
+                if (res.body != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Play failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
@@ -416,7 +450,7 @@ class DlnaModule(
             """.trimIndent()
             val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#Pause", soapBody)
             reactContext.runOnUiQueueThread {
-                if (res != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Pause failed")
+                if (res.body != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Pause failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
@@ -436,7 +470,7 @@ class DlnaModule(
             """.trimIndent()
             val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#Stop", soapBody)
             reactContext.runOnUiQueueThread {
-                if (res != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Stop failed")
+                if (res.body != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Stop failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
@@ -459,7 +493,7 @@ class DlnaModule(
             """.trimIndent()
             val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#Seek", soapBody)
             reactContext.runOnUiQueueThread {
-                if (res != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Seek failed")
+                if (res.body != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "Seek failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
@@ -478,9 +512,10 @@ class DlnaModule(
                         </s:Body>
                     </s:Envelope>
                 """.trimIndent()
-                val responseXml = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo", soapBody)
+                val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo", soapBody)
+                val responseXml = res.body
                 if (responseXml == null) {
-                    reactContext.runOnUiQueueThread { promise.reject("SOAP_ERROR", "GetPositionInfo returned null") }
+                    reactContext.runOnUiQueueThread { promise.reject("SOAP_ERROR", "GetPositionInfo failed: ${res.error ?: "Unknown error"}") }
                     return@Thread
                 }
 
@@ -516,9 +551,10 @@ class DlnaModule(
                         </s:Body>
                     </s:Envelope>
                 """.trimIndent()
-                val responseXml = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo", soapBody)
+                val res = sendSoapAction(controlUrl, "urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo", soapBody)
+                val responseXml = res.body
                 if (responseXml == null) {
-                    reactContext.runOnUiQueueThread { promise.reject("SOAP_ERROR", "GetMediaInfo returned null") }
+                    reactContext.runOnUiQueueThread { promise.reject("SOAP_ERROR", "GetMediaInfo failed: ${res.error ?: "Unknown error"}") }
                     return@Thread
                 }
                 val currentUri = parseTagString(responseXml, "CurrentURI") ?: ""
@@ -550,7 +586,7 @@ class DlnaModule(
             """.trimIndent()
             val res = sendSoapAction(renderingControlUrl, "urn:schemas-upnp-org:service:RenderingControl:1#SetVolume", soapBody)
             reactContext.runOnUiQueueThread {
-                if (res != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "SetVolume failed")
+                if (res.body != null) promise.resolve(true) else promise.reject("SOAP_ERROR", "SetVolume failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
@@ -570,15 +606,14 @@ class DlnaModule(
                 </s:Envelope>
             """.trimIndent()
             val res = sendSoapAction(renderingControlUrl, "urn:schemas-upnp-org:service:RenderingControl:1#GetVolume", soapBody)
-            val volume = res?.let { parseTagString(it, "CurrentVolume")?.trim()?.toIntOrNull() }
+            val volume = res.body?.let { parseTagString(it, "CurrentVolume")?.trim()?.toIntOrNull() }
             reactContext.runOnUiQueueThread {
-                if (volume != null) promise.resolve(volume) else promise.reject("SOAP_ERROR", "GetVolume failed")
+                if (volume != null) promise.resolve(volume) else promise.reject("SOAP_ERROR", "GetVolume failed: ${res.error ?: "Unknown error"}")
             }
         }.start()
     }
 
-    private fun sendSoapAction(controlUrl: String, soapAction: String, soapBody: String): String? {
-        lastSoapError = null
+    private fun sendSoapAction(controlUrl: String, soapAction: String, soapBody: String): SoapResult {
         return try {
             val body = soapBody.toRequestBody("text/xml; charset=\"utf-8\"".toMediaType())
             val request = Request.Builder()
@@ -588,24 +623,24 @@ class DlnaModule(
                 .build()
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    response.body?.string() ?: ""
+                    SoapResult(response.body?.string() ?: "")
                 } else {
                     val errBody = response.body?.string() ?: ""
                     val code = parseTagString(errBody, "errorCode")
                     val desc = parseTagString(errBody, "errorDescription")
-                    lastSoapError = if (!code.isNullOrBlank() || !desc.isNullOrBlank()) {
+                    val errMsg = if (!code.isNullOrBlank() || !desc.isNullOrBlank()) {
                         "UPnP error ${code ?: ""}: ${desc ?: ""}".trim()
                     } else {
                         "HTTP ${response.code}: ${errBody.take(120)}"
                     }
-                    VegaLog.w(TAG, "SOAP request $soapAction to $controlUrl returned ${response.code}: $lastSoapError")
-                    null
+                    VegaLog.w(TAG, "SOAP request $soapAction to $controlUrl returned ${response.code}: $errMsg")
+                    SoapResult(null, errMsg)
                 }
             }
         } catch (e: Exception) {
-            lastSoapError = e.message ?: "Network error"
+            val errMsg = e.message ?: "Network error"
             VegaLog.w(TAG, "SOAP execution error for $soapAction", e)
-            null
+            SoapResult(null, errMsg)
         }
     }
 
@@ -618,22 +653,25 @@ class DlnaModule(
             .replace("'", "&apos;")
     }
 
+    private fun unescapeXml(str: String): String {
+        return str
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+    }
+
     private fun formatSecondsToHms(seconds: Double): String {
         val totalSecs = seconds.toLong().coerceAtLeast(0)
         val h = totalSecs / 3600
         val m = (totalSecs % 3600) / 60
         val s = totalSecs % 60
-        return String.format("%02d:%02d:%02d", h, m, s)
+        return String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s)
     }
 
     private fun parseTagTime(xml: String, tagName: String): Double {
-        val openTag = "<$tagName>"
-        val closeTag = "</$tagName>"
-        val start = xml.indexOf(openTag)
-        if (start == -1) return 0.0
-        val end = xml.indexOf(closeTag, start)
-        if (end == -1) return 0.0
-        val timeStr = xml.substring(start + openTag.length, end).trim()
+        val timeStr = parseTagString(xml, tagName) ?: return 0.0
         val parts = timeStr.split(":")
         return when (parts.size) {
             3 -> (parts[0].toDoubleOrNull() ?: 0.0) * 3600 + (parts[1].toDoubleOrNull() ?: 0.0) * 60 + (parts[2].toDoubleOrNull() ?: 0.0)
@@ -643,12 +681,9 @@ class DlnaModule(
     }
 
     private fun parseTagString(xml: String, tagName: String): String? {
-        val openTag = "<$tagName>"
-        val closeTag = "</$tagName>"
-        val start = xml.indexOf(openTag)
-        if (start == -1) return null
-        val end = xml.indexOf(closeTag, start)
-        if (end == -1) return null
-        return xml.substring(start + openTag.length, end).trim()
+        val escaped = Regex.escape(tagName)
+        val regex = Regex("<(?:[A-Za-z0-9_-]+:)?$escaped(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[A-Za-z0-9_-]+:)?$escaped>")
+        val match = regex.find(xml) ?: return null
+        return unescapeXml(match.groupValues[1].trim())
     }
 }

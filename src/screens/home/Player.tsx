@@ -2403,11 +2403,13 @@ const Player = ({route}: Props): React.JSX.Element => {
     }
 
     if (Array.isArray(textTracks)) {
+      let embeddedOrdinal = 0;
       textTracks.forEach((t: any, i: number) => {
         if (findSavedSubtitle(t, savedSubtitles)) return;
         const lang = t.language && t.language !== 'und' ? t.language : '';
         allSubs.push({
           id: `track_${t.index ?? i}`,
+          index: embeddedOrdinal++,
           language: lang || 'und',
           title: t.title || (lang ? lang.toUpperCase() : `Track ${i + 1}`),
           isEmbedded: true,
@@ -2444,7 +2446,14 @@ const Player = ({route}: Props): React.JSX.Element => {
 
   // Inspect media tracks directly via native module / direct EBML parser when remote player is active
   useEffect(() => {
-    if (Platform.isTV || !isRemoteActive || !processedStreamUrl) return;
+    if (
+      Platform.isTV ||
+      !isRemoteActive ||
+      !processedStreamUrl ||
+      connectedRemoteDevice ||
+      remoteMediaClient
+    )
+      return;
 
     let cancelled = false;
     remoteDeliveryService
@@ -2452,27 +2461,42 @@ const Player = ({route}: Props): React.JSX.Element => {
         processedStreamUrl,
         Boolean(isLocalOrDownloadedStream),
         selectedStream?.headers,
+        selectedStream?.type,
       )
       .then(inspected => {
         if (cancelled) return;
+        const store = useRemoteStore.getState();
         if (inspected.audioTracks && inspected.audioTracks.length > 0) {
-          useRemoteStore
-            .getState()
-            .setAudioTracks(
-              inspected.audioTracks,
-              inspected.audioTracks[0]?.id,
-            );
+          const keptAudioId =
+            store.activeAudioTrackId &&
+            inspected.audioTracks.some(t => t.id === store.activeAudioTrackId)
+              ? store.activeAudioTrackId
+              : inspected.audioTracks[0]?.id;
+          store.setAudioTracks(inspected.audioTracks, keptAudioId);
         }
         if (inspected.subtitleTracks && inspected.subtitleTracks.length > 0) {
-          useRemoteStore.getState().setSubtitleTracks(inspected.subtitleTracks);
+          const existingExternal = store.subtitleTracks.filter(
+            sub => !sub.isEmbedded,
+          );
+          const merged: RemoteSubtitleTrack[] = [];
+          const seen = new Set<string>();
+          for (const sub of [...inspected.subtitleTracks, ...existingExternal]) {
+            const dedupeKey = sub.uri ? `uri:${sub.uri}` : `id:${sub.id}`;
+            if (!seen.has(dedupeKey) && !seen.has(`id:${sub.id}`)) {
+              seen.add(dedupeKey);
+              seen.add(`id:${sub.id}`);
+              merged.push(sub);
+            }
+          }
+          store.setSubtitleTracks(merged);
         }
         if (inspected.videoQualities && inspected.videoQualities.length > 0) {
-          useRemoteStore
-            .getState()
-            .setQualities(
-              inspected.videoQualities,
-              inspected.videoQualities[0]?.id,
-            );
+          const keptQualityId =
+            store.activeQualityId &&
+            inspected.videoQualities.some(q => q.id === store.activeQualityId)
+              ? store.activeQualityId
+              : inspected.videoQualities[0]?.id;
+          store.setQualities(inspected.videoQualities, keptQualityId);
         }
       })
       .catch(() => {});
@@ -2485,6 +2509,9 @@ const Player = ({route}: Props): React.JSX.Element => {
     processedStreamUrl,
     isLocalOrDownloadedStream,
     selectedStream?.headers,
+    selectedStream?.type,
+    connectedRemoteDevice,
+    remoteMediaClient,
   ]);
 
   useEffect(() => {
@@ -2578,9 +2605,12 @@ const Player = ({route}: Props): React.JSX.Element => {
           });
         }
         if (Array.isArray(textTracks)) {
+          let embeddedOrdinal = 0;
           textTracks.forEach((t: any, i: number) => {
+            if (findSavedSubtitle(t, savedSubtitles)) return;
             remoteSubtitles.push({
               id: `track_${t.index ?? i}`,
+              index: embeddedOrdinal++,
               language: t.language || 'und',
               title: t.title || t.language || `Track ${i + 1}`,
               isEmbedded: true,

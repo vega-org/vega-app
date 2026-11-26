@@ -35,14 +35,18 @@ class RemoteDeliveryService : Service() {
         // Own the delivery runtime for the lifetime of casting, even if the
         // activity/React bridge is destroyed when its task is swiped away.
         @Volatile private var deliveryRuntime: RemoteDeliveryModule? = null
+        @Volatile private var deliveryGeneration = 0L
         @Volatile private var running = false
 
-        fun retainDelivery(runtime: RemoteDeliveryModule) {
+        fun retainDelivery(runtime: RemoteDeliveryModule, generation: Long = 0L) {
             deliveryRuntime = runtime
+            deliveryGeneration = generation
         }
 
-        fun releaseDelivery(runtime: RemoteDeliveryModule) {
-            if (deliveryRuntime === runtime) deliveryRuntime = null
+        fun releaseDelivery(runtime: RemoteDeliveryModule, expectedGeneration: Long? = null) {
+            if (deliveryRuntime === runtime && (expectedGeneration == null || expectedGeneration == deliveryGeneration)) {
+                deliveryRuntime = null
+            }
         }
 
         const val ACTION_START = "com.vega.ACTION_START_REMOTE_DELIVERY"
@@ -65,7 +69,8 @@ class RemoteDeliveryService : Service() {
             artwork: String? = null,
             isPlaying: Boolean = true,
             positionSeconds: Double = 0.0,
-            durationSeconds: Double = 0.0
+            durationSeconds: Double = 0.0,
+            generation: Long = 0L
         ) {
             val intent = Intent(context, RemoteDeliveryService::class.java).apply {
                 action = ACTION_START
@@ -75,6 +80,7 @@ class RemoteDeliveryService : Service() {
                 putExtra("isPlaying", isPlaying)
                 putExtra("position", positionSeconds)
                 putExtra("duration", durationSeconds)
+                if (generation > 0L) putExtra("generation", generation)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -139,6 +145,8 @@ class RemoteDeliveryService : Service() {
     // while the activity is in the background, so a JS debounce would only fire
     // once the app is reopened.
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var activeGeneration = 0L
+    private val taskRemovedStopRunnable = Runnable { stopForegroundService() }
     private var pendingSkipSeconds = 0.0
     private val flushSkip = Runnable {
         val delta = pendingSkipSeconds
@@ -296,6 +304,13 @@ class RemoteDeliveryService : Service() {
         }
         when (intent?.action) {
             ACTION_START -> {
+                mainHandler.removeCallbacks(taskRemovedStopRunnable)
+                val gen = intent.getLongExtra("generation", 0L)
+                if (gen > 0L) {
+                    activeGeneration = gen
+                } else if (activeGeneration == 0L) {
+                    activeGeneration = deliveryGeneration
+                }
                 intent.getStringExtra("title")?.let { currentTitle = it }
                 intent.getStringExtra("subtitle")?.let { currentSubtitle = it }
                 val art = intent.getStringExtra("artwork")
@@ -317,6 +332,9 @@ class RemoteDeliveryService : Service() {
                 startInForeground()
             }
             ACTION_UPDATE -> {
+                if (activeGeneration == 0L) {
+                    activeGeneration = deliveryGeneration
+                }
                 var metaChanged = false
                 var playChanged = false
                 intent.getStringExtra("title")?.let {
@@ -387,8 +405,9 @@ class RemoteDeliveryService : Service() {
         // server and service shut down.
         super.onTaskRemoved(rootIntent)
         mainHandler.removeCallbacks(flushSkip)
+        mainHandler.removeCallbacks(taskRemovedStopRunnable)
         RemoteDeliveryModule.sendMediaAction("stop")
-        mainHandler.postDelayed({ stopForegroundService() }, 2000L)
+        mainHandler.postDelayed(taskRemovedStopRunnable, 2000L)
     }
 
     private fun startInForeground() {
@@ -593,7 +612,7 @@ class RemoteDeliveryService : Service() {
     }
 
     private fun stopForegroundService() {
-        deliveryRuntime?.closeDelivery()
+        deliveryRuntime?.closeDelivery(activeGeneration.takeIf { it > 0L })
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -611,7 +630,7 @@ class RemoteDeliveryService : Service() {
         super.onDestroy()
         mainHandler.removeCallbacksAndMessages(null)
         running = false
-        deliveryRuntime?.closeDelivery()
+        deliveryRuntime?.closeDelivery(activeGeneration.takeIf { it > 0L })
         releaseLocks()
 
         try {

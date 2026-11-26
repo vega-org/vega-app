@@ -97,7 +97,9 @@ export const DevicePickerModal: React.FC<DevicePickerModalProps> = ({
   if (isTV) return null;
 
   const isCastConnected = (deviceId: string) =>
-    castDevice?.deviceId === deviceId && connectedDevice?.type !== 'dlna';
+    castDevice?.deviceId === deviceId &&
+    connectedDevice?.type !== 'dlna' &&
+    connectedDevice?.type !== 'vega-cast';
 
   const handleSelectCast = (deviceId: string) => {
     if (isCastConnected(deviceId)) {

@@ -7,19 +7,22 @@ const {VegaDlna} = NativeModules;
 
 class DlnaService {
   private pollingTimer: NodeJS.Timeout | null = null;
+  private discoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private subscription: any = null;
   private timelineOffset = 0;
   private sourceDuration = 0;
 
   private pollingGeneration = 0;
 
-  private pollInFlight = false;
-
   private pollingControlUrl: string | null = null;
 
   startDiscovery(): void {
     if (Platform.OS !== 'android' || !VegaDlna) return;
 
+    if (this.discoveryTimer) {
+      clearTimeout(this.discoveryTimer);
+      this.discoveryTimer = null;
+    }
     useRemoteStore.getState().setIsSearchingDlna(true);
 
     if (!this.subscription) {
@@ -38,12 +41,17 @@ class DlnaService {
       useRemoteStore.getState().setIsSearchingDlna(false);
     });
 
-    setTimeout(() => {
+    this.discoveryTimer = setTimeout(() => {
+      this.discoveryTimer = null;
       this.stopDiscovery();
     }, 7000);
   }
 
   stopDiscovery(): void {
+    if (this.discoveryTimer) {
+      clearTimeout(this.discoveryTimer);
+      this.discoveryTimer = null;
+    }
     if (Platform.OS !== 'android' || !VegaDlna) return;
     useRemoteStore.getState().setIsSearchingDlna(false);
     VegaDlna.stopDiscovery().catch(() => {});
@@ -178,9 +186,10 @@ class DlnaService {
     const generation = this.pollingGeneration;
     const offset = this.timelineOffset;
     const sourceDuration = this.sourceDuration;
+    let inFlight = false;
     this.pollingTimer = setInterval(async () => {
-      if (this.pollInFlight || generation !== this.pollingGeneration) return;
-      this.pollInFlight = true;
+      if (inFlight || generation !== this.pollingGeneration) return;
+      inFlight = true;
       try {
         const info = await VegaDlna.getPositionInfo(controlUrl);
         if (generation !== this.pollingGeneration) return;
@@ -195,7 +204,7 @@ class DlnaService {
       } catch {
         // Ignored during seek/transitions
       } finally {
-        this.pollInFlight = false;
+        inFlight = false;
       }
     }, 1000);
   }

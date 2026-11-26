@@ -30,7 +30,7 @@ class VolumeKeyModule(reactContext: ReactApplicationContext) :
             }
             if (!capturing || direction == 0) return original.dispatchKeyEvent(event)
             // Consume both down and up so the phone volume panel never shows.
-            if (event.action == KeyEvent.ACTION_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN && reactApplicationContext.hasActiveReactInstance()) {
                 val params = Arguments.createMap().apply { putInt("direction", direction) }
                 reactApplicationContext
                     .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

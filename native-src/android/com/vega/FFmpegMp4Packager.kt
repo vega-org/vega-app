@@ -90,6 +90,7 @@ class FFmpegMp4Packager(
      */
     @Synchronized
     fun openReader(startSeconds: Double, offset: Long): InputStream? {
+        if (offset < 0L) return null
         if (closed.get()) throw IllegalStateException("FFmpegMp4Packager is closed")
         outputs.filter { it.isClosed() }.forEach { outputs.remove(it) }
         val existing = outputs.firstOrNull { Math.abs(it.startSeconds - startSeconds) < 0.01 }
@@ -228,7 +229,7 @@ class FFmpegMp4Packager(
         }
 
         fun reader(offset: Long): InputStream? = synchronized(lock) {
-            if (closed || offset < written - RING_BYTES || offset > written + MAX_FORWARD_BYTES) return null
+            if (closed || offset < 0L || offset < written - RING_BYTES || offset > written + MAX_FORWARD_BYTES) return null
             val id = nextReaderId++
             readerPositions[id] = offset
             updateFloorLocked()
@@ -302,7 +303,14 @@ class FFmpegMp4Packager(
         val completion: CompletableFuture<Unit>
     )
 
+    private data class PendingStream(
+        val session: FFmpegSession,
+        val pipePath: String,
+        val pipeFuture: CompletableFuture<FileInputStream>
+    )
+
     private val activeStreams = CopyOnWriteArrayList<ActiveStream>()
+    private val pendingSessions = java.util.concurrent.ConcurrentHashMap<Long, PendingStream>()
     private val closed = AtomicBoolean(false)
 
     /**
@@ -463,6 +471,7 @@ class FFmpegMp4Packager(
         val prematureEndWarning = AtomicBoolean(false)
         val failure = AtomicReference<String?>(null)
         val completion = CompletableFuture<Unit>()
+        val pipeFuture = CompletableFuture<FileInputStream>()
         val session = FFmpegKit.executeWithArgumentsAsync(
             args.toTypedArray(),
             { completedSession ->
@@ -488,6 +497,12 @@ class FFmpegMp4Packager(
                     // Unblock any waiting reader in background daemon so this thread never blocks
                     unblockPipeAsync(pipePath)
                 }
+                if (!pipeFuture.isDone) {
+                    pipeFuture.completeExceptionally(
+                        java.io.IOException(failure.get() ?: "FFmpeg exited with code $returnCode before opening pipe")
+                    )
+                    unblockPipeAsync(pipePath)
+                }
                 completion.complete(Unit)
             },
             { log ->
@@ -505,22 +520,46 @@ class FFmpegMp4Packager(
             null
         )
 
-        // Open pipe for reading. CompletableFuture with timeout prevents hanging if FFmpeg fails to launch.
-        val future = CompletableFuture.supplyAsync {
-            FileInputStream(File(pipePath))
+        val pendingEntry = PendingStream(session, pipePath, pipeFuture)
+        pendingSessions[session.sessionId] = pendingEntry
+        if (closed.get() || retired) {
+            pendingSessions.remove(session.sessionId, pendingEntry)
+            try { session.cancel() } catch (_: Exception) {}
+            unblockPipeAsync(pipePath)
+            try { FFmpegKitConfig.closeFFmpegPipe(pipePath) } catch (_: Exception) {}
+            throw java.io.IOException("Stream Closed")
         }
+
+        // Open pipe on a dedicated daemon thread so ForkJoinPool.commonPool is never starved.
+        Thread({
+            try {
+                val opened = FileInputStream(File(pipePath))
+                if (!pipeFuture.complete(opened)) {
+                    try { opened.close() } catch (_: Exception) {}
+                }
+            } catch (t: Throwable) {
+                pipeFuture.completeExceptionally(t)
+            }
+        }, "ffmpeg-pipe-open").apply {
+            isDaemon = true
+            start()
+        }
+
         val fileStream = try {
-            future.get(25, TimeUnit.SECONDS)
+            pipeFuture.get(25, TimeUnit.SECONDS)
         } catch (e: Exception) {
-            future.cancel(true)
+            pendingSessions.remove(session.sessionId, pendingEntry)
+            pipeFuture.cancel(true)
             session.cancel()
             // Asynchronously unblock worker thread so this thread never blocks on FIFO open
             unblockPipeAsync(pipePath)
             try {
                 FFmpegKitConfig.closeFFmpegPipe(pipePath)
             } catch (_: Exception) {}
-            throw java.io.IOException("Failed or timed out connecting to FFmpeg pipe: ${e.message}", e)
+            val rootCause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+            throw java.io.IOException("Failed or timed out connecting to FFmpeg pipe: ${rootCause.message}", rootCause)
         }
+        pendingSessions.remove(session.sessionId, pendingEntry)
         val activeStream = ActiveStream(session.sessionId, pipePath, session, fileStream, startSeconds, failure, completion)
         activeStreams.add(activeStream)
         if (closed.get() || retired) {
@@ -778,6 +817,25 @@ class FFmpegMp4Packager(
     }
 
     private fun cancelAllActiveStreams() {
+        val iterator = pendingSessions.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val pending = entry.value
+            if (pendingSessions.remove(entry.key, pending)) {
+                pending.pipeFuture.completeExceptionally(java.io.IOException("Stream Closed"))
+                try {
+                    if (!pending.session.state.name.equals("COMPLETED", ignoreCase = true) &&
+                        !pending.session.state.name.equals("FAILED", ignoreCase = true)
+                    ) {
+                        pending.session.cancel()
+                    }
+                } catch (_: Exception) {}
+                unblockPipeAsync(pending.pipePath)
+                try {
+                    FFmpegKitConfig.closeFFmpegPipe(pending.pipePath)
+                } catch (_: Exception) {}
+            }
+        }
         for (stream in activeStreams) {
             cleanupStream(stream)
         }

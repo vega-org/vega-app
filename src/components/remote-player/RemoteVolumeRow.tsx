@@ -12,8 +12,9 @@ import {isTV} from '../../lib/tv';
 const STEP = 0.05;
 
 /** Receiver volume. Hidden until the receiver reports its level. */
-export const RemoteVolumeRow: React.FC<{header?: React.ReactNode}> = ({
+export const RemoteVolumeRow: React.FC<{header?: React.ReactNode; active?: boolean}> = ({
   header,
+  active: isActive = true,
 }) => {
   const colors = useM3Colors();
   const hostTheme = useM3HostTheme();
@@ -26,8 +27,10 @@ export const RemoteVolumeRow: React.FC<{header?: React.ReactNode}> = ({
   const dragRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setAvailable(false);
-    if (!connectedDevice) return;
+    if (!isActive || !connectedDevice) {
+      setAvailable(false);
+      return;
+    }
     let active = true;
     const refresh = () =>
       remotePlaybackManager.refreshVolume().then(ok => {
@@ -40,7 +43,7 @@ export const RemoteVolumeRow: React.FC<{header?: React.ReactNode}> = ({
       active = false;
       clearInterval(timer);
     };
-  }, [connectedDevice]);
+  }, [connectedDevice, isActive]);
 
   if (isTV || !available) return null;
 

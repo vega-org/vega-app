@@ -6,6 +6,7 @@ jest.mock('react-native', () => ({
   NativeModules: {VegaRemoteDelivery: {
     inspectMediaTracks: jest.fn(), stopServer: jest.fn(async () => {}),
     startServer: jest.fn(async () => ({baseUrl: 'http://phone:1234', port: 1234, lanIp: 'phone'})),
+    stopForegroundService: jest.fn(async () => {}),
     prepareSubtitle: jest.fn(async () => true),
   }},
 }));
@@ -91,4 +92,61 @@ it('reports native extraction failures without silently retrying over HTTP', asy
       .rejects.toThrow('Source read failed');
     expect(global.fetch).not.toHaveBeenCalled();
   } finally {global.fetch = original;}
+});
+
+it('re-verifies native server state on ensureServerStarted instead of returning a stale cached port', async () => {
+  const startServer = NativeModules.VegaRemoteDelivery.startServer as jest.Mock;
+  startServer.mockClear();
+  startServer
+    .mockResolvedValueOnce({baseUrl: 'http://phone:1234', port: 1234, lanIp: 'phone'})
+    .mockResolvedValueOnce({baseUrl: 'http://phone:5678', port: 5678, lanIp: 'phone'});
+  const first = await service.ensureServerStarted();
+  const second = await service.ensureServerStarted();
+  expect(first.port).toBe(1234);
+  expect(second.port).toBe(5678);
+  expect(startServer).toHaveBeenCalledTimes(2);
+});
+
+it('coalesces concurrent ensureServerStarted calls into one native startServer call', async () => {
+  let resolve!: (info: {baseUrl: string; port: number; lanIp: string}) => void;
+  const startServer = NativeModules.VegaRemoteDelivery.startServer as jest.Mock;
+  startServer.mockReset().mockImplementationOnce(
+    () => new Promise(r => {resolve = r;}),
+  );
+  try {
+    const p1 = service.ensureServerStarted();
+    const p2 = service.ensureServerStarted();
+    expect(startServer).toHaveBeenCalledTimes(1);
+    resolve({baseUrl: 'http://phone:4321', port: 4321, lanIp: 'phone'});
+    await expect(Promise.all([p1, p2])).resolves.toEqual([
+      {baseUrl: 'http://phone:4321', port: 4321, lanIp: 'phone'},
+      {baseUrl: 'http://phone:4321', port: 4321, lanIp: 'phone'},
+    ]);
+  } finally {
+    startServer.mockReset().mockResolvedValue({baseUrl: 'http://phone:1234', port: 1234, lanIp: 'phone'});
+  }
+});
+
+it('clears cached serverInfo even when stopServer or stopForegroundService rejects', async () => {
+  const stopServer = NativeModules.VegaRemoteDelivery.stopServer as jest.Mock;
+  const stopFg = NativeModules.VegaRemoteDelivery.stopForegroundService as jest.Mock;
+  const prepSub = NativeModules.VegaRemoteDelivery.prepareSubtitle as jest.Mock;
+  prepSub.mockClear();
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({ok: true, status: 200});
+  try {
+    await service.ensureServerStarted();
+    stopServer.mockRejectedValueOnce(new Error('stop error'));
+    await service.stopServer();
+    await service.prepareSubtitle('http://phone:1234/subtitle/s/0.vtt');
+    expect(prepSub).not.toHaveBeenCalled();
+
+    await service.ensureServerStarted();
+    stopFg.mockRejectedValueOnce(new Error('fg stop error'));
+    await service.stopForegroundService();
+    await service.prepareSubtitle('http://phone:1234/subtitle/s/0.vtt');
+    expect(prepSub).not.toHaveBeenCalled();
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

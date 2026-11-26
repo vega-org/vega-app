@@ -32,7 +32,8 @@ class HlsSegmentPackager(
     private val durationSeconds: Double,
     keyframesUs: LongArray,
     // Shifts the sound against the picture; positive plays it later.
-    private val audioDelayMs: Int = 0
+    private val audioDelayMs: Int = 0,
+    private val onError: (String) -> Unit = {}
 ) {
     companion object {
         private const val TAG = "HlsSegmentPackager"
@@ -89,7 +90,9 @@ class HlsSegmentPackager(
     private class Run(val startIndex: Int, val dir: File) {
         @Volatile var session: FFmpegSession? = null
         @Volatile var ended = false
+        @Volatile var canceled = false
         @Volatile var succeeded = false
+        @Volatile var processExited = false
     }
 
     private fun segmentEnd(index: Int) =
@@ -149,22 +152,36 @@ class HlsSegmentPackager(
         if (index !in starts.indices || closed) return null
         val deadline = System.currentTimeMillis() + SEGMENT_WAIT_MS
         var retried = false
+        var expectedRun: Run?
         synchronized(lock) {
-            lastRequested = index
-            if (finishedFileLocked(index) == null && !reachableLocked(index)) startRunLocked(index)
+            if (finishedFileLocked(index) != null || reachableLocked(index)) {
+                lastRequested = maxOf(lastRequested, index)
+            } else {
+                lastRequested = index
+                startRunLocked(index)
+            }
             pruneLocked(index)
+            expectedRun = run
         }
         while (System.currentTimeMillis() < deadline && !closed) {
             synchronized(lock) {
-                finishedFileLocked(index)?.let { return Segment(java.io.FileInputStream(it), it.length()) }
+                finishedFileLocked(index)?.let { file ->
+                    try {
+                        return Segment(java.io.FileInputStream(file), file.length())
+                    } catch (_: java.io.FileNotFoundException) {
+                        if (closed) return null
+                    }
+                }
                 if (!reachableLocked(index)) {
                     // A newer request moved the run elsewhere: this one is stale, so
                     // it must not pull the run back.
-                    if (lastRequested != index) return null
+                    if (run !== expectedRun || lastRequested > index + KEEP_BEHIND || lastRequested < index - WAIT_AHEAD) return null
                     // The run ended without this segment; try once more from here.
                     if (retried) return null
                     retried = true
+                    lastRequested = maxOf(lastRequested, index)
                     startRunLocked(index)
+                    expectedRun = run
                 }
             }
             try { Thread.sleep(150) } catch (_: InterruptedException) { return null }
@@ -183,8 +200,9 @@ class HlsSegmentPackager(
     private fun startRunLocked(index: Int) {
         run?.let { previous ->
             stopRunLocked(previous)
-            // A receiver still reading a file from it keeps its open handle.
-            previous.dir.deleteRecursively()
+            if (previous.processExited) {
+                try { previous.dir.deleteRecursively() } catch (_: Exception) {}
+            }
         }
         val created = Run(index, File(dir, "run_${UUID.randomUUID()}").apply { mkdirs() })
         run = created
@@ -193,23 +211,53 @@ class HlsSegmentPackager(
         } catch (e: Exception) {
             VegaLog.w(TAG, "Cannot start HLS run: ${e.message}")
             created.ended = true
+            created.processExited = true
+            try { created.dir.deleteRecursively() } catch (_: Exception) {}
             return
         }
         VegaLog.i(TAG, "Starting HLS run at segment $index (${starts[index]}s)")
         created.session = FFmpegKit.executeWithArgumentsAsync(
             args.toTypedArray(),
             { done ->
-                created.succeeded = ReturnCode.isSuccess(done.returnCode)
-                created.ended = true
+                val failedMessage: String?
+                synchronized(lock) {
+                    val ok = !created.canceled && ReturnCode.isSuccess(done.returnCode)
+                    created.succeeded = ok
+                    created.ended = true
+                    created.processExited = true
+                    failedMessage = if (!ok && !created.canceled && !ReturnCode.isCancel(done.returnCode) && !closed) {
+                        "Video processing failed. Refresh the link or try another server."
+                    } else null
+                    if (run !== created || closed) {
+                        try { created.dir.deleteRecursively() } catch (_: Exception) {}
+                        if (closed && dir.list()?.isEmpty() != false) {
+                            try { dir.deleteRecursively() } catch (_: Exception) {}
+                        }
+                    }
+                }
                 VegaLog.i(TAG, "HLS run from segment $index ended: ${done.returnCode}")
+                failedMessage?.let { onError(it) }
             },
-            { log -> VegaLog.w(TAG, "[FFmpeg] ${log.message}") },
+            { log ->
+                val status = Regex("HTTP error (403|429)").find(log.message)?.groupValues?.get(1)?.toIntOrNull()
+                if (status != null) {
+                    RemoteSourceFailures.record(inputUrl, status)
+                    val message = if (status == 429) {
+                        "Video server rate limited requests (HTTP 429). Wait before retrying."
+                    } else {
+                        "Video server denied access (HTTP 403). Refresh the link or try another server."
+                    }
+                    onError(message)
+                }
+                VegaLog.w(TAG, "[FFmpeg] ${log.message.replace(Regex("https?://[^\\s]+"), "[media URL]").take(1200)}")
+            },
             null
         )
         watchAhead(created)
     }
 
     private fun stopRunLocked(current: Run) {
+        current.canceled = true
         if (!current.ended) {
             current.succeeded = false
             current.ended = true
@@ -284,11 +332,11 @@ class HlsSegmentPackager(
     }
 
     fun close() {
-        closed = true
         synchronized(lock) {
+            closed = true
             run?.let { stopRunLocked(it) }
             run = null
+            try { dir.deleteRecursively() } catch (_: Exception) {}
         }
-        dir.deleteRecursively()
     }
 }

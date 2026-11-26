@@ -74,13 +74,18 @@ class RemoteDeliveryModule(
 
     override fun getName(): String = NAME
 
+    private val serverLock = Any()
+    @Volatile private var serverGeneration = 0L
     @Volatile private var server: RemoteHttpServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val httpClient: OkHttpClient by lazy {
+        (DohOkHttpFactory.instance?.createNewNetworkModuleClient() ?: OkHttpClient())
+            .newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
 
     data class MediaSession(
         val sessionId: String,
@@ -169,37 +174,50 @@ class RemoteDeliveryModule(
     @ReactMethod
     fun startServer(promise: Promise) {
         try {
-            if (server == null) {
-                val newServer = RemoteHttpServer(0)
-                newServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
-                server = newServer
-            }
-            RemoteDeliveryService.retainDelivery(this)
-
-            try {
-                if (wakeLock == null) {
-                    val pm = reactContext.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Vega:RemoteDeliveryWakeLock")?.apply {
-                        setReferenceCounted(false)
-                        acquire(12 * 60 * 60 * 1000L)
-                    }
-                }
-                if (wifiLock == null) {
-                    val wm = reactContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-                    wifiLock = wm?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Vega:RemoteDeliveryWifiLock")?.apply {
-                        setReferenceCounted(false)
-                        acquire()
-                    }
-                }
-            } catch (lockEx: Exception) {
-                VegaLog.w(TAG, "Failed to acquire wake/wifi locks: ${lockEx.message}")
-            }
-
-            val port = server!!.listeningPort
             val lanIp = getLocalIpAddress()
             if (lanIp == "127.0.0.1") {
                 throw IllegalStateException("Connect the phone and receiver to the same Wi-Fi network")
             }
+
+            val port: Int
+            val gen: Long
+            synchronized(serverLock) {
+                val existing = server
+                if (existing == null || !existing.isAlive || existing.listeningPort <= 0) {
+                    try { existing?.stop() } catch (_: Exception) {}
+                    val newServer = RemoteHttpServer(0)
+                    newServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+                    server = newServer
+                    serverGeneration++
+                }
+                gen = serverGeneration
+                port = server!!.listeningPort
+                RemoteDeliveryService.retainDelivery(this, gen)
+
+                try {
+                    if (wakeLock == null) {
+                        val pm = reactContext.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Vega:RemoteDeliveryWakeLock")?.apply {
+                            setReferenceCounted(false)
+                        }
+                    }
+                    if (wakeLock?.isHeld != true) {
+                        wakeLock?.acquire(12 * 60 * 60 * 1000L)
+                    }
+                    if (wifiLock == null) {
+                        val wm = reactContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                        wifiLock = wm?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Vega:RemoteDeliveryWifiLock")?.apply {
+                            setReferenceCounted(false)
+                        }
+                    }
+                    if (wifiLock?.isHeld != true) {
+                        wifiLock?.acquire()
+                    }
+                } catch (lockEx: Exception) {
+                    VegaLog.w(TAG, "Failed to acquire wake/wifi locks: ${lockEx.message}")
+                }
+            }
+
             val baseUrl = "http://$lanIp:$port"
             VegaLog.i(TAG, "Remote delivery server listening at $baseUrl")
 
@@ -208,7 +226,8 @@ class RemoteDeliveryModule(
                     context = reactContext.applicationContext,
                     title = "Vega Cast Server",
                     subtitle = "Server active at $baseUrl",
-                    isPlaying = true
+                    isPlaying = true,
+                    generation = gen
                 )
             } catch (serviceEx: Exception) {
                 VegaLog.w(TAG, "Failed to start RemoteDeliveryService: ${serviceEx.message}")
@@ -237,8 +256,13 @@ class RemoteDeliveryModule(
     }
 
     /** Native service can release delivery even after the React bridge is gone. */
-    fun closeDelivery() {
-            server?.stop()
+    fun closeDelivery(expectedGeneration: Long? = null) {
+        synchronized(serverLock) {
+            if (expectedGeneration != null && expectedGeneration != serverGeneration) {
+                return
+            }
+            serverGeneration++
+            try { server?.stop() } catch (_: Exception) {}
             server = null
             sessions.values.forEach {
                 it.ffmpegPackager?.close()
@@ -246,7 +270,7 @@ class RemoteDeliveryModule(
             }
             sessions.clear()
             retireAfterReady.clear()
-            RemoteDeliveryService.releaseDelivery(this)
+            RemoteDeliveryService.releaseDelivery(this, expectedGeneration)
             sessionErrors.clear()
             subtitleCache.clear()
             keyframeCache.clear()
@@ -264,7 +288,7 @@ class RemoteDeliveryModule(
                 wifiLock?.release()
             } catch (_: Exception) {}
             wifiLock = null
-
+        }
     }
 
     @ReactMethod
@@ -320,6 +344,7 @@ class RemoteDeliveryModule(
     @ReactMethod
     fun stopForegroundService(promise: Promise) {
         try {
+            closeDelivery()
             RemoteDeliveryService.stop(reactContext.applicationContext)
             promise.resolve(true)
         } catch (e: Exception) {
@@ -547,6 +572,11 @@ class RemoteDeliveryModule(
                 }
             }
             VegaLog.i(TAG, "Registered session $sessionId with headers: ${headers.keys}")
+            val initialServer = server
+            val initialGeneration = serverGeneration
+            if (initialServer == null || !initialServer.isAlive || initialServer.listeningPort <= 0) {
+                throw IllegalStateException("Cast delivery server stopped while preparing media")
+            }
             RemoteSourceFailures.check(sourceUrl)
 
             val ffmpegStart = if (mode == "ffmpeg") {
@@ -605,7 +635,17 @@ class RemoteDeliveryModule(
                     VegaLog.w(TAG, "Keyframe index unavailable for HLS output: ${e.message}")
                     null
                 } ?: throw IllegalStateException("No keyframe index for HLS output")
-                HlsSegmentPackager(reactContext, sourceUrl, isLocal, headers, audioTrackIndex, resolvedDuration, keyframes, audioDelayMs)
+                HlsSegmentPackager(
+                    reactContext,
+                    sourceUrl,
+                    isLocal,
+                    headers,
+                    audioTrackIndex,
+                    resolvedDuration,
+                    keyframes,
+                    audioDelayMs,
+                    onError = { message -> sessionErrors[sessionId] = message }
+                )
             } else null
 
             val timelineOffsetUs = if (mode == "ffmpeg") (ffmpegStart * 1_000_000.0).toLong() else 0L
@@ -627,12 +667,18 @@ class RemoteDeliveryModule(
                 ffmpegPackager = ffmpegPackager,
                 hlsPackager = hlsPackager
             )
-            val lanIp = getLocalIpAddress()
-            val port = server?.listeningPort ?: 0
-            if (port <= 0 || lanIp == "127.0.0.1" || server == null) {
+            val currentServer = server
+            val port = currentServer?.listeningPort ?: 0
+            if (currentServer == null || !currentServer.isAlive || port <= 0 || serverGeneration != initialGeneration) {
                 ffmpegPackager?.close()
                 hlsPackager?.close()
                 throw IllegalStateException("Cast delivery server stopped while preparing media")
+            }
+            val lanIp = getLocalIpAddress()
+            if (lanIp == "127.0.0.1") {
+                ffmpegPackager?.close()
+                hlsPackager?.close()
+                throw IllegalStateException("Wi-Fi connection lost while preparing media. Connect the phone and receiver to the same Wi-Fi network.")
             }
             sessions[sessionId] = session
             // Embedded subtitles are loaded only when the receiver requests a track.
@@ -713,17 +759,27 @@ class RemoteDeliveryModule(
 
     @ReactMethod
     fun unregisterSession(sessionId: String, promise: Promise) {
+        val target = sessions[sessionId] ?: run {
+            promise.resolve(true)
+            return
+        }
         VegaLog.i(TAG, "Delivery unregister requested session=$sessionId graceMs=8000")
         Thread {
             try {
                 Thread.sleep(8_000)
             } catch (_: Exception) {}
-            val s = sessions.remove(sessionId)
-            retireAfterReady.remove(sessionId)
-            retireAfterReady.values.forEach { it.remove(sessionId) }
-            s?.ffmpegPackager?.close()
-            s?.hlsPackager?.close()
-            sessionErrors.remove(sessionId)
+            val removed = sessions.remove(sessionId, target)
+            if (removed) {
+                retireAfterReady.remove(sessionId)
+                retireAfterReady.values.forEach { it.remove(sessionId) }
+                if (sessions[sessionId] == null) {
+                    sessionErrors.remove(sessionId)
+                }
+            }
+            if (removed || sessions[sessionId] !== target) {
+                target.ffmpegPackager?.close()
+                target.hlsPackager?.close()
+            }
         }.start()
         promise.resolve(true)
     }
@@ -1419,11 +1475,11 @@ class RemoteDeliveryModule(
 
     private fun getLocalIpAddress(): String {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces().toList()
+            val interfaces = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
             val ordered = interfaces.sortedBy { iface ->
                 when {
                     iface.name.startsWith("wlan") || iface.name.startsWith("wifi") -> 0
-                    iface.name.startsWith("eth") -> 1
+                    iface.name.startsWith("eth") || iface.name.startsWith("swlan") || iface.name.startsWith("ap") -> 1
                     else -> 2
                 }
             }
@@ -1783,9 +1839,10 @@ class RemoteDeliveryModule(
         ): Response {
             val source = session.sourceUrl.trim()
             if (session.isLocal || source.startsWith("content://") || source.startsWith("file://") || source.startsWith("/")) {
-                return serveLocalSource(source, session.mimeType, rangeHeader, corsHeaders)
+                return serveLocalSource(source, session.mimeType, rangeHeader, method, corsHeaders)
             }
 
+            RemoteSourceFailures.check(session.sourceUrl)
             val requestBuilder = Request.Builder().url(session.sourceUrl)
             session.headers.forEach { (k, v) -> requestBuilder.header(k, v) }
             if (!session.headers.keys.any { it.equals("user-agent", ignoreCase = true) }) {
@@ -1798,17 +1855,31 @@ class RemoteDeliveryModule(
             }
 
             val okResponse = executeMediaRequest(httpClient, requestBuilder.build())
+            if (!okResponse.isSuccessful) {
+                RemoteSourceFailures.record(session.sourceUrl, okResponse.code, okResponse.header("Retry-After"))
+            }
             val responseStatus = Response.Status.lookup(okResponse.code) ?: Response.Status.INTERNAL_ERROR
+            val contentType = okResponse.header("Content-Type") ?: session.mimeType
+            val contentRangeHeader = okResponse.header("Content-Range")
+            if (method == Method.HEAD) {
+                val headLength = okResponse.header("Content-Length")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                okResponse.close()
+                val response = newFixedLengthResponse(responseStatus, contentType, ByteArrayInputStream(ByteArray(0)), headLength)
+                response.addHeader("Accept-Ranges", "bytes")
+                contentRangeHeader?.let { response.addHeader("Content-Range", it) }
+                corsHeaders.forEach { (k, v) -> response.addHeader(k, v) }
+                return response
+            }
+
             val body = okResponse.body
             val inputStream = body?.byteStream() ?: ByteArrayInputStream(ByteArray(0))
             val contentLength = body?.contentLength() ?: -1L
-            val contentType = okResponse.header("Content-Type") ?: session.mimeType
 
             val response = if (contentLength >= 0)
                 newFixedLengthResponse(responseStatus, contentType, inputStream, contentLength)
             else newChunkedResponse(responseStatus, contentType, inputStream)
             response.addHeader("Accept-Ranges", "bytes")
-            okResponse.header("Content-Range")?.let { response.addHeader("Content-Range", it) }
+            contentRangeHeader?.let { response.addHeader("Content-Range", it) }
             corsHeaders.forEach { (k, v) -> response.addHeader(k, v) }
             return response
         }
@@ -1821,7 +1892,7 @@ class RemoteDeliveryModule(
         ): Response {
             val source = session.sourceUrl.trim()
             val response = if (session.isLocal || source.startsWith("content://") || source.startsWith("file://") || source.startsWith("/")) {
-                serveLocalSource(source, session.mimeType, rangeHeader, corsHeaders)
+                serveLocalSource(source, session.mimeType, rangeHeader, method, corsHeaders)
             } else {
                 handleProxy(session, rangeHeader, method, corsHeaders)
             }
@@ -1834,10 +1905,52 @@ class RemoteDeliveryModule(
             return response
         }
 
+        private fun parseByteRange(rangeHeader: String, fileLength: Long): Pair<Long, Long>? {
+            if (fileLength <= 0) return null
+            val raw = rangeHeader.trim()
+            if (!raw.startsWith("bytes=", ignoreCase = true)) return null
+            val spec = raw.substring(6).substringBefore(',').trim()
+            val dash = spec.indexOf('-')
+            if (dash < 0) return null
+            val startStr = spec.substring(0, dash).trim()
+            val endStr = spec.substring(dash + 1).trim()
+            val start: Long
+            val end: Long
+            if (startStr.isEmpty()) {
+                val suffix = endStr.toLongOrNull() ?: return null
+                if (suffix <= 0) return null
+                start = maxOf(0L, fileLength - suffix)
+                end = fileLength - 1
+            } else {
+                start = startStr.toLongOrNull() ?: return null
+                val requestedEnd = if (endStr.isEmpty()) fileLength - 1 else (endStr.toLongOrNull() ?: return null)
+                end = minOf(requestedEnd, fileLength - 1)
+            }
+            if (start < 0 || start > end || start >= fileLength) return null
+            return start to end
+        }
+
+        private fun skipFully(stream: java.io.InputStream, bytesToSkip: Long): Boolean {
+            var remaining = bytesToSkip
+            val scratch = ByteArray(8192)
+            while (remaining > 0) {
+                val skipped = stream.skip(remaining)
+                if (skipped > 0) {
+                    remaining -= skipped
+                } else {
+                    val read = stream.read(scratch, 0, minOf(scratch.size.toLong(), remaining).toInt())
+                    if (read <= 0) return false
+                    remaining -= read
+                }
+            }
+            return true
+        }
+
         private fun serveLocalSource(
             sourceUrl: String,
             mimeType: String,
             rangeHeader: String?,
+            method: Method,
             corsHeaders: Map<String, String>
         ): Response {
             val trimmed = sourceUrl.trim()
@@ -1845,44 +1958,63 @@ class RemoteDeliveryModule(
                 val uri = Uri.parse(trimmed)
                 val pfd = try {
                     reactContext.contentResolver.openFileDescriptor(uri, "r")
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     null
                 } ?: return addCors(newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Content file not found"), corsHeaders)
 
                 val fileLength = pfd.statSize
-                pfd.close()
+                try { pfd.close() } catch (_: Exception) {}
 
                 if (rangeHeader.isNullOrBlank()) {
+                    if (method == Method.HEAD) {
+                        val len = if (fileLength >= 0) fileLength else 0L
+                        val resp = newFixedLengthResponse(Response.Status.OK, mimeType, ByteArrayInputStream(ByteArray(0)), len)
+                        resp.addHeader("Accept-Ranges", if (fileLength > 0) "bytes" else "none")
+                        return addCors(resp, corsHeaders)
+                    }
                     val stream = reactContext.contentResolver.openInputStream(uri)
                         ?: return addCors(newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Cannot open stream"), corsHeaders)
-                    val resp = newFixedLengthResponse(Response.Status.OK, mimeType, stream, fileLength)
-                    resp.addHeader("Accept-Ranges", "bytes")
+                    val resp = if (fileLength >= 0) {
+                        newFixedLengthResponse(Response.Status.OK, mimeType, stream, fileLength).apply {
+                            addHeader("Accept-Ranges", "bytes")
+                        }
+                    } else {
+                        newChunkedResponse(Response.Status.OK, mimeType, stream).apply {
+                            addHeader("Accept-Ranges", "none")
+                        }
+                    }
                     return addCors(resp, corsHeaders)
                 }
 
-                var start: Long = 0
-                var end: Long = fileLength - 1
-                try {
-                    val rangeValue = rangeHeader.removePrefix("bytes=").trim()
-                    val parts = rangeValue.split("-")
-                    start = parts[0].toLongOrNull() ?: 0
-                    if (parts.size > 1 && parts[1].isNotBlank()) {
-                        end = parts[1].toLongOrNull() ?: (fileLength - 1)
-                    }
-                } catch (_: Exception) {}
+                val parsedRange = parseByteRange(rangeHeader, fileLength)
+                if (parsedRange == null) {
+                    val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
+                    resp.addHeader("Content-Range", "bytes */${if (fileLength > 0) fileLength else "*"}")
+                    return addCors(resp, corsHeaders)
+                }
 
-                if (start > end || (fileLength > 0 && start >= fileLength)) {
+                val (start, end) = parsedRange
+                val contentLength = end - start + 1
+                if (method == Method.HEAD) {
+                    val resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, ByteArrayInputStream(ByteArray(0)), contentLength)
+                    resp.addHeader("Accept-Ranges", "bytes")
+                    resp.addHeader("Content-Range", "bytes $start-$end/$fileLength")
+                    return addCors(resp, corsHeaders)
+                }
+
+                val stream = reactContext.contentResolver.openInputStream(uri)
+                    ?: return addCors(newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Cannot open stream"), corsHeaders)
+                val skipped = try {
+                    skipFully(stream, start)
+                } catch (_: Exception) {
+                    false
+                }
+                if (!skipped) {
+                    try { stream.close() } catch (_: Exception) {}
                     val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
                     resp.addHeader("Content-Range", "bytes */$fileLength")
                     return addCors(resp, corsHeaders)
                 }
-
-                val contentLength = end - start + 1
-                val stream = reactContext.contentResolver.openInputStream(uri)
-                    ?: return addCors(newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Cannot open stream"), corsHeaders)
-                try {
-                    stream.skip(start)
-                } catch (_: Exception) {}
 
                 val resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, stream, contentLength)
                 resp.addHeader("Accept-Ranges", "bytes")
@@ -1891,13 +2023,14 @@ class RemoteDeliveryModule(
             }
 
             val file = File(trimmed.removePrefix("file://"))
-            return serveLocalFile(file, mimeType, rangeHeader, corsHeaders)
+            return serveLocalFile(file, mimeType, rangeHeader, method, corsHeaders)
         }
 
         private fun serveLocalFile(
             file: File,
             mimeType: String,
             rangeHeader: String?,
+            method: Method,
             corsHeaders: Map<String, String>
         ): Response {
             if (!file.exists() || !file.canRead()) {
@@ -1906,33 +2039,35 @@ class RemoteDeliveryModule(
 
             val fileLength = file.length()
             if (rangeHeader.isNullOrBlank()) {
-                val fis = FileInputStream(file)
-                val resp = newFixedLengthResponse(Response.Status.OK, mimeType, fis, fileLength)
+                val stream = if (method == Method.HEAD) ByteArrayInputStream(ByteArray(0)) else FileInputStream(file)
+                val resp = newFixedLengthResponse(Response.Status.OK, mimeType, stream, fileLength)
                 resp.addHeader("Accept-Ranges", "bytes")
                 return addCors(resp, corsHeaders)
             }
 
-            // Parse range: bytes=start-end
-            var start: Long = 0
-            var end: Long = fileLength - 1
-            try {
-                val rangeValue = rangeHeader.removePrefix("bytes=").trim()
-                val parts = rangeValue.split("-")
-                start = parts[0].toLongOrNull() ?: 0
-                if (parts.size > 1 && parts[1].isNotBlank()) {
-                    end = parts[1].toLongOrNull() ?: (fileLength - 1)
-                }
-            } catch (_: Exception) {}
-
-            if (start > end || start >= fileLength) {
+            val parsedRange = parseByteRange(rangeHeader, fileLength)
+            if (parsedRange == null) {
                 val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
                 resp.addHeader("Content-Range", "bytes */$fileLength")
                 return addCors(resp, corsHeaders)
             }
 
+            val (start, end) = parsedRange
             val contentLength = end - start + 1
+            if (method == Method.HEAD) {
+                val resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, ByteArrayInputStream(ByteArray(0)), contentLength)
+                resp.addHeader("Accept-Ranges", "bytes")
+                resp.addHeader("Content-Range", "bytes $start-$end/$fileLength")
+                return addCors(resp, corsHeaders)
+            }
+
             val fis = FileInputStream(file)
-            fis.skip(start)
+            try {
+                fis.channel.position(start)
+            } catch (e: Exception) {
+                try { fis.close() } catch (_: Exception) {}
+                throw e
+            }
 
             val resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, fis, contentLength)
             resp.addHeader("Accept-Ranges", "bytes")
