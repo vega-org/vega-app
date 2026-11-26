@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, it, jest} from '@jest/globals';
+import {afterEach, beforeEach, describe, expect, it, jest} from '@jest/globals';
 
 jest.mock('@dr.pogodin/react-native-fs', () => ({
   ExternalDirectoryPath: '/app-files',
@@ -23,26 +23,35 @@ jest.mock('expo-file-system/legacy', () => ({
 jest.mock('react-native', () => ({
   NativeModules: {},
   Platform: {OS: 'android', isTV: false},
+  ToastAndroid: {
+    show: jest.fn(),
+    LONG: 1,
+    SHORT: 0,
+  },
 }));
 
 import {
   deleteDownloadedFileByBaseName,
   ensureDownloadLocationAccess,
   findDownloadedFileByBaseName,
+  isRestrictedDownloadTree,
   LEGACY_SUBTITLE_EXTENSIONS,
   parseDownloadLocation,
+  RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
   selectDownloadLocation,
   serializeDownloadLocation,
+  UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
   validateDownloadLocationAccess,
 } from '../src/lib/downloadLocation';
 import * as FileSystem from 'expo-file-system/legacy';
-import {Platform} from 'react-native';
+import {Platform, ToastAndroid} from 'react-native';
 import * as RNFS from '@dr.pogodin/react-native-fs';
 
 const mockReadDirectory = FileSystem.StorageAccessFramework
   .readDirectoryAsync as jest.Mock;
 const mockRequestDirectory = FileSystem.StorageAccessFramework
   .requestDirectoryPermissionsAsync as jest.Mock;
+const mockToastShow = ToastAndroid.show as jest.Mock;
 
 describe('Android SAF download location', () => {
   beforeEach(() => {
@@ -55,6 +64,12 @@ describe('Android SAF download location', () => {
       granted: true,
       directoryUri: 'content://downloads/tree/primary%3AMovies',
     });
+    mockToastShow.mockReset();
+  });
+
+  afterEach(() => {
+    (Platform as any).OS = 'android';
+    (Platform as any).isTV = false;
   });
 
   it('does not activate a legacy raw path', () => {
@@ -101,10 +116,18 @@ describe('Android SAF download location', () => {
       'content://downloads/tree/primary%3ADownload',
       'content://downloads/tree/primary%3A',
       'content://downloads/tree/primary%3ADownloads',
+      'content://com.android.externalstorage.documents/tree/primary%3ADownload%2F',
+      'content://com.android.externalstorage.documents/tree/primary%3Adownload',
+      'content://com.android.externalstorage.documents/tree/primary%3ADownload/document/primary%3ADownload',
+      'content://com.android.externalstorage.documents/tree/1234-5678%3A',
+      'content://com.android.providers.downloads.documents/tree/downloads',
+      'content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage%2Femulated%2F0%2FDownload',
+      'content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage%2Femulated%2F0',
     ];
 
     for (const directoryUri of restrictedUris) {
       mockReadDirectory.mockClear();
+      mockToastShow.mockClear();
       mockRequestDirectory.mockResolvedValue({granted: true, directoryUri});
 
       await expect(selectDownloadLocation()).resolves.toEqual({
@@ -112,10 +135,14 @@ describe('Android SAF download location', () => {
       });
       await expect(ensureDownloadLocationAccess(null)).resolves.toBeUndefined();
       expect(mockReadDirectory).not.toHaveBeenCalled();
+      expect(mockToastShow).toHaveBeenCalledWith(
+        RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
+        ToastAndroid.LONG,
+      );
     }
   });
 
-  it('accepts a folder inside Downloads and other granted folders', async () => {
+  it('accepts a folder inside Downloads, non-colon providers, and other granted folders', async () => {
     const grants = [
       {
         uri: 'content://downloads/tree/primary%3ADownload%2FVega',
@@ -124,6 +151,18 @@ describe('Android SAF download location', () => {
       {
         uri: 'content://downloads/tree/primary%3AMovies',
         label: 'Internal storage/Movies',
+      },
+      {
+        uri: 'content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2FVega',
+        label: 'raw//storage/emulated/0/Download/Vega',
+      },
+      {
+        uri: 'content://com.android.externalstorage.documents/tree/home%3A',
+        label: 'home',
+      },
+      {
+        uri: 'content://com.example.cloud.documents/tree/folder-id-without-colon',
+        label: 'folder-id-without-colon',
       },
     ];
 
@@ -148,6 +187,24 @@ describe('Android SAF download location', () => {
       });
       expect(mockRequestDirectory).toHaveBeenCalledTimes(1);
     }
+
+    expect(
+      isRestrictedDownloadTree('content://com.example.provider/tree/%E0%A4%A'),
+    ).toBe(false);
+  });
+
+  it('shows feedback when a selected non-restricted folder cannot be read', async () => {
+    mockReadDirectory.mockRejectedValue(new Error('Permission denied'));
+    mockRequestDirectory.mockResolvedValue({
+      granted: true,
+      directoryUri: 'content://com.android.externalstorage.documents/tree/primary%3ADownload%2FVega',
+    });
+
+    await expect(ensureDownloadLocationAccess(null)).resolves.toBeUndefined();
+    expect(mockToastShow).toHaveBeenCalledWith(
+      UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
+      ToastAndroid.LONG,
+    );
   });
 
   it('does not treat a stored Downloads root as already accessible', async () => {

@@ -4,10 +4,11 @@ import {
   getDownloadLocationDisplayValue,
   RESTRICTED_DOWNLOAD_LOCATION_MESSAGE,
   selectDownloadLocation,
+  UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
+  validateDownloadLocationAccess,
 } from '../../../lib/downloadLocation';
 import {settingsStorage} from '../../../lib/storage';
 import {syncFromSharedFolder} from '../../../lib/sync/syncService';
-import IconButton from '../../../components/ui/IconButton';
 import SettingsRow from '../../../components/ui/SettingsRow';
 import SettingsSection from '../../../components/ui/SettingsSection';
 import {isTV} from '../../../lib/tv';
@@ -47,6 +48,13 @@ const DownloadLocationPreference = ({
     try {
       const picked = await selectDownloadLocation();
       if (picked.status === 'selected') {
+        if (!(await validateDownloadLocationAccess(picked.location))) {
+          ToastAndroid.show(
+            UNREADABLE_DOWNLOAD_LOCATION_MESSAGE,
+            ToastAndroid.LONG,
+          );
+          return;
+        }
         saveDownloadLocation(picked.location);
         return;
       }

@@ -1,6 +1,6 @@
 import * as RNFS from '@dr.pogodin/react-native-fs';
 import * as FileSystem from 'expo-file-system/legacy';
-import {NativeModules, Platform} from 'react-native';
+import {NativeModules, Platform, ToastAndroid} from 'react-native';
 import {sanitizeDownloadFileName} from './downloadId';
 
 export type PathDownloadLocation = {
@@ -115,7 +115,16 @@ export const getAndroidDirectoryLabel = (directoryUri: string): string => {
 // Android will not keep the volume root or the Downloads directory itself.
 // A child such as primary:Download/Vega stays valid.
 export const RESTRICTED_DOWNLOAD_LOCATION_MESSAGE =
-  'Open Downloads and choose a folder inside it';
+  'Choose a subfolder (such as a folder inside Downloads) instead of the storage or Downloads root';
+
+export const UNREADABLE_DOWNLOAD_LOCATION_MESSAGE =
+  'Vega could not access that folder. Choose a different subfolder';
+
+const showAndroidToast = (message: string) => {
+  if (Platform.OS === 'android') {
+    ToastAndroid?.show?.(message, ToastAndroid.LONG);
+  }
+};
 
 export const isRestrictedDownloadTree = (directoryUri: string): boolean => {
   const treeMarker = '/tree/';
@@ -124,14 +133,57 @@ export const isRestrictedDownloadTree = (directoryUri: string): boolean => {
     return false;
   }
 
-  const documentId = decodeURIComponent(
-    directoryUri.slice(treeIndex + treeMarker.length),
-  );
-  const [, relativePath = ''] = documentId.split(':');
+  const authority = directoryUri
+    .slice(0, treeIndex)
+    .replace(/^content:\/\//i, '')
+    .toLowerCase();
+  const rawTreeSegment = directoryUri
+    .slice(treeIndex + treeMarker.length)
+    .split('/')[0]
+    .split('?')[0]
+    .split('#')[0];
+
+  let documentId: string;
+  try {
+    documentId = decodeURIComponent(rawTreeSegment);
+  } catch {
+    return false;
+  }
+
+  const trimmedDocId = documentId.trim();
+  const colonIndex = trimmedDocId.indexOf(':');
+  if (colonIndex === -1) {
+    const normalizedId = trimmedDocId.replace(/^\/+|\/+$/g, '').toLowerCase();
+    return (
+      authority.includes('downloads') &&
+      (normalizedId === 'downloads' || normalizedId === 'download')
+    );
+  }
+
+  const volume = trimmedDocId.slice(0, colonIndex).trim().toLowerCase();
+  const relativePath = trimmedDocId
+    .slice(colonIndex + 1)
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase();
+
+  if (volume === 'home') {
+    return false;
+  }
+
+  if (volume === 'raw') {
+    return (
+      !relativePath ||
+      /^(?:storage\/emulated\/\d+|storage\/[^/]+|sdcard)(?:\/downloads?)?$/.test(
+        relativePath,
+      )
+    );
+  }
+
   return (
     !relativePath ||
-    relativePath === 'Download' ||
-    relativePath === 'Downloads'
+    relativePath === 'download' ||
+    relativePath === 'downloads'
   );
 };
 
@@ -205,12 +257,18 @@ export const ensureDownloadLocationAccess = async (
     return location || undefined;
   }
   const picked = await selectDownloadLocation();
+  if (picked.status === 'restricted') {
+    showAndroidToast(RESTRICTED_DOWNLOAD_LOCATION_MESSAGE);
+    return undefined;
+  }
   if (picked.status !== 'selected') {
     return undefined;
   }
-  return (await validateDownloadLocationAccess(picked.location))
-    ? picked.location
-    : undefined;
+  if (await validateDownloadLocationAccess(picked.location)) {
+    return picked.location;
+  }
+  showAndroidToast(UNREADABLE_DOWNLOAD_LOCATION_MESSAGE);
+  return undefined;
 };
 
 export const getDownloadFileName = (fileName: string, fileType: string) => {
