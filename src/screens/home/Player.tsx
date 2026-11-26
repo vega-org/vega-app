@@ -1101,7 +1101,7 @@ const Player = ({route}: Props): React.JSX.Element => {
             setToast('Decoder failed. Using the fallback decoder.', 2500);
             manualDecoderModeRef.current = null;
           } else if (event.mode === 'software') {
-            setToast('Hardware decoder failed. Switched to FFmpeg SW decoder.', 2500);
+            setToast('Hardware decoder failed. Switched to software decoder.', 2500);
           }
         }
       },
@@ -3353,7 +3353,7 @@ const Player = ({route}: Props): React.JSX.Element => {
     try {
       const next = decoderMode === 'hardware' ? 'software' : 'hardware';
       manualDecoderModeRef.current = next;
-      setToast(`Switching to ${next === 'software' ? 'FFmpeg SW' : 'HW'} decoder`, 1500);
+      setToast(`Switching to ${next === 'software' ? 'software' : 'hardware'} decoder`, 1500);
       const status = await NativeModules.VideoDecoder.setMode(tag, next);
       if (status?.restarting) {
         setPlaybackError(null);

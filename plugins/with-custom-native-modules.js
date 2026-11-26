@@ -128,7 +128,7 @@ allprojects {
             cmake +=
               '\nadd_library(vegaffmpegvideo SHARED vega/vega_ffmpeg_video.cpp)\n' +
               'target_compile_features(vegaffmpegvideo PRIVATE cxx_std_17)\n' +
-              'target_link_libraries(vegaffmpegvideo android log dl)\n';
+              'target_link_libraries(vegaffmpegvideo android log dl EGL GLESv2)\n';
             fs.writeFileSync(cmakePath, cmake, 'utf8');
           }
         }

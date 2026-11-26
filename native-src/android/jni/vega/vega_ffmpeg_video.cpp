@@ -1,3 +1,5 @@
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -21,6 +23,39 @@ constexpr int kSwsFastBilinear = 1;
 constexpr int kAvLogError = 16;
 constexpr int64_t kAvNoptsValue = static_cast<int64_t>(UINT64_C(0x8000000000000000));
 constexpr int kAverrorEof = -((int)('E' | ('O' << 8) | ('F' << 16) | (' ' << 24)));
+
+constexpr const char* kVertexShaderSrc = R"(
+attribute vec2 aPos;
+attribute vec2 aTex;
+varying vec2 vTex;
+void main() {
+  gl_Position = vec4(aPos, 0.0, 1.0);
+  vTex = aTex;
+}
+)";
+
+constexpr const char* kFragmentShaderSrc = R"(
+precision mediump float;
+uniform sampler2D uTex;
+varying vec2 vTex;
+void main() {
+  gl_FragColor = texture2D(uTex, vTex);
+}
+)";
+
+constexpr GLfloat kQuadVertices[] = {
+    -1.0f, -1.0f,
+     1.0f, -1.0f,
+    -1.0f,  1.0f,
+     1.0f,  1.0f,
+};
+
+constexpr GLfloat kQuadTexCoords[] = {
+    0.0f, 1.0f,
+    1.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+};
 
 struct AVRationalCompat {
   int num;
@@ -317,10 +352,210 @@ struct DecoderContext {
 struct RendererContext {
   jobject surfaceRef = nullptr;
   ANativeWindow* window = nullptr;
+  EGLDisplay eglDisplay = EGL_NO_DISPLAY;
+  EGLConfig eglConfig = nullptr;
+  EGLContext eglContext = EGL_NO_CONTEXT;
+  EGLSurface eglSurface = EGL_NO_SURFACE;
+  GLuint program = 0;
+  GLuint texture = 0;
+  GLint posLoc = -1;
+  GLint texLoc = -1;
+  int texWidth = 0;
+  int texHeight = 0;
   void* swsCtx = nullptr;
-  int configuredWidth = 0;
-  int configuredHeight = 0;
+  std::vector<uint8_t> rgbaScratch;
 };
+
+GLuint compileShader(GLenum type, const char* source) {
+  GLuint shader = glCreateShader(type);
+  if (shader == 0) {
+    return 0;
+  }
+  glShaderSource(shader, 1, &source, nullptr);
+  glCompileShader(shader);
+  GLint compiled = 0;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+  if (compiled == GL_FALSE) {
+    char infoLog[256] = {};
+    glGetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Shader compile failed: %s", infoLog);
+    glDeleteShader(shader);
+    return 0;
+  }
+  return shader;
+}
+
+bool createGlProgram(RendererContext* rctx) {
+  GLuint vs = compileShader(GL_VERTEX_SHADER, kVertexShaderSrc);
+  GLuint fs = compileShader(GL_FRAGMENT_SHADER, kFragmentShaderSrc);
+  if (vs == 0 || fs == 0) {
+    if (vs != 0) glDeleteShader(vs);
+    if (fs != 0) glDeleteShader(fs);
+    return false;
+  }
+
+  GLuint program = glCreateProgram();
+  if (program == 0) {
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    return false;
+  }
+  glAttachShader(program, vs);
+  glAttachShader(program, fs);
+  glLinkProgram(program);
+  glDeleteShader(vs);
+  glDeleteShader(fs);
+
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  if (linked == GL_FALSE) {
+    char infoLog[256] = {};
+    glGetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Program link failed: %s", infoLog);
+    glDeleteProgram(program);
+    return false;
+  }
+
+  rctx->program = program;
+  rctx->posLoc = glGetAttribLocation(program, "aPos");
+  rctx->texLoc = glGetAttribLocation(program, "aTex");
+  GLint uTexLoc = glGetUniformLocation(program, "uTex");
+  if (rctx->posLoc < 0 || rctx->texLoc < 0 || uTexLoc < 0) {
+    glDeleteProgram(program);
+    rctx->program = 0;
+    return false;
+  }
+
+  glGenTextures(1, &rctx->texture);
+  if (rctx->texture == 0) {
+    glDeleteProgram(program);
+    rctx->program = 0;
+    return false;
+  }
+
+  glBindTexture(GL_TEXTURE_2D, rctx->texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  glUseProgram(rctx->program);
+  glUniform1i(uTexLoc, 0);
+  return true;
+}
+
+void detachSurface(JNIEnv* env, RendererContext* rctx) {
+  if (rctx == nullptr) {
+    return;
+  }
+  if (rctx->eglDisplay != EGL_NO_DISPLAY) {
+    if (rctx->eglContext != EGL_NO_CONTEXT && rctx->eglSurface != EGL_NO_SURFACE) {
+      if (eglMakeCurrent(rctx->eglDisplay, rctx->eglSurface, rctx->eglSurface, rctx->eglContext) == EGL_TRUE) {
+        if (rctx->texture != 0) {
+          glDeleteTextures(1, &rctx->texture);
+          rctx->texture = 0;
+        }
+        if (rctx->program != 0) {
+          glDeleteProgram(rctx->program);
+          rctx->program = 0;
+        }
+      }
+    }
+    eglMakeCurrent(rctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (rctx->eglSurface != EGL_NO_SURFACE) {
+      eglDestroySurface(rctx->eglDisplay, rctx->eglSurface);
+      rctx->eglSurface = EGL_NO_SURFACE;
+    }
+    if (rctx->eglContext != EGL_NO_CONTEXT) {
+      eglDestroyContext(rctx->eglDisplay, rctx->eglContext);
+      rctx->eglContext = EGL_NO_CONTEXT;
+    }
+    rctx->eglDisplay = EGL_NO_DISPLAY;
+    eglReleaseThread();
+  }
+  rctx->eglConfig = nullptr;
+  rctx->program = 0;
+  rctx->texture = 0;
+  rctx->posLoc = -1;
+  rctx->texLoc = -1;
+  rctx->texWidth = 0;
+  rctx->texHeight = 0;
+
+  if (rctx->window != nullptr) {
+    ANativeWindow_release(rctx->window);
+    rctx->window = nullptr;
+  }
+  if (rctx->surfaceRef != nullptr && env != nullptr) {
+    env->DeleteGlobalRef(rctx->surfaceRef);
+    rctx->surfaceRef = nullptr;
+  }
+}
+
+bool attachSurface(JNIEnv* env, RendererContext* rctx, jobject jSurface) {
+  detachSurface(env, rctx);
+
+  rctx->window = ANativeWindow_fromSurface(env, jSurface);
+  if (rctx->window == nullptr) {
+    return false;
+  }
+  rctx->surfaceRef = env->NewGlobalRef(jSurface);
+  if (rctx->surfaceRef == nullptr) {
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  rctx->eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  if (rctx->eglDisplay == EGL_NO_DISPLAY ||
+      eglInitialize(rctx->eglDisplay, nullptr, nullptr) != EGL_TRUE) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglInitialize failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  const EGLint configAttribs[] = {
+      EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+      EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+      EGL_RED_SIZE, 8,
+      EGL_GREEN_SIZE, 8,
+      EGL_BLUE_SIZE, 8,
+      EGL_ALPHA_SIZE, 8,
+      EGL_NONE,
+  };
+  EGLint numConfigs = 0;
+  if (eglChooseConfig(rctx->eglDisplay, configAttribs, &rctx->eglConfig, 1, &numConfigs) != EGL_TRUE ||
+      numConfigs < 1) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglChooseConfig failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  const EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+  rctx->eglContext = eglCreateContext(rctx->eglDisplay, rctx->eglConfig, EGL_NO_CONTEXT, ctxAttribs);
+  if (rctx->eglContext == EGL_NO_CONTEXT) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglCreateContext failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  rctx->eglSurface = eglCreateWindowSurface(rctx->eglDisplay, rctx->eglConfig, rctx->window, nullptr);
+  if (rctx->eglSurface == EGL_NO_SURFACE) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglCreateWindowSurface failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  if (eglMakeCurrent(rctx->eglDisplay, rctx->eglSurface, rctx->eglSurface, rctx->eglContext) != EGL_TRUE) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglMakeCurrent failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return false;
+  }
+
+  if (!createGlProgram(rctx)) {
+    detachSurface(env, rctx);
+    return false;
+  }
+  return true;
+}
 
 int drainReadyFrames(DecoderContext* ctx) {
   while (true) {
@@ -593,67 +828,109 @@ jboolean nativeRenderFrame(
     return JNI_FALSE;
   }
 
-  if (rctx->surfaceRef == nullptr || !env->IsSameObject(rctx->surfaceRef, jSurface)) {
-    if (rctx->window != nullptr) {
-      ANativeWindow_release(rctx->window);
-      rctx->window = nullptr;
-    }
-    if (rctx->surfaceRef != nullptr) {
-      env->DeleteGlobalRef(rctx->surfaceRef);
-      rctx->surfaceRef = nullptr;
-    }
-    rctx->window = ANativeWindow_fromSurface(env, jSurface);
-    if (rctx->window == nullptr) {
+  if (rctx->surfaceRef == nullptr ||
+      !env->IsSameObject(rctx->surfaceRef, jSurface) ||
+      rctx->eglSurface == EGL_NO_SURFACE) {
+    if (!attachSurface(env, rctx, jSurface)) {
       return JNI_FALSE;
     }
-    rctx->surfaceRef = env->NewGlobalRef(jSurface);
-    rctx->configuredWidth = 0;
-    rctx->configuredHeight = 0;
   }
 
-  if (rctx->configuredWidth != frame->width || rctx->configuredHeight != frame->height) {
-    if (ANativeWindow_setBuffersGeometry(
-            rctx->window,
-            frame->width,
-            frame->height,
-            WINDOW_FORMAT_RGBA_8888) != 0) {
-      return JNI_FALSE;
-    }
-    rctx->configuredWidth = frame->width;
-    rctx->configuredHeight = frame->height;
-  }
-
-  ANativeWindow_Buffer buffer;
-  if (ANativeWindow_lock(rctx->window, &buffer, nullptr) != 0) {
-    return JNI_FALSE;
-  }
-  if (buffer.bits == nullptr || buffer.width <= 0 || buffer.height <= 0) {
-    ANativeWindow_unlockAndPost(rctx->window);
+  if (eglMakeCurrent(rctx->eglDisplay, rctx->eglSurface, rctx->eglSurface, rctx->eglContext) != EGL_TRUE) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglMakeCurrent in render failed (%x)", eglGetError());
+    detachSurface(env, rctx);
     return JNI_FALSE;
   }
 
+  int w = frame->width;
+  int h = frame->height;
   rctx->swsCtx = g_ff.sws_getCachedContext(
       rctx->swsCtx,
-      frame->width,
-      frame->height,
+      w,
+      h,
       frame->format,
-      buffer.width,
-      buffer.height,
+      w,
+      h,
       g_ff.pix_fmt_rgba,
       kSwsFastBilinear,
       nullptr,
       nullptr,
       nullptr);
   if (rctx->swsCtx == nullptr) {
-    ANativeWindow_unlockAndPost(rctx->window);
     return JNI_FALSE;
   }
 
-  uint8_t* dstSlice[4] = {static_cast<uint8_t*>(buffer.bits), nullptr, nullptr, nullptr};
-  int dstStride[4] = {buffer.stride * 4, 0, 0, 0};
-  g_ff.sws_scale(rctx->swsCtx, frame->data, frame->linesize, 0, frame->height, dstSlice, dstStride);
-  ANativeWindow_unlockAndPost(rctx->window);
+  size_t neededBytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
+  if (rctx->rgbaScratch.size() != neededBytes) {
+    rctx->rgbaScratch.resize(neededBytes);
+  }
+  uint8_t* dstSlice[4] = {rctx->rgbaScratch.data(), nullptr, nullptr, nullptr};
+  int dstStride[4] = {w * 4, 0, 0, 0};
+  g_ff.sws_scale(rctx->swsCtx, frame->data, frame->linesize, 0, h, dstSlice, dstStride);
+
+  EGLint surfW = 0;
+  EGLint surfH = 0;
+  eglQuerySurface(rctx->eglDisplay, rctx->eglSurface, EGL_WIDTH, &surfW);
+  eglQuerySurface(rctx->eglDisplay, rctx->eglSurface, EGL_HEIGHT, &surfH);
+  if (surfW <= 0) surfW = w;
+  if (surfH <= 0) surfH = h;
+
+  glViewport(0, 0, surfW, surfH);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, rctx->texture);
+  if (rctx->texWidth != w || rctx->texHeight != h) {
+    glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA,
+        w,
+        h,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        rctx->rgbaScratch.data());
+    rctx->texWidth = w;
+    rctx->texHeight = h;
+  } else {
+    glTexSubImage2D(
+        GL_TEXTURE_2D,
+        0,
+        0,
+        0,
+        w,
+        h,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        rctx->rgbaScratch.data());
+  }
+
+  glUseProgram(rctx->program);
+  glEnableVertexAttribArray(static_cast<GLuint>(rctx->posLoc));
+  glVertexAttribPointer(static_cast<GLuint>(rctx->posLoc), 2, GL_FLOAT, GL_FALSE, 0, kQuadVertices);
+  glEnableVertexAttribArray(static_cast<GLuint>(rctx->texLoc));
+  glVertexAttribPointer(static_cast<GLuint>(rctx->texLoc), 2, GL_FLOAT, GL_FALSE, 0, kQuadTexCoords);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  glDisableVertexAttribArray(static_cast<GLuint>(rctx->posLoc));
+  glDisableVertexAttribArray(static_cast<GLuint>(rctx->texLoc));
+
+  if (eglSwapBuffers(rctx->eglDisplay, rctx->eglSurface) != EGL_TRUE) {
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "eglSwapBuffers failed (%x)", eglGetError());
+    detachSurface(env, rctx);
+    return JNI_FALSE;
+  }
   return JNI_TRUE;
+}
+
+void nativeDetachSurface(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jlong renderHandle) {
+  if (renderHandle == 0) {
+    return;
+  }
+  auto* rctx = reinterpret_cast<RendererContext*>(renderHandle);
+  detachSurface(env, rctx);
 }
 
 void nativeDestroyRenderer(
@@ -664,14 +941,7 @@ void nativeDestroyRenderer(
     return;
   }
   auto* rctx = reinterpret_cast<RendererContext*>(renderHandle);
-  if (rctx->window != nullptr) {
-    ANativeWindow_release(rctx->window);
-    rctx->window = nullptr;
-  }
-  if (rctx->surfaceRef != nullptr) {
-    env->DeleteGlobalRef(rctx->surfaceRef);
-    rctx->surfaceRef = nullptr;
-  }
+  detachSurface(env, rctx);
   if (rctx->swsCtx != nullptr && g_ff.sws_freeContext != nullptr) {
     g_ff.sws_freeContext(rctx->swsCtx);
     rctx->swsCtx = nullptr;
@@ -688,6 +958,7 @@ const JNINativeMethod kNativeMethods[] = {
     {"nativeDestroyDecoder", "(J)V", reinterpret_cast<void*>(nativeDestroyDecoder)},
     {"nativeCreateRenderer", "()J", reinterpret_cast<void*>(nativeCreateRenderer)},
     {"nativeRenderFrame", "(JJLandroid/view/Surface;)Z", reinterpret_cast<void*>(nativeRenderFrame)},
+    {"nativeDetachSurface", "(J)V", reinterpret_cast<void*>(nativeDetachSurface)},
     {"nativeDestroyRenderer", "(J)V", reinterpret_cast<void*>(nativeDestroyRenderer)},
 };
 

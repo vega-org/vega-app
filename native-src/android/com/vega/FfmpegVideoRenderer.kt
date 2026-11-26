@@ -8,6 +8,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.CryptoConfig
 import androidx.media3.decoder.VideoDecoderOutputBuffer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RendererCapabilities
 import androidx.media3.exoplayer.video.DecoderVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
@@ -74,6 +75,13 @@ class FfmpegVideoRenderer(
             }
         } finally {
             outputBuffer.release()
+        }
+    }
+
+    override fun handleMessage(messageType: Int, message: Any?) {
+        super.handleMessage(messageType, message)
+        if (messageType == Renderer.MSG_SET_VIDEO_OUTPUT && message !is Surface && nativeRendererHandle != 0L) {
+            FfmpegVideoDecoder.nativeDetachSurface(nativeRendererHandle)
         }
     }
 

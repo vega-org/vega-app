@@ -187,6 +187,9 @@ class FfmpegVideoDecoder(
         external fun nativeRenderFrame(renderHandle: Long, frameHandle: Long, surface: android.view.Surface): Boolean
 
         @JvmStatic
+        external fun nativeDetachSurface(renderHandle: Long)
+
+        @JvmStatic
         external fun nativeDestroyRenderer(renderHandle: Long)
     }
 }
