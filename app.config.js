@@ -154,8 +154,8 @@ module.exports = () => {
       plugins,
       slug: 'vega',
       version: process.env.VEGA_NIGHTLY_DATE
-        ? `5.5.1-nightly.${process.env.VEGA_NIGHTLY_DATE}`
-        : '5.5.1',
+        ? `5.5.2-nightly.${process.env.VEGA_NIGHTLY_DATE}`
+        : '5.5.2',
       userInterfaceStyle: 'dark',
       experiments: {
         reactCompiler: true,
@@ -165,7 +165,7 @@ module.exports = () => {
           ? {googleServicesFile: androidGoogleServicesFile}
           : {}),
         package: PACKAGE_NAME,
-        versionCode: 222,
+        versionCode: 223,
         permissions: [
           'FOREGROUND_SERVICE',
           'FOREGROUND_SERVICE_DATA_SYNC',
