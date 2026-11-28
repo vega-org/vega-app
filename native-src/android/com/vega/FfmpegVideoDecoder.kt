@@ -2,13 +2,16 @@ package com.vega
 
 import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.DecoderException
 import androidx.media3.decoder.DecoderInputBuffer
 import androidx.media3.decoder.SimpleDecoder
 import androidx.media3.decoder.VideoDecoderOutputBuffer
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
+import java.util.Locale
 
 class FfmpegVideoDecoderException(message: String, cause: Throwable? = null) : DecoderException(message, cause)
 
@@ -32,8 +35,10 @@ class FfmpegVideoDecoder(
     init {
         ensureNativeLoaded()
         val extraData = mergeInitializationData(format.initializationData)
-        val mime = format.sampleMimeType
-            ?: throw FfmpegVideoDecoderException("Missing video MIME type")
+        val mime = resolveEffectiveMime(format)
+            ?: throw FfmpegVideoDecoderException(
+                "Unsupported video MIME type: ${format.sampleMimeType} (${format.codecs})",
+            )
         nativeHandle = nativeCreateDecoder(
             nativeLibDir,
             mime,
@@ -131,6 +136,30 @@ class FfmpegVideoDecoder(
                 System.loadLibrary("vegaffmpegvideo")
                 nativeLoaded = true
             }
+        }
+
+        fun resolveEffectiveMime(format: Format): String? {
+            val mime = format.sampleMimeType ?: return null
+            if (mime == MimeTypes.VIDEO_DOLBY_VISION || mime == "video/mv-hevc") {
+                val altMime = MediaCodecUtil.getAlternativeCodecMimeType(format)
+                if (altMime != null) {
+                    return altMime
+                }
+                if (mime == MimeTypes.VIDEO_DOLBY_VISION) {
+                    val codecs = format.codecs?.lowercase(Locale.ROOT)
+                    if (codecs != null && (codecs.startsWith("dvhe.07") || codecs.startsWith("dvh1.07"))) {
+                        return MimeTypes.VIDEO_H265
+                    }
+                }
+                return null
+            }
+            return mime
+        }
+
+        fun isFormatSupported(nativeLibDir: String, format: Format): Boolean {
+            if (format.drmInitData != null) return false
+            val mime = resolveEffectiveMime(format) ?: return false
+            return isCodecAvailable(nativeLibDir, mime)
         }
 
         fun isCodecAvailable(nativeLibDir: String, mimeType: String): Boolean {

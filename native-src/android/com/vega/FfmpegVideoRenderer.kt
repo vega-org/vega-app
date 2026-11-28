@@ -33,7 +33,7 @@ class FfmpegVideoRenderer(
         val mime = format.sampleMimeType ?: return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE)
         if (!MimeTypes.isVideo(mime)) return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE)
         if (format.drmInitData != null) return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_DRM)
-        if (!FfmpegVideoDecoder.isCodecAvailable(nativeLibDir, mime)) {
+        if (!FfmpegVideoDecoder.isFormatSupported(nativeLibDir, format)) {
             return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE)
         }
         return RendererCapabilities.create(
