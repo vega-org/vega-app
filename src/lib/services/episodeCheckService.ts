@@ -1,5 +1,12 @@
 import {AppState, DeviceEventEmitter} from 'react-native';
-import type {EpisodeLink, Link} from '../providers/types';
+import type {EpisodeLink, Info, Link} from '../providers/types';
+import {queryClient} from '../client';
+import {
+  invalidateContentInfoTimestamp,
+  writeCachedContentInfo,
+  writeCachedEpisodes,
+} from '../contentCache';
+import {cacheStorage} from '../storage/StorageService';
 import {
   getEpisodeUpdateIntervalHours,
   type FollowedShow,
@@ -142,10 +149,61 @@ const directLinksToEpisodes = (season: Link): EpisodeLink[] =>
         }))
     : [];
 
+export interface CheckedSeasonResult {
+  episodes: EpisodeLink[];
+  resolvedEpisodesLink?: string;
+  info?: Info;
+}
+
+const syncCheckedShowCache = (
+  show: FollowedShow,
+  fetchResult: CheckedSeasonResult,
+  hasNewEpisodes: boolean,
+  checkedAt: number,
+): void => {
+  if (
+    fetchResult.info &&
+    Array.isArray(fetchResult.info.linkList) &&
+    fetchResult.info.linkList.length > 0
+  ) {
+    writeCachedContentInfo(
+      cacheStorage,
+      show.link,
+      show.provider,
+      fetchResult.info,
+      checkedAt,
+    );
+    queryClient.setQueryData(
+      ['contentInfo', show.link, show.provider],
+      fetchResult.info,
+    );
+  } else if (hasNewEpisodes) {
+    invalidateContentInfoTimestamp(cacheStorage, show.link, show.provider);
+    queryClient
+      .invalidateQueries({
+        queryKey: ['contentInfo', show.link, show.provider],
+      })
+      .catch(() => {});
+  }
+
+  if (fetchResult.resolvedEpisodesLink && fetchResult.episodes.length > 0) {
+    writeCachedEpisodes(
+      cacheStorage,
+      fetchResult.resolvedEpisodesLink,
+      show.provider,
+      fetchResult.episodes,
+    );
+    queryClient.setQueryData(
+      ['episodes', fetchResult.resolvedEpisodesLink, show.provider],
+      fetchResult.episodes,
+    );
+  }
+};
+
 export const fetchSeasonEpisodesForCheck = async (
   show: FollowedShow,
   signal?: AbortSignal,
-): Promise<{episodes: EpisodeLink[]; resolvedEpisodesLink?: string}> => {
+): Promise<CheckedSeasonResult> => {
   const modules = extensionManager.getProviderModules(show.provider);
   if (!modules) {
     throw new Error(`Provider ${show.providerName} is not installed`);
@@ -184,13 +242,18 @@ export const fetchSeasonEpisodesForCheck = async (
     provider: show.provider,
     signal,
   });
+  const cachedInfo = info && Array.isArray(info.linkList) ? info : undefined;
   const season = findMatchingSeason(
     info?.linkList,
     show.seasonTitle,
     show.seasonIndex,
   );
   if (!season) {
-    return {episodes: [], resolvedEpisodesLink: show.episodesLink};
+    return {
+      episodes: [],
+      resolvedEpisodesLink: show.episodesLink,
+      info: cachedInfo,
+    };
   }
 
   if (season.episodesLink && hasEpisodesModule) {
@@ -205,12 +268,14 @@ export const fetchSeasonEpisodesForCheck = async (
         ? episodes.filter(ep => Boolean(ep && ep.title && ep.link))
         : [],
       resolvedEpisodesLink: season.episodesLink,
+      info: cachedInfo,
     };
   }
 
   return {
     episodes: directLinksToEpisodes(season),
     resolvedEpisodesLink: undefined,
+    info: cachedInfo,
   };
 };
 
@@ -274,7 +339,7 @@ export const checkFollowedShows = async ({
         }
         const checkedAt = Date.now();
         try {
-          let fetchResult: {episodes: EpisodeLink[]; resolvedEpisodesLink?: string};
+          let fetchResult: CheckedSeasonResult;
           try {
             fetchResult = await fetchSeasonEpisodesForCheck(show, signal);
           } catch (error) {
@@ -304,6 +369,12 @@ export const checkFollowedShows = async ({
             show.knownEpisodeKeys,
             show.knownEpisodeTitles,
             show.knownEpisodeCount,
+          );
+          syncCheckedShowCache(
+            show,
+            fetchResult,
+            newEpisodes.length > 0,
+            checkedAt,
           );
           const snapshot =
             episodes.length > 0

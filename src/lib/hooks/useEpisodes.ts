@@ -2,11 +2,9 @@ import {useEffect} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {providerManager} from '../services/ProviderManager';
 import {cacheStorage} from '../storage';
+import {getEpisodesCacheKey, writeCachedEpisodes} from '../contentCache';
 import {EpisodeLink} from '../providers/types';
 import {extensionManager} from '../services';
-
-const getEpisodesCacheKey = (episodesLink: string, providerValue: string) =>
-  `episodes:${providerValue}:${episodesLink}`;
 
 export const useEpisodes = (
   episodesLink: string | undefined,
@@ -86,10 +84,10 @@ export const useEpisodes = (
   });
 
   useEffect(() => {
-    if (cacheKey && query.data && query.data.length > 0) {
-      cacheStorage.setString(cacheKey, JSON.stringify(query.data));
+    if (query.data && query.data.length > 0) {
+      writeCachedEpisodes(cacheStorage, episodesLink, providerValue, query.data);
     }
-  }, [cacheKey, query.data]);
+  }, [episodesLink, providerValue, query.data]);
 
   return query;
 };

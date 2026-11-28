@@ -7,51 +7,82 @@ interface EpisodeCheckNativeModule {
   schedule(intervalHours: number, wifiOnly: boolean): Promise<boolean>;
   scheduleAt(nextAt: number, wifiOnly: boolean): Promise<boolean>;
   cancel(): Promise<boolean>;
+  isIgnoringBatteryOptimizations?(): Promise<boolean>;
+  requestIgnoreBatteryOptimizations?(): Promise<boolean>;
   startBackgroundSandbox(html: string, baseUrl: string): Promise<boolean>;
   injectBackgroundSandbox(script: string): void;
   stopBackgroundSandbox(): Promise<boolean>;
 }
 
-const nativeModule: EpisodeCheckNativeModule | undefined =
+const getNativeModule = (): EpisodeCheckNativeModule | undefined =>
   Platform.OS === 'android'
     ? (NativeModules.EpisodeCheck as EpisodeCheckNativeModule | undefined)
     : undefined;
 
 export const episodeCheckNative = {
   isAvailable(): boolean {
-    return Boolean(nativeModule);
+    return Boolean(getNativeModule());
   },
 
   supportsCustomSchedule(): boolean {
-    return typeof nativeModule?.scheduleAt === 'function';
+    return typeof getNativeModule()?.scheduleAt === 'function';
+  },
+
+  supportsBatteryOptimization(): boolean {
+    const mod = getNativeModule();
+    return (
+      typeof mod?.isIgnoringBatteryOptimizations === 'function' &&
+      typeof mod?.requestIgnoreBatteryOptimizations === 'function'
+    );
+  },
+
+  async isIgnoringBatteryOptimizations(): Promise<boolean> {
+    const mod = getNativeModule();
+    if (typeof mod?.isIgnoringBatteryOptimizations !== 'function') {
+      return false;
+    }
+    return mod.isIgnoringBatteryOptimizations();
+  },
+
+  async requestIgnoreBatteryOptimizations(): Promise<boolean> {
+    const mod = getNativeModule();
+    if (typeof mod?.requestIgnoreBatteryOptimizations !== 'function') {
+      return false;
+    }
+    return mod.requestIgnoreBatteryOptimizations();
   },
 
   async schedule(intervalHours: number, wifiOnly: boolean): Promise<boolean> {
-    if (!nativeModule) return false;
-    return nativeModule.schedule(intervalHours, wifiOnly);
+    const mod = getNativeModule();
+    if (!mod) return false;
+    return mod.schedule(intervalHours, wifiOnly);
   },
 
   async scheduleAt(nextAt: number, wifiOnly: boolean): Promise<boolean> {
-    if (!nativeModule?.scheduleAt) return false;
-    return nativeModule.scheduleAt(nextAt, wifiOnly);
+    const mod = getNativeModule();
+    if (!mod?.scheduleAt) return false;
+    return mod.scheduleAt(nextAt, wifiOnly);
   },
 
   async cancel(): Promise<boolean> {
-    if (!nativeModule) return false;
-    return nativeModule.cancel();
+    const mod = getNativeModule();
+    if (!mod) return false;
+    return mod.cancel();
   },
 
   async startBackgroundSandbox(html: string, baseUrl: string): Promise<boolean> {
-    if (!nativeModule) return false;
-    return nativeModule.startBackgroundSandbox(html, baseUrl);
+    const mod = getNativeModule();
+    if (!mod) return false;
+    return mod.startBackgroundSandbox(html, baseUrl);
   },
 
   injectBackgroundSandbox(script: string): void {
-    nativeModule?.injectBackgroundSandbox(script);
+    getNativeModule()?.injectBackgroundSandbox(script);
   },
 
   async stopBackgroundSandbox(): Promise<boolean> {
-    if (!nativeModule) return false;
-    return nativeModule.stopBackgroundSandbox();
+    const mod = getNativeModule();
+    if (!mod) return false;
+    return mod.stopBackgroundSandbox();
   },
 };

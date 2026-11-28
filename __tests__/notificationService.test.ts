@@ -4,9 +4,11 @@ const mockResumeDownload = jest.fn(async () => undefined);
 const mockStartQueuedDownloadNow = jest.fn(async () => undefined);
 const mockWaitForDownloadsHydration = jest.fn(async () => undefined);
 const mockOpenDownloadsScreen = jest.fn();
+const mockOpenInfoScreen = jest.fn();
 
 jest.mock('../src/App', () => ({
   openDownloadsScreen: mockOpenDownloadsScreen,
+  openInfoScreen: mockOpenInfoScreen,
 }));
 
 jest.mock('@notifee/react-native', () => ({
@@ -410,6 +412,30 @@ describe('notification service download lifecycle', () => {
     });
 
     expect(mockOpenDownloadsScreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens Info with a refresh token when an episode notification body is pressed', async () => {
+    await notificationService.actionHandler({
+      type: EventType.PRESS,
+      detail: {
+        pressAction: {id: 'default'},
+        notification: {
+          data: {
+            navigationTarget: 'info',
+            link: 'https://example.com/show',
+            provider: 'vega',
+            poster: 'https://example.com/poster.jpg',
+          },
+        },
+      } as never,
+    });
+
+    expect(mockOpenInfoScreen).toHaveBeenCalledWith({
+      link: 'https://example.com/show',
+      provider: 'vega',
+      poster: 'https://example.com/poster.jpg',
+      refreshToken: expect.any(Number),
+    });
   });
 
   it('requests unknown-app permission before installing an update', async () => {

@@ -569,7 +569,7 @@ class NotificationService {
       if (link) {
         const {openInfoScreen} =
           require('../../App') as typeof import('../../App');
-        openInfoScreen({link, provider, poster});
+        openInfoScreen({link, provider, poster, refreshToken: Date.now()});
       }
       return;
     }

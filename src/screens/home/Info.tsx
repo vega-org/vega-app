@@ -5,7 +5,7 @@ import {
   NativeStackScreenProps,
 } from '@react-navigation/native-stack';
 import {StatusBar} from 'expo-status-bar';
-import React, {useCallback, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   BackHandler,
   FlatList,
@@ -137,6 +137,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
   }, []);
   const [refreshing, setRefreshing] = useState(false);
   const refreshInFlight = useRef(false);
+  const lastRefreshTokenRef = useRef<number | undefined>(undefined);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [isAtTop, setIsAtTop] = useState(true);
   const [statusBarScrimVisible, setStatusBarScrimVisible] = useState(false);
@@ -224,6 +225,16 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
       }, 50);
     });
   }, [refetch, localTitle]);
+
+  useEffect(() => {
+    const token = route.params.refreshToken;
+    if (!token || lastRefreshTokenRef.current === token) {
+      return;
+    }
+    lastRefreshTokenRef.current = token;
+    setRefreshVersion(version => version + 1);
+    refetch().catch(() => {});
+  }, [route.params.refreshToken, refetch]);
 
   const handleScroll = useCallback((event: any) => {
     const offsetY = event.nativeEvent?.contentOffset?.y ?? 0;

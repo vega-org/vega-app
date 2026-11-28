@@ -2,8 +2,16 @@ import {DeviceEventEmitter} from 'react-native';
 
 jest.mock('../src/lib/storage/StorageService', () => {
   const store = new Map<string, unknown>();
+  const cacheStore = new Map<string, string>();
   return {
     createZustandStorage: () => ({getItem: () => null, setItem: jest.fn(), removeItem: jest.fn()}),
+    cacheStorage: {
+      __clear: () => cacheStore.clear(),
+      getString: jest.fn((key: string) => cacheStore.get(key)),
+      setString: jest.fn((key: string, value: string) => {
+        cacheStore.set(key, value);
+      }),
+    },
     mainStorage: {
       __clear: () => store.clear(),
       getArray: jest.fn((key: string) => store.get(key)),
@@ -96,6 +104,8 @@ jest.mock('../src/lib/services/episodeCheckNative', () => ({
 }));
 
 import {sandboxBridge} from '../src/lib/sandbox/sandboxBridge';
+import {queryClient} from '../src/lib/client';
+import {cacheStorage} from '../src/lib/storage/StorageService';
 import {episodeCheckNative} from '../src/lib/services/episodeCheckNative';
 import {getNextEpisodeCheckAt} from '../src/lib/episodeCheckSchedule';
 import useFollowedShowsStore from '../src/lib/zustand/followedShowsStore';
@@ -117,6 +127,8 @@ const mockEpisodeCheckNative = episodeCheckNative as jest.Mocked<
 
 beforeEach(() => {
   (require('../src/lib/storage/StorageService').mainStorage as any).__clear();
+  (cacheStorage as any).__clear();
+  queryClient.clear();
   jest.clearAllMocks();
   mockSandboxBridge.isRegistered.mockReturnValue(true);
   mockSandboxBridge.isReady.mockReturnValue(true);
@@ -127,6 +139,10 @@ beforeEach(() => {
   useFollowedShowsStore.getState().setChecking(false);
   useWatchListStore.setState({watchList: [], collections: []});
   useContinueWatchingStore.setState({items: []});
+});
+
+afterEach(() => {
+  queryClient.clear();
 });
 
 describe('custom background schedules', () => {
@@ -419,6 +435,96 @@ describe('followed shows checks and background runner', () => {
     expect(
       useFollowedShowsStore.getState().shows.every(s => s.knownEpisodeCount === 2),
     ).toBe(true);
+  });
+
+  it('updates contentInfo and episodes caches when checks find new episodes', async () => {
+    const store = useFollowedShowsStore.getState();
+    store.followShow({
+      link: 'https://p.test/show-a',
+      provider: 'provA',
+      providerName: 'Provider A',
+      title: 'Show A',
+      poster: 'https://p.test/a.jpg',
+      seasonTitle: 'Season 1',
+      seasonIndex: 0,
+      episodesLink: 'https://p.test/show-a/s1',
+      ...buildEpisodeSnapshot([
+        {title: 'Episode 1', link: 'https://p.test/a/e1'},
+      ]),
+    });
+    store.followShow({
+      link: 'https://p.test/show-b',
+      provider: 'provB',
+      providerName: 'Provider B',
+      title: 'Show B',
+      poster: 'https://p.test/b.jpg',
+      seasonTitle: 'Season 2',
+      seasonIndex: 1,
+      ...buildEpisodeSnapshot([
+        {title: 'Episode 1', link: 'https://p.test/b/e1'},
+      ]),
+    });
+
+    cacheStorage.setString(
+      'contentInfo:updatedAt:provA:https://p.test/show-a',
+      '999999',
+    );
+    cacheStorage.setString(
+      'episodes:provA:https://p.test/show-a/s1',
+      JSON.stringify([{title: 'Episode 1', link: 'https://p.test/a/e1'}]),
+    );
+
+    const freshShowBInfo = {
+      title: 'Show B',
+      synopsis: '',
+      image: '',
+      imdbId: '',
+      type: 'series',
+      linkList: [
+        {title: 'Season 1', directLinks: []},
+        {
+          title: 'Season 2',
+          directLinks: [
+            {title: 'Episode 2', link: 'https://p.test/b/e2'},
+            {title: 'Episode 1', link: 'https://p.test/b/e1'},
+          ],
+        },
+      ],
+    };
+    const freshShowAEpisodes = [
+      {title: 'Episode 1', link: 'https://p.test/a/e1'},
+      {title: 'Episode 2', link: 'https://p.test/a/e2'},
+    ];
+
+    mockGetProviderModules.mockImplementation((provider: string) =>
+      provider === 'provA'
+        ? {modules: {episodes: 'code', meta: 'code'}}
+        : {modules: {meta: 'code'}},
+    );
+    mockGetEpisodes.mockResolvedValue(freshShowAEpisodes);
+    mockGetMetaData.mockResolvedValue(freshShowBInfo);
+
+    await checkFollowedShows({trigger: 'manual'});
+
+    expect(
+      JSON.parse(cacheStorage.getString('contentInfo:provB:https://p.test/show-b')!),
+    ).toEqual(freshShowBInfo);
+    expect(
+      Number(cacheStorage.getString('contentInfo:updatedAt:provB:https://p.test/show-b')),
+    ).toBeGreaterThan(0);
+    expect(
+      queryClient.getQueryData(['contentInfo', 'https://p.test/show-b', 'provB']),
+    ).toEqual(freshShowBInfo);
+
+    expect(
+      cacheStorage.getString('contentInfo:updatedAt:provA:https://p.test/show-a'),
+    ).toBe('0');
+    expect(
+      JSON.parse(cacheStorage.getString('episodes:provA:https://p.test/show-a/s1')!),
+    ).toEqual(freshShowAEpisodes);
+    expect(
+      queryClient.getQueryData(['episodes', 'https://p.test/show-a/s1', 'provA']),
+    ).toEqual(freshShowAEpisodes);
   });
 
   it('records error when provider is uninstalled and continues checking', async () => {

@@ -121,7 +121,7 @@ enableFreeze(true);
 
 export type HomeStackParamList = {
   Home: undefined;
-  Info: {link: string; provider?: string; poster?: string};
+  Info: {link: string; provider?: string; poster?: string; refreshToken?: number};
   ScrollList: {
     filter: string;
     title?: string;
@@ -173,14 +173,14 @@ export type SearchStackParamList = {
     providerValue?: string;
     isSearch: boolean;
   };
-  Info: {link: string; provider?: string; poster?: string};
+  Info: {link: string; provider?: string; poster?: string; refreshToken?: number};
   SearchResults: {filter: string; availableProviders?: string[]};
 };
 
 export type WatchListStackParamList = {
   LocalContent: {editId?: string; collectionId?: string} | undefined;
   WatchList: undefined;
-  Info: {link: string; provider?: string; poster?: string};
+  Info: {link: string; provider?: string; poster?: string; refreshToken?: number};
 };
 
 export type SettingsStackParamList = {
@@ -196,13 +196,13 @@ export type SettingsStackParamList = {
   DownloadsStack: undefined;
   DataManagement: SettingsSearchParams;
   FollowedShows: SettingsSearchParams;
-  Info: {link: string; provider?: string; poster?: string};
+  Info: {link: string; provider?: string; poster?: string; refreshToken?: number};
 };
 
 export type DownloadsStackParamList = {
   Downloads: undefined;
   DownloadedDetails: {groupId: string; localTitleId?: never} | {localTitleId: string; groupId?: never};
-  Info: {link: string; provider?: string; poster?: string};
+  Info: {link: string; provider?: string; poster?: string; refreshToken?: number};
 };
 
 export type TabStackParamList = {
@@ -238,7 +238,7 @@ const openVideoIntent = (payload: VideoIntentPayload): void => {
 };
 let pendingDownloadsNavigation = false;
 let pendingInfoNavigation:
-  | {link: string; provider?: string; poster?: string}
+  | {link: string; provider?: string; poster?: string; refreshToken?: number}
   | undefined;
 let pendingAddSource: SourceIntentPayload | undefined;
 
@@ -268,6 +268,7 @@ export const openInfoScreen = (params: {
   link: string;
   provider?: string;
   poster?: string;
+  refreshToken?: number;
 }): void => {
   if (!navigationRef.isReady()) {
     pendingInfoNavigation = params;
