@@ -60,11 +60,8 @@ private class FfmpegSoftwareVideoRendererProvider(
 ) : SoftwareVideoRendererProvider {
     private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir ?: ""
 
-    override fun supports(format: Format): Boolean {
-        val mime = format.sampleMimeType ?: return false
-        if (format.drmInitData != null) return false
-        return FfmpegVideoDecoder.isCodecAvailable(nativeLibDir, mime)
-    }
+    override fun supports(format: Format): Boolean =
+        FfmpegVideoDecoder.isFormatSupported(nativeLibDir, format)
 
     override fun supportsMime(mimeType: String): Boolean =
         FfmpegVideoDecoder.isCodecAvailable(nativeLibDir, mimeType)
