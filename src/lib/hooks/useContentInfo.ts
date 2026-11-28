@@ -7,32 +7,21 @@ import {listLocalFolder} from '../localContent/files';
 import {useQuery} from '@tanstack/react-query';
 import {providerManager} from '../services/ProviderManager';
 import {cacheStorage} from '../storage';
+import {
+  readCachedContentInfo,
+  readCachedContentInfoUpdatedAt,
+  writeCachedContentInfo,
+} from '../contentCache';
 import axios from 'axios';
 import {shouldShowSynopsisSkeleton} from '../synopsisLoading';
-
-const getContentInfoCacheKey = (link: string, providerValue: string) =>
-  `contentInfo:${providerValue}:${link}`;
 
 const getEnhancedMetadataCacheKey = (imdbId: string, type: string) =>
   `enhancedMeta:${type}:${imdbId}`;
 
-const readCachedContentInfo = (link: string, providerValue: string) => {
-  if (!link || !providerValue) return undefined;
-  const cached = cacheStorage.getString(getContentInfoCacheKey(link, providerValue));
-  if (!cached) return undefined;
-  try {
-    const info = JSON.parse(cached);
-    // Older builds could cache hero metadata here, which has no links.
-    return Array.isArray(info?.linkList) ? info : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export const hasCachedContentInfo = (
   link: string,
   providerValue: string,
-): boolean => Boolean(readCachedContentInfo(link, providerValue));
+): boolean => Boolean(readCachedContentInfo(cacheStorage, link, providerValue));
 
 const readCachedEnhancedMetadata = (cacheKey: string, imdbId: string) => {
   const cached =
@@ -47,7 +36,6 @@ const readCachedEnhancedMetadata = (cacheKey: string, imdbId: string) => {
 
 // Hook for fetching content info/metadata
 export const useContentInfo = (link: string, providerValue: string, enabled = true) => {
-  const cacheKey = getContentInfoCacheKey(link, providerValue);
   const query = useQuery({
     queryKey: ['contentInfo', link, providerValue],
     queryFn: async ({signal}) => {
@@ -62,6 +50,7 @@ export const useContentInfo = (link: string, providerValue: string, enabled = tr
         throw new Error('Error: No data returned from provider');
       }
 
+      writeCachedContentInfo(cacheStorage, link, providerValue, data);
       return data;
     },
     enabled: enabled && !!link && !!providerValue,
@@ -70,16 +59,16 @@ export const useContentInfo = (link: string, providerValue: string, enabled = tr
     retry: (count, error) => !error.message?.includes('WAF') && count < 1,
     initialData: () => {
       if (!enabled) return undefined;
-      return readCachedContentInfo(link, providerValue);
+      return readCachedContentInfo(cacheStorage, link, providerValue);
     },
-    refetchOnMount: false,
+    initialDataUpdatedAt: () => {
+      if (!enabled) return undefined;
+      return readCachedContentInfo(cacheStorage, link, providerValue)
+        ? readCachedContentInfoUpdatedAt(cacheStorage, link, providerValue)
+        : undefined;
+    },
+    refetchOnMount: true,
   });
-
-  useEffect(() => {
-    if (query.data) {
-      cacheStorage.setString(cacheKey, JSON.stringify(query.data));
-    }
-  }, [cacheKey, query.data]);
 
   return query;
 };

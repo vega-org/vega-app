@@ -37,6 +37,7 @@ import {
 } from '../../lib/services/episodeCheckService';
 import notificationService from '../../lib/services/Notification';
 import {episodeCheckNative} from '../../lib/services/episodeCheckNative';
+import BatteryOptimizationRow from './components/BatteryOptimizationRow';
 import EpisodeCheckScheduleDialog from './components/EpisodeCheckScheduleDialog';
 import SwipeToUnfollow from './components/SwipeToUnfollow';
 
@@ -427,6 +428,7 @@ export default function FollowedShows({navigation}: Props) {
             value={wifiOnly}
             onValueChange={handleToggleWifiOnly}
           />
+          <BatteryOptimizationRow />
           <SettingsRow
             title="Check now"
             description={

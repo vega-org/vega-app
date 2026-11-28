@@ -1,10 +1,18 @@
 package com.vega
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -162,6 +170,73 @@ class EpisodeCheckModule(
             promise.resolve(true)
         } catch (error: Throwable) {
             promise.reject("EPISODE_CHECK_CANCEL_ERROR", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun isIgnoringBatteryOptimizations(promise: Promise) {
+        try {
+            val pm =
+                reactContext.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val ignoring = pm?.isIgnoringBatteryOptimizations(reactContext.packageName) ?: false
+            promise.resolve(ignoring)
+        } catch (error: Throwable) {
+            promise.reject("BATTERY_OPTIMIZATION_CHECK_ERROR", error.message, error)
+        }
+    }
+
+    @SuppressLint("BatteryLife")
+    @ReactMethod
+    fun requestIgnoreBatteryOptimizations(promise: Promise) {
+        mainHandler.post {
+            try {
+                val pkg = reactContext.packageName
+                val pm =
+                    reactContext.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val alreadyIgnoring = pm?.isIgnoringBatteryOptimizations(pkg) == true
+                val hasDirectPermission =
+                    ContextCompat.checkSelfPermission(
+                        reactContext,
+                        Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                val intents = mutableListOf<Intent>()
+                if (!alreadyIgnoring && hasDirectPermission) {
+                    intents.add(
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:$pkg"),
+                        ),
+                    )
+                }
+                intents.add(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$pkg"),
+                    ),
+                )
+                intents.add(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+
+                val activity = reactContext.currentActivity
+                var launched = false
+                for (intent in intents) {
+                    try {
+                        if (activity != null) {
+                            activity.startActivity(intent)
+                        } else {
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            reactContext.applicationContext.startActivity(intent)
+                        }
+                        launched = true
+                        break
+                    } catch (_: ActivityNotFoundException) {
+                    } catch (_: SecurityException) {
+                    }
+                }
+                promise.resolve(launched)
+            } catch (error: Throwable) {
+                promise.reject("BATTERY_OPTIMIZATION_REQUEST_ERROR", error.message, error)
+            }
         }
     }
 

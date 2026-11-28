@@ -1,5 +1,9 @@
 import type {DownloadItem} from './zustand/downloadsStore';
-import {isSubtitleDownloadItem} from './downloadId';
+import {
+  extractEpisodeNumberFromName,
+  hashDownloadId,
+  isSubtitleDownloadItem,
+} from './downloadId';
 
 export interface DownloadedMediaGroup {
   id: string;
@@ -28,6 +32,13 @@ const getSeasonNumber = (item: DownloadItem): number => {
 };
 
 const getEpisodeNumber = (item: DownloadItem): number => {
+  const parsedNumber = extractEpisodeNumberFromName(
+    item.episodeName,
+    item.seasonTitle,
+  );
+  if (parsedNumber !== undefined) {
+    return parsedNumber;
+  }
   const idMatch = item.id.match(/_E(\d+)$/);
   if (idMatch) {
     return Number(idMatch[1]);
@@ -99,40 +110,152 @@ export interface FindEpisodeDownloadTarget {
   episodeName?: string;
 }
 
+const normalizeEpisodeLabel = (value?: string): string =>
+  (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const episodeNamesMatch = (
+  a?: string,
+  b?: string,
+  seasonTitle?: string,
+): boolean => {
+  const normalizedA = normalizeEpisodeLabel(a);
+  const normalizedB = normalizeEpisodeLabel(b);
+  if (normalizedA && normalizedB && normalizedA === normalizedB) {
+    return true;
+  }
+  const numA = extractEpisodeNumberFromName(a, seasonTitle);
+  const numB = extractEpisodeNumberFromName(b, seasonTitle);
+  return numA !== undefined && numB !== undefined && numA === numB;
+};
+
+export const isConflictingEpisodeDownload = (
+  item: DownloadItem,
+  target: FindEpisodeDownloadTarget,
+): boolean => {
+  if (target.infoUrl && item.infoUrl && item.infoUrl !== target.infoUrl) {
+    return true;
+  }
+  if (
+    target.seasonTitle &&
+    item.seasonTitle &&
+    item.seasonTitle !== target.seasonTitle
+  ) {
+    return true;
+  }
+  if (target.episodeName && item.episodeName) {
+    return !episodeNamesMatch(
+      item.episodeName,
+      target.episodeName,
+      target.seasonTitle || item.seasonTitle,
+    );
+  }
+  if (
+    target.link &&
+    item.sourceLink &&
+    item.sourceLink !== target.link &&
+    target.episodeName &&
+    !item.episodeName
+  ) {
+    return true;
+  }
+  return false;
+};
+
 export const findEpisodeDownload = (
   downloads: DownloadItem[],
   target: FindEpisodeDownloadTarget,
 ): DownloadItem | undefined => {
   const items = downloads.filter(item => !isSubtitleDownloadItem(item));
 
-  if (target.downloadId) {
-    const matchById = items.find(item => item.id === target.downloadId);
-    if (matchById) {
-      return matchById;
-    }
-  }
-
   if (target.infoUrl && target.link) {
-    const matchByLink = items.find(
+    const linkMatches = items.filter(
       item =>
         item.infoUrl === target.infoUrl && item.sourceLink === target.link,
     );
-    if (matchByLink) {
-      return matchByLink;
+    if (linkMatches.length > 0) {
+      return (
+        linkMatches.find(
+          item =>
+            (!target.seasonTitle || item.seasonTitle === target.seasonTitle) &&
+            (!target.episodeName ||
+              episodeNamesMatch(
+                item.episodeName,
+                target.episodeName,
+                target.seasonTitle,
+              )),
+        ) ||
+        linkMatches.find(
+          item => !target.seasonTitle || item.seasonTitle === target.seasonTitle,
+        ) ||
+        linkMatches[0]
+      );
     }
   }
 
   if (target.infoUrl && target.seasonTitle && target.episodeName) {
+    const normalizedTargetName = normalizeEpisodeLabel(target.episodeName);
     const matchBySeasonEpisode = items.find(
       item =>
         item.infoUrl === target.infoUrl &&
         item.seasonTitle === target.seasonTitle &&
-        item.episodeName === target.episodeName,
+        normalizeEpisodeLabel(item.episodeName) === normalizedTargetName,
     );
     if (matchBySeasonEpisode) {
       return matchBySeasonEpisode;
     }
   }
 
+  if (target.downloadId) {
+    const matchById = items.find(
+      item =>
+        item.id === target.downloadId &&
+        !isConflictingEpisodeDownload(item, target),
+    );
+    if (matchById) {
+      return matchById;
+    }
+  }
+
   return undefined;
+};
+
+export const findEpisodeSubtitleDownloads = (
+  downloads: DownloadItem[],
+  target: FindEpisodeDownloadTarget & {videoDownloadId?: string},
+): DownloadItem[] =>
+  downloads.filter(item => {
+    if (!isSubtitleDownloadItem(item)) {
+      return false;
+    }
+    if (
+      target.infoUrl &&
+      target.link &&
+      item.infoUrl === target.infoUrl &&
+      item.sourceLink === target.link
+    ) {
+      return true;
+    }
+    if (
+      target.videoDownloadId &&
+      item.id.startsWith(`${target.videoDownloadId}_subtitle_`)
+    ) {
+      return true;
+    }
+    return Boolean(
+      target.downloadId &&
+        item.id.startsWith(`${target.downloadId}_subtitle_`) &&
+        !isConflictingEpisodeDownload(item, target),
+    );
+  });
+
+export const resolveEpisodeDownloadId = (
+  baseId: string,
+  downloads: Record<string, DownloadItem>,
+  target: FindEpisodeDownloadTarget,
+): string => {
+  const existing = downloads[baseId];
+  if (!existing || !isConflictingEpisodeDownload(existing, target)) {
+    return baseId;
+  }
+  return `${baseId}_${hashDownloadId(target.link || target.episodeName || baseId)}`;
 };

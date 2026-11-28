@@ -1,3 +1,5 @@
+import {parseEpisodeName} from './localContent/model';
+
 export const createGroupedDownloadId = (
   baseTitle: string,
   groupTitle: string,
@@ -24,6 +26,85 @@ export const createDirectDownloadId = (
   return `${baseTitle}_direct_0`;
 };
 
+const MULTI_EPISODE_PATTERN =
+  /(?:e|episode\s*|ep\s*)\d+\s*(?:[-–,&/]|\band\b)\s*(?:e|episode\s*|ep\s*)?\d+/i;
+const FRACTIONAL_EPISODE_PATTERN =
+  /(?:e|episode\s*|ep\s*|^\s*)\d+\.\d{1,2}(?!\d)(?:\D|$)/i;
+const BARE_LEADING_NUMBER_PATTERN = /^\s*(\d{1,4})(?:\s*$|[ .:_-](?!\d))/;
+
+export const extractEpisodeNumberFromName = (
+  episodeName?: string,
+  seasonTitle = '',
+): number | undefined => {
+  if (!episodeName?.trim()) {
+    return undefined;
+  }
+  if (
+    MULTI_EPISODE_PATTERN.test(episodeName) ||
+    FRACTIONAL_EPISODE_PATTERN.test(episodeName)
+  ) {
+    return undefined;
+  }
+  const parsed = parseEpisodeName(episodeName, seasonTitle);
+  if (
+    typeof parsed.episode === 'number' &&
+    Number.isInteger(parsed.episode) &&
+    parsed.episode > 0
+  ) {
+    return parsed.episode;
+  }
+  const bareMatch = episodeName.match(BARE_LEADING_NUMBER_PATTERN);
+  if (bareMatch) {
+    const bareNumber = Number(bareMatch[1]);
+    if (Number.isInteger(bareNumber) && bareNumber > 0) {
+      return bareNumber;
+    }
+  }
+  return undefined;
+};
+
+export const hashDownloadId = (value: string): string => {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index++) {
+    hash = (hash * 33 + value.charCodeAt(index)) % 4294967296;
+  }
+  return hash.toString(16).padStart(8, '0');
+};
+
+export const createEpisodeDownloadId = ({
+  baseTitle,
+  groupTitle,
+  itemIndex,
+  episodeName,
+  link,
+  isDirect = false,
+  isSingleMovie = false,
+}: {
+  baseTitle: string;
+  groupTitle: string;
+  itemIndex: number;
+  episodeName?: string;
+  link?: string;
+  isDirect?: boolean;
+  isSingleMovie?: boolean;
+}): string => {
+  if (isSingleMovie) {
+    return createDirectDownloadId(baseTitle, groupTitle, itemIndex);
+  }
+  const episodeNumber = extractEpisodeNumberFromName(episodeName, groupTitle);
+  if (episodeNumber !== undefined) {
+    return createGroupedDownloadId(baseTitle, groupTitle, episodeNumber - 1);
+  }
+  if (link?.trim()) {
+    return `${baseTitle}_S${groupTitle}_${hashDownloadId(link.trim())}`;
+  }
+  return (isDirect ? createDirectDownloadId : createSeriesDownloadId)(
+    baseTitle,
+    groupTitle,
+    itemIndex,
+  );
+};
+
 const MAX_FILE_NAME_LENGTH = 160;
 
 export const sanitizeDownloadFileName = (value: string): string => {
@@ -40,14 +121,6 @@ export const sanitizeDownloadFileName = (value: string): string => {
 };
 
 const MAX_STAGING_PREFIX_LENGTH = 100;
-
-const hashDownloadId = (value: string): string => {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index++) {
-    hash = (hash * 33 + value.charCodeAt(index)) % 4294967296;
-  }
-  return hash.toString(16).padStart(8, '0');
-};
 
 export const createDownloadStagingDirectoryName = (
   downloadId: string,

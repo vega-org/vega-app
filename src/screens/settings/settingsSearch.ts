@@ -18,6 +18,12 @@ const entries: SearchEntry[] = [
     'Unfollow when removed from Library', 'Unfollow when removed from Continue Watching'].map(
     (label): SearchEntry => ({label, page: 'Followed shows', route: 'FollowedShows', keywords: 'episode notifications background updates follow subscribe'}),
   ),
+  {
+    label: 'Background battery',
+    page: 'Followed shows',
+    route: 'FollowedShows',
+    keywords: 'battery restriction optimization unrestricted background doze episode notifications follow',
+  },
   {label: 'Downloads', page: 'Downloads', route: 'DownloadsStack', keywords: 'offline saved videos'},
   ...['Appearance', 'Accent color', 'Dynamic info accent', 'Launcher icon'].map(
     (label): SearchEntry => ({label, page: 'Appearance', route: 'Appearance', keywords: 'theme wallpaper color icon'}),

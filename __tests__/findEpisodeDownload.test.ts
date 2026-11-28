@@ -1,4 +1,8 @@
-import {findEpisodeDownload} from '../src/lib/downloadLibrary';
+import {
+  findEpisodeDownload,
+  findEpisodeSubtitleDownloads,
+  resolveEpisodeDownloadId,
+} from '../src/lib/downloadLibrary';
 import type {DownloadItem} from '../src/lib/zustand/downloadsStore';
 
 const createItem = (update: Partial<DownloadItem>): DownloadItem => ({
@@ -84,48 +88,160 @@ describe('findEpisodeDownload', () => {
     expect(result).toBe(item);
   });
 
-  it('respects priority order (priority a > b > c)', () => {
-    const matchA = createItem({
-      id: 'target-id',
-      infoUrl: 'https://provider.test/show/1',
-      sourceLink: 'https://provider.test/ep/a',
-      seasonTitle: 'Season 1',
-      episodeName: 'Ep A',
-    });
-    const matchB = createItem({
+  it('respects priority order (sourceLink > season+episode > non-conflicting downloadId)', () => {
+    const matchByLink = createItem({
       id: 'other-id-1',
       infoUrl: 'https://provider.test/show/1',
       sourceLink: 'https://provider.test/ep/target-link',
       seasonTitle: 'Season 1',
-      episodeName: 'Ep B',
+      episodeName: 'Target Episode',
     });
-    const matchC = createItem({
+    const matchBySeasonEpisode = createItem({
       id: 'other-id-2',
       infoUrl: 'https://provider.test/show/1',
       sourceLink: 'https://provider.test/ep/c',
       seasonTitle: 'Season 1',
       episodeName: 'Target Episode',
     });
+    const matchById = createItem({
+      id: 'target-id',
+      infoUrl: 'https://provider.test/show/1',
+      sourceLink: undefined,
+      seasonTitle: undefined,
+      episodeName: undefined,
+    });
 
-    // When both (a) and (b) could match, (a) is selected
-    const resultA = findEpisodeDownload([matchB, matchA, matchC], {
+    const resultLink = findEpisodeDownload(
+      [matchById, matchBySeasonEpisode, matchByLink],
+      {
+        downloadId: 'target-id',
+        infoUrl: 'https://provider.test/show/1',
+        link: 'https://provider.test/ep/target-link',
+        seasonTitle: 'Season 1',
+        episodeName: 'Target Episode',
+      },
+    );
+    expect(resultLink).toBe(matchByLink);
+
+    const resultSeasonEp = findEpisodeDownload(
+      [matchById, matchBySeasonEpisode],
+      {
+        downloadId: 'target-id',
+        infoUrl: 'https://provider.test/show/1',
+        link: 'https://provider.test/ep/new-link',
+        seasonTitle: 'Season 1',
+        episodeName: 'Target Episode',
+      },
+    );
+    expect(resultSeasonEp).toBe(matchBySeasonEpisode);
+
+    const resultIdFallback = findEpisodeDownload([matchById], {
       downloadId: 'target-id',
       infoUrl: 'https://provider.test/show/1',
-      link: 'https://provider.test/ep/target-link',
+      link: 'https://provider.test/ep/new-link',
       seasonTitle: 'Season 1',
       episodeName: 'Target Episode',
     });
-    expect(resultA).toBe(matchA);
+    expect(resultIdFallback).toBe(matchById);
+  });
 
-    // When (a) is absent/non-matching, (b) beats (c)
-    const resultB = findEpisodeDownload([matchC, matchB], {
-      downloadId: 'non-existent-id',
-      infoUrl: 'https://provider.test/show/1',
-      link: 'https://provider.test/ep/target-link',
-      seasonTitle: 'Season 1',
-      episodeName: 'Target Episode',
+  it('does not show newly prepended episode as downloaded when index shifts', () => {
+    const legacyE4 = createItem({
+      id: 'Dexter_SSeason 2_E1',
+      infoUrl: 'https://provider.test/dexter',
+      sourceLink: 'https://provider.test/ep4',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E4 · Live Free and Die',
     });
-    expect(resultB).toBe(matchB);
+
+    const matchForE5 = findEpisodeDownload([legacyE4], {
+      downloadId: 'Dexter_SSeason 2_E1',
+      infoUrl: 'https://provider.test/dexter',
+      link: 'https://provider.test/ep5',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E5 · Panick Attack',
+    });
+    expect(matchForE5).toBeUndefined();
+
+    const matchForE4 = findEpisodeDownload([legacyE4], {
+      downloadId: 'Dexter_SSeason 2_E4',
+      infoUrl: 'https://provider.test/dexter',
+      link: 'https://provider.test/ep4',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E4 · Live Free and Die',
+    });
+    expect(matchForE4).toBe(legacyE4);
+  });
+
+  it('scopes subtitle downloads to the matching episode without index collision', () => {
+    const legacySubE4 = createItem({
+      id: 'Dexter_SSeason 2_E1_subtitle_English',
+      isSubtitle: true,
+      infoUrl: 'https://provider.test/dexter',
+      sourceLink: 'https://provider.test/ep4',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E4 · Live Free and Die',
+    });
+
+    expect(
+      findEpisodeSubtitleDownloads([legacySubE4], {
+        downloadId: 'Dexter_SSeason 2_E1',
+        infoUrl: 'https://provider.test/dexter',
+        link: 'https://provider.test/ep5',
+        seasonTitle: 'Season 2',
+        episodeName: 'S2 E5 · Panick Attack',
+      }),
+    ).toEqual([]);
+
+    expect(
+      findEpisodeSubtitleDownloads([legacySubE4], {
+        downloadId: 'Dexter_SSeason 2_E4',
+        videoDownloadId: 'Dexter_SSeason 2_E1',
+        infoUrl: 'https://provider.test/dexter',
+        link: 'https://provider.test/ep4',
+        seasonTitle: 'Season 2',
+        episodeName: 'S2 E4 · Live Free and Die',
+      }),
+    ).toEqual([legacySubE4]);
+  });
+
+  it('generates a collision-free download id instead of overwriting a legacy episode', () => {
+    const legacyE4 = createItem({
+      id: 'Dexter_SSeason 2_E1',
+      infoUrl: 'https://provider.test/dexter',
+      sourceLink: 'https://provider.test/ep4',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E4 · Live Free and Die',
+    });
+
+    const targetId = resolveEpisodeDownloadId(
+      'Dexter_SSeason 2_E1',
+      {[legacyE4.id]: legacyE4},
+      {
+        downloadId: 'Dexter_SSeason 2_E1',
+        infoUrl: 'https://provider.test/dexter',
+        link: 'https://provider.test/ep1',
+        seasonTitle: 'Season 2',
+        episodeName: 'S2 E1 · Risky Business',
+      },
+    );
+
+    expect(targetId).not.toBe(legacyE4.id);
+    expect(targetId.startsWith('Dexter_SSeason 2_E1_')).toBe(true);
+
+    expect(
+      resolveEpisodeDownloadId(
+        'Dexter_SSeason 2_E1',
+        {[legacyE4.id]: legacyE4},
+        {
+          downloadId: 'Dexter_SSeason 2_E1',
+          infoUrl: 'https://provider.test/dexter',
+          link: 'https://provider.test/ep4',
+          seasonTitle: 'Season 2',
+          episodeName: 'S2 E4 · Live Free and Die',
+        },
+      ),
+    ).toBe('Dexter_SSeason 2_E1');
   });
 
   it('excludes subtitle download items', () => {

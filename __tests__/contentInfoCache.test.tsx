@@ -76,12 +76,79 @@ describe('useContentInfo cache', () => {
     expect(data).toEqual(providerInfo);
   });
 
-  it('uses cached info that has links', async () => {
+  it('uses fresh cached info that has links without refetching', async () => {
     mockCache.set(`contentInfo:vega:${link}`, JSON.stringify(providerInfo));
+    mockCache.set(
+      `contentInfo:updatedAt:vega:${link}`,
+      String(Date.now()),
+    );
 
     const data = await renderInfo();
 
     expect(mockGetMetaData).not.toHaveBeenCalled();
     expect(data).toEqual(providerInfo);
+  });
+
+  it('serves stale or untimestamped cache immediately and revalidates in background', async () => {
+    const updatedInfo = {
+      ...providerInfo,
+      linkList: [
+        {
+          title: 'Season 2',
+          directLinks: [
+            {title: 'S2 E5 · Panick Attack', link: 'https://example.com/e5'},
+            {title: 'S2 E4 · Live Free and Die', link: 'https://example.com/e4'},
+          ],
+        },
+      ],
+    };
+    let resolveFetch!: (value: typeof updatedInfo) => void;
+    mockGetMetaData.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveFetch = resolve;
+        }),
+    );
+    mockCache.set(`contentInfo:vega:${link}`, JSON.stringify(providerInfo));
+
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    let observedData: unknown;
+    let tree: renderer.ReactTestRenderer | undefined;
+    const Probe = () => {
+      observedData = useContentInfo(link, 'vega').data;
+      return null;
+    };
+
+    try {
+      await act(async () => {
+        tree = renderer.create(
+          <QueryClientProvider client={client}>
+            <Probe />
+          </QueryClientProvider>,
+        );
+      });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
+
+      expect(observedData).toEqual(providerInfo);
+      expect(mockGetMetaData).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveFetch(updatedInfo);
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
+
+      expect(observedData).toEqual(updatedInfo);
+      expect(
+        JSON.parse(mockCache.get(`contentInfo:vega:${link}`)!),
+      ).toEqual(updatedInfo);
+      expect(
+        Number(mockCache.get(`contentInfo:updatedAt:vega:${link}`)),
+      ).toBeGreaterThan(0);
+    } finally {
+      act(() => tree?.unmount());
+      client.clear();
+    }
   });
 });

@@ -75,10 +75,22 @@ jest.mock('../src/components/ui/Text', () => {
   const {Text} = require('react-native');
   return {__esModule: true, default: Text};
 });
+const mockCacheMap = new Map<string, string>();
+const mockProgressMap = new Map<string, {position: number; duration: number}>();
+const mockRefetchEpisodes = jest.fn();
+
 jest.mock('../src/lib/storage', () => ({
-  cacheStorage: {getString: () => undefined, setString: jest.fn()},
+  cacheStorage: {
+    getString: (key: string) => mockCacheMap.get(key),
+    setString: jest.fn((key: string, value: string) => mockCacheMap.set(key, value)),
+  },
   mainStorage: {getString: () => undefined, setString: jest.fn()},
-  watchProgressStorage: {getProgress: () => null, setProgress: jest.fn()},
+  watchProgressStorage: {
+    getProgress: (key: string) => mockProgressMap.get(key) ?? null,
+    setProgress: jest.fn((key: string, position: number, duration: number) =>
+      mockProgressMap.set(key, {position, duration}),
+    ),
+  },
   settingsStorage: {
     isHapticFeedbackEnabled: () => false,
     getExcludedQualities: () => [],
@@ -89,7 +101,7 @@ jest.mock('../src/lib/hooks/useEpisodes', () => ({
   useEpisodes: (link?: string) => ({
     data: link ? mockParts : [],
     isLoading: false,
-    refetch: jest.fn(),
+    refetch: mockRefetchEpisodes,
   }),
   useStreamData: () => ({fetchStreams: jest.fn()}),
 }));
@@ -118,7 +130,7 @@ jest.mock('../src/lib/sync/syncService', () => ({
   setSyncedEpisodeProgress: jest.fn(),
 }));
 
-import SeasonList from '../src/components/SeasonList';
+import SeasonList, {EpisodeCardRow} from '../src/components/SeasonList';
 import Downloader from '../src/components/Downloader';
 
 const props = {
@@ -299,6 +311,96 @@ describe('SeasonList', () => {
           ],
         }),
       );
+    } finally {
+      await act(async () => tree?.unmount());
+    }
+  });
+
+  it('uses fresh LinkList season over stale ActiveSeason cache on initial mount', async () => {
+    mockCacheMap.clear();
+    mockProgressMap.clear();
+    const staleSeason = {
+      title: 'Season 2 • 2160p',
+      directLinks: [
+        {title: 'S2 E4 · Live Free and Die', link: 'https://example.com/e4'},
+      ],
+    };
+    const freshSeason = {
+      title: 'Season 2 • 2160p',
+      directLinks: [
+        {title: 'S2 E5 · Panick Attack', link: 'https://example.com/e5'},
+        {title: 'S2 E4 · Live Free and Die', link: 'https://example.com/e4'},
+      ],
+    };
+    mockCacheMap.set(
+      `ActiveSeason${props.metaTitle + props.providerValue}`,
+      JSON.stringify(staleSeason),
+    );
+    mockProgressMap.set('https://example.com/e4', {position: 100, duration: 100});
+
+    let tree: renderer.ReactTestRenderer | undefined;
+    try {
+      await act(async () => {
+        tree = renderer.create(
+          <SeasonList {...props} LinkList={[freshSeason]} />,
+        );
+      });
+
+      const downloaders = tree!.root.findAllByType(Downloader);
+      expect(downloaders.map(d => d.props.episodeName)).toEqual([
+        'S2 E5 · Panick Attack',
+        'S2 E4 · Live Free and Die',
+      ]);
+      expect(downloaders.map(d => d.props.downloadId)).toEqual([
+        'Show_SSeason 2 • 2160p_E5',
+        'Show_SSeason 2 • 2160p_E4',
+      ]);
+
+      const {View} = require('react-native');
+      const rows = tree!.root.findAllByType(EpisodeCardRow);
+      expect(rows.map(r => r.props.isCompleted)).toEqual([false, true]);
+      const rowOpacities = rows.map(
+        row =>
+          row.find(
+            node =>
+              node.type === View && typeof node.props.style?.opacity === 'number',
+          ).props.style.opacity,
+      );
+      expect(rowOpacities).toEqual([1, 0.6]);
+    } finally {
+      mockCacheMap.clear();
+      mockProgressMap.clear();
+      await act(async () => tree?.unmount());
+    }
+  });
+
+  it('refetches episodes silently when refreshVersion increments without pull-to-refresh', async () => {
+    mockRefetchEpisodes.mockClear();
+    let tree: renderer.ReactTestRenderer | undefined;
+    try {
+      await act(async () => {
+        tree = renderer.create(
+          <SeasonList
+            {...props}
+            refreshVersion={0}
+            refreshing={false}
+            LinkList={[{title: 'Season 1', episodesLink: 'https://example.com/s1'}]}
+          />,
+        );
+      });
+      expect(mockRefetchEpisodes).not.toHaveBeenCalled();
+
+      await act(async () => {
+        tree!.update(
+          <SeasonList
+            {...props}
+            refreshVersion={1}
+            refreshing={false}
+            LinkList={[{title: 'Season 1', episodesLink: 'https://example.com/s1'}]}
+          />,
+        );
+      });
+      expect(mockRefetchEpisodes).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => tree?.unmount());
     }

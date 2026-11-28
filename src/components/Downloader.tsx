@@ -26,9 +26,12 @@ import {
   createDownloadDirectoryName,
   createDownloadSeasonDirectoryName,
   createSubtitleFileName,
-  isSubtitleDownloadItem,
 } from '../lib/downloadId';
-import { findEpisodeDownload } from '../lib/downloadLibrary';
+import {
+  findEpisodeDownload,
+  findEpisodeSubtitleDownloads,
+  resolveEpisodeDownloadId,
+} from '../lib/downloadLibrary';
 import useDownloadsStore, {
   CURRENT_DOWNLOAD_STATUSES,
 } from '../lib/zustand/downloadsStore';
@@ -201,18 +204,32 @@ const DownloadComponent = ({
     }),
   );
 
-  // useShallow: the filter returns a new array on every store change, which
-  // re-rendered every episode row on each download progress update.
   const subDownloads = useDownloadsStore(
     useShallow(state =>
-      Object.values(state.downloads).filter(
-        item =>
-          isSubtitleDownloadItem(item) &&
-          (item.id.startsWith(`${downloadId}_subtitle_`) ||
-            (item.infoUrl === infoUrl && item.sourceLink === link)),
-      ),
+      findEpisodeSubtitleDownloads(Object.values(state.downloads), {
+        downloadId,
+        videoDownloadId: videoDownload?.id,
+        infoUrl,
+        link,
+        seasonTitle,
+        episodeName,
+      }),
     ),
   );
+
+  const getTargetDownloadId = () =>
+    videoDownload?.id ||
+    resolveEpisodeDownloadId(
+      downloadId,
+      useDownloadsStore.getState().downloads,
+      {
+        downloadId,
+        infoUrl,
+        link,
+        seasonTitle,
+        episodeName,
+      },
+    );
 
   const removeDownload = useDownloadsStore(state => state.removeDownload);
   const [legacyDownloadedFile, setLegacyDownloadedFile] = useState<
@@ -327,14 +344,22 @@ const DownloadComponent = ({
   };
 
   useEffect(() => {
+    let cancelled = false;
     if (videoDownload) {
+      setLegacyDownloadedFile(false);
       return;
     }
+    setLegacyDownloadedFile(false);
     const checkIfDownloaded = async () => {
       const exists = await ifExists(fileName);
-      setLegacyDownloadedFile(exists);
+      if (!cancelled) {
+        setLegacyDownloadedFile(exists);
+      }
     };
     checkIfDownloaded();
+    return () => {
+      cancelled = true;
+    };
   }, [videoDownload, fileName]);
 
   // handle video download deletion
@@ -370,7 +395,7 @@ const DownloadComponent = ({
     try {
       const subItem = subDownloads.find(
         s =>
-          s.id === `${downloadId}_subtitle_${subTitle}` ||
+          s.id.endsWith(`_subtitle_${subTitle}`) ||
           s.title.includes(subTitle),
       );
       if (!subItem) {
@@ -404,7 +429,7 @@ const DownloadComponent = ({
   const isSubDownloaded = (subTitle: string): boolean => {
     return subDownloads.some(
       s =>
-        (s.id === `${downloadId}_subtitle_${subTitle}` ||
+        (s.id.endsWith(`_subtitle_${subTitle}`) ||
           s.title.includes(subTitle)) &&
         s.status === 'completed',
     );
@@ -420,8 +445,10 @@ const DownloadComponent = ({
             ? skip
             : undefined;
 
+    const targetDownloadId = getTargetDownloadId();
+
     await startDownloadWithLocation({
-      downloadId,
+      downloadId: targetDownloadId,
       title: title,
       showName,
       episodeName,
@@ -456,8 +483,9 @@ const DownloadComponent = ({
 
     if (server.subtitles && server.subtitles.length > 0) {
       const sub = server.subtitles[0];
+      const targetDownloadId = getTargetDownloadId();
       await startDownloadWithLocation({
-        downloadId: `${downloadId}_subtitle_${sub.title}`,
+        downloadId: `${targetDownloadId}_subtitle_${sub.title}`,
         title: title + ' ' + sub.title + ' Subtitle ',
         showName,
         episodeName,
@@ -725,8 +753,9 @@ const DownloadComponent = ({
           openExternalApp(server.link, server.type, server.headers);
         }}
         onPressSubs={(sub: { link: string; type: string; title: string }) => {
+          const targetDownloadId = getTargetDownloadId();
           startDownloadWithLocation({
-            downloadId: `${downloadId}_subtitle_${sub.title}`,
+            downloadId: `${targetDownloadId}_subtitle_${sub.title}`,
             title: title + ' ' + sub.title + ' Subtitle ',
             showName,
             episodeName,

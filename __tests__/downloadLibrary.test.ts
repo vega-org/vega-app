@@ -182,6 +182,26 @@ describe('downloaded library grouping', () => {
     ]);
   });
 
+  it('sorts legacy index-id episode using its parsed episodeName number', () => {
+    const legacyE4 = createItem({
+      id: 'Dexter_SSeason 2_E1',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E4 · Live Free and Die',
+      episodeIndex: undefined,
+    });
+    const newE5 = createItem({
+      id: 'Dexter_SSeason 2_E5',
+      seasonTitle: 'Season 2',
+      episodeName: 'S2 E5 · Panick Attack',
+      episodeIndex: undefined,
+    });
+    const sorted = sortDownloadedEpisodes([newE5, legacyE4]);
+    expect(sorted.map(item => item.episodeName)).toEqual([
+      'S2 E4 · Live Free and Die',
+      'S2 E5 · Panick Attack',
+    ]);
+  });
+
   it('sorts episodes using explicit provider episodeIndex regardless of completion order', () => {
     const sorted = sortDownloadedEpisodes([
       createItem({

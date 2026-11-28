@@ -43,10 +43,12 @@ import EpisodeListSkeleton from './EpisodeListSkeleton';
 import DropdownField from './ui/DropdownField';
 import {
   createDesktopCompatibleFileName,
-  createDirectDownloadId,
-  createSeriesDownloadId,
+  createEpisodeDownloadId,
 } from '../lib/downloadId';
-import {findEpisodeDownload} from '../lib/downloadLibrary';
+import {
+  findEpisodeDownload,
+  resolveEpisodeDownloadId,
+} from '../lib/downloadLibrary';
 import useDownloadsStore from '../lib/zustand/downloadsStore';
 import {useM3Colors} from '../theme/M3PaletteContext';
 import MaterialDialogSurface from './ui/MaterialDialogSurface';
@@ -108,6 +110,7 @@ interface SeasonListProps {
     link: string;
     provider?: string;
     poster?: string;
+    refreshToken?: number;
   }>;
   imdbId?: string;
   synopsis?: string;
@@ -242,9 +245,8 @@ export const EpisodeCardRow: React.FC<EpisodeCardRowProps> = ({
     return (
       <View
         key={item.link + index}
-        className={`w-full my-1.5 ${
-          isCompleted || isSticky ? 'opacity-60' : ''
-        }`}>
+        className="w-full my-1.5"
+        style={{opacity: isCompleted || isSticky ? 0.6 : 1}}>
         <View
           className="min-h-[76px] flex-row w-full items-center px-3 py-2"
           style={{
@@ -529,7 +531,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           link => link.title === parsedSeason.title,
         );
         if (seasonExists) {
-          return parsedSeason;
+          return seasonExists;
         }
       } catch (error) {
         console.warn('Failed to parse cached season:', error);
@@ -551,8 +553,16 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
     activeSeason?.episodesLink ? true : false,
   );
 
+  const lastRefreshVersionRef = useRef(refreshVersion ?? 0);
   useEffect(() => {
-    if (refreshing && activeSeason?.episodesLink) {
+    const versionChanged =
+      typeof refreshVersion === 'number' &&
+      refreshVersion > 0 &&
+      refreshVersion !== lastRefreshVersionRef.current;
+    if (versionChanged) {
+      lastRefreshVersionRef.current = refreshVersion;
+    }
+    if ((refreshing || versionChanged) && activeSeason?.episodesLink) {
       refetchEpisodes();
     }
   }, [activeSeason?.episodesLink, refetchEpisodes, refreshVersion, refreshing]);
@@ -740,12 +750,23 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       const direct = !validEpisodes.some(item => item.link === episode.link);
       const list = direct ? activeSeason.directLinks : episodeList;
       const index = getOriginalLinkIndex(list, episode.link, 0);
-      const downloadId = (
-        direct ? createDirectDownloadId : createSeriesDownloadId
-      )(metaTitle, activeSeason.title, index);
-      const downloads = Object.values(useDownloadsStore.getState().downloads);
+      const isSingleMovie =
+        direct &&
+        type === 'movie' &&
+        (activeSeason.directLinks?.length || 0) <= 1;
+      const baseDownloadId = createEpisodeDownloadId({
+        baseTitle: metaTitle,
+        groupTitle: activeSeason.title,
+        itemIndex: index,
+        episodeName: episode.title,
+        link: episode.link,
+        isDirect: direct,
+        isSingleMovie,
+      });
+      const downloadsMap = useDownloadsStore.getState().downloads;
+      const downloads = Object.values(downloadsMap);
       const existing = findEpisodeDownload(downloads, {
-        downloadId,
+        downloadId: baseDownloadId,
         infoUrl: routeParams.link,
         link: episode.link,
         seasonTitle: activeSeason.title,
@@ -757,6 +778,15 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
           CURRENT_DOWNLOAD_STATUSES.has(existing.status))
       )
         return false;
+      const downloadId =
+        existing?.id ||
+        resolveEpisodeDownloadId(baseDownloadId, downloadsMap, {
+          downloadId: baseDownloadId,
+          infoUrl: routeParams.link,
+          link: episode.link,
+          seasonTitle: activeSeason.title,
+          episodeName: episode.title,
+        });
       const item = episode as EpisodeLink;
       await queueQuickDownload(
         {
@@ -1072,12 +1102,26 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       const externalPlayer = usesExternalApp('player');
       const dwFile = await ifExists(file);
 
-      const downloadIndex = getOriginalLinkIndex(episodeList, link, linkIndex);
-      const downloadId = createSeriesDownloadId(
-        metaTitle,
-        seasonTitle,
-        downloadIndex,
-      );
+      const isDirect =
+        !(
+          Array.isArray(episodeList) &&
+          episodeList.some(item => item.link === link)
+        ) && Array.isArray(activeSeason.directLinks);
+      const sourceList = isDirect ? activeSeason.directLinks : episodeList;
+      const downloadIndex = getOriginalLinkIndex(sourceList, link, linkIndex);
+      const isSingleMovie =
+        isDirect &&
+        playbackType === 'movie' &&
+        (activeSeason.directLinks?.length || 0) <= 1;
+      const downloadId = createEpisodeDownloadId({
+        baseTitle: metaTitle,
+        groupTitle: seasonTitle,
+        itemIndex: downloadIndex,
+        episodeName: episodeData[linkIndex]?.title,
+        link,
+        isDirect,
+        isSingleMovie,
+      });
       const localDownload = findEpisodeDownload(
         Object.values(useDownloadsStore.getState().downloads),
         {
@@ -1122,6 +1166,7 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       navigation,
       lastPlayedKey,
       episodeList,
+      activeSeason.directLinks,
     ],
   );
 
@@ -1294,11 +1339,15 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
       }
 
       const downloadIndex = getOriginalLinkIndex(episodeList, item.link, index);
-      const downloadId = createSeriesDownloadId(
-        metaTitle,
-        activeSeason.title,
-        downloadIndex,
-      );
+      const downloadId = createEpisodeDownloadId({
+        baseTitle: metaTitle,
+        groupTitle: activeSeason.title,
+        itemIndex: downloadIndex,
+        episodeName: item.title,
+        link: item.link,
+        isDirect: false,
+        isSingleMovie: false,
+      });
       const handleEpisodePress = () => {
         playHandler({
           linkIndex: Math.max(
@@ -1448,11 +1497,18 @@ const SeasonListContent: React.FC<SeasonListProps> = ({
         item.link,
         index,
       );
-      const downloadId = createDirectDownloadId(
-        metaTitle,
-        activeSeason.title,
-        downloadIndex,
-      );
+      const isSingleMovie =
+        type === 'movie' &&
+        (!activeSeason?.directLinks || activeSeason.directLinks.length <= 1);
+      const downloadId = createEpisodeDownloadId({
+        baseTitle: metaTitle,
+        groupTitle: activeSeason.title,
+        itemIndex: downloadIndex,
+        episodeName: item.title,
+        link: item.link,
+        isDirect: true,
+        isSingleMovie,
+      });
       const displayTitle =
         item.title?.trim() ||
         (activeSeason?.directLinks?.length && activeSeason.directLinks.length > 1
