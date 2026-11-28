@@ -45,7 +45,9 @@ import useWatchListStore from '../../lib/zustand/watchListStore';
 import {M3PaletteContext, useM3Colors} from '../../theme/M3PaletteContext';
 import type {MaterialColors} from '../../theme/colors';
 import {buildDetailPalette} from '../../theme/detailPalette';
-import ContentOverview from './components/ContentOverview';
+import ContentOverview, {
+  shouldShowSearchInOverview,
+} from './components/ContentOverview';
 import InfoStoryModal from './components/InfoStoryModal';
 import LibraryCollectionDialog from '../../components/library/LibraryCollectionDialog';
 import FollowShowDialog from '../../components/FollowShowDialog';
@@ -395,6 +397,15 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
     );
   }
 
+  const canFollowShow = !localTitle && filteredLinkList.length > 0;
+  const hasStory = Boolean(info?.tmdbId || info?.imdbId);
+  const trimmedTrailerUrl = info?.trailerUrl?.trim();
+  const showSearchInline = shouldShowSearchInOverview({
+    hasFollow: canFollowShow,
+    hasWeb: Boolean(webUrl),
+    hasExploreOrTrailer: hasStory || Boolean(trimmedTrailerUrl),
+  });
+
   return (
     <QueryErrorBoundary>
       <M3PaletteContext.Provider value={detailColors}>
@@ -444,7 +455,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   logo={displayLogo}
                   onBack={navigation.goBack}
                   onFollowShow={
-                    !localTitle && filteredLinkList.length > 0
+                    canFollowShow
                       ? () => setFollowDialogVisible(true)
                       : undefined
                   }
@@ -452,7 +463,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   backButtonRef={backButtonRef}
                   onBackButtonLayout={registerBackFocus}
                   onOpenStory={
-                    info?.tmdbId || info?.imdbId
+                    hasStory
                       ? () => setStoryVisible(true)
                       : undefined
                   }
@@ -469,7 +480,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
                   synopsisLoading={isSynopsisLoading}
                   tags={info?.tags}
                   title={displayTitle}
-                  trailerUrl={info?.trailerUrl?.trim()}
+                  trailerUrl={trimmedTrailerUrl}
                   year={meta?.year}
                 />
                 <View
@@ -564,7 +575,7 @@ export default function Info({route, navigation}: Props): React.JSX.Element {
             info={info}
             provider={providerValue}
             link={route.params.link}
-            onSearchTitle={searchTitle}
+            onSearchTitle={showSearchInline ? undefined : searchTitle}
           />}
           {!localTitle && filteredLinkList.length > 0 && (
             <FollowShowDialog

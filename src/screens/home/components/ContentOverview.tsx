@@ -12,6 +12,24 @@ import SynopsisText from './SynopsisText';
 import {isTV} from '../../../lib/tv';
 import useTVNavigationStore from '../../../lib/zustand/tvNavigationStore';
 
+export const shouldShowSearchInOverview = ({
+  hasFollow,
+  hasWeb,
+  hasExploreOrTrailer,
+}: {
+  hasFollow: boolean;
+  hasWeb: boolean;
+  hasExploreOrTrailer: boolean;
+}): boolean => {
+  // Save is always shown; move Search to the menu only when 3+ other actions fit on the page.
+  const nonSearchActionCount =
+    1 +
+    (hasFollow ? 1 : 0) +
+    (hasWeb ? 1 : 0) +
+    (hasExploreOrTrailer ? 1 : 0);
+  return nonSearchActionCount < 3;
+};
+
 interface ContentOverviewProps {
   backgroundImage?: string;
   /** Sharp artwork fitted at its original ratio over the blurred backdrop. */
@@ -30,7 +48,7 @@ interface ContentOverviewProps {
   onOpenStory?: () => void;
   exploreRef?: React.RefObject<View | null>;
   onOpenWeb?: () => void;
-  onSearchTitle: () => void;
+  onSearchTitle?: () => void;
   onToggleLibrary: () => void;
   onToggleSynopsis: () => void;
   providerName: string;
@@ -199,6 +217,14 @@ const ContentOverview = ({
     [genres, runtime, tags, year],
   );
   const normalizedRating = rating?.replace(/\s*\/\s*10$/i, '').trim();
+  const trimmedTrailerUrl = trailerUrl?.trim();
+  const showSearchInline =
+    Boolean(onSearchTitle) &&
+    shouldShowSearchInOverview({
+      hasFollow: Boolean(onFollowShow),
+      hasWeb: Boolean(onOpenWeb),
+      hasExploreOrTrailer: Boolean(onOpenStory || trimmedTrailerUrl),
+    });
 
   useEffect(() => {
     setLogoFailed(false);
@@ -388,9 +414,10 @@ const ContentOverview = ({
               label={isFollowing ? 'Following' : 'Follow'}
               onPress={onFollowShow}
             />
-          ) : (
+          ) : null}
+          {showSearchInline && onSearchTitle ? (
             <InfoAction icon="magnify" label="Search" onPress={onSearchTitle} />
-          )}
+          ) : null}
           {onOpenWeb ? (
             <InfoAction icon="web" label="Web" onPress={onOpenWeb} />
           ) : null}
@@ -401,11 +428,11 @@ const ContentOverview = ({
               focusRef={exploreRef}
               onPress={onOpenStory}
             />
-          ) : trailerUrl ? (
+          ) : trimmedTrailerUrl ? (
             <InfoAction
               icon="movie-play-outline"
               label="Trailer"
-              onPress={() => Linking.openURL(trailerUrl)}
+              onPress={() => Linking.openURL(trimmedTrailerUrl)}
             />
           ) : null}
           <InfoAction
